@@ -209,10 +209,24 @@ public sealed class AuthService
         return record;
     }
 
+    /// <summary>
+    /// Signs the caller out. A user session is revoked. A paired device <b>unpairs itself</b>: the device record and all its
+    /// sessions are revoked (no admin needed: a device may always revoke itself) and admins get
+    /// <see cref="LibraryChangeKind.DevicesChanged"/>; pairing again needs a new code.
+    /// </summary>
     public async Task LogoutAsync(CallerContext caller, CancellationToken ct)
     {
         if (caller.SessionId is not { } sessionId || !Guid.TryParse(sessionId, out var id))
         {
+            return;
+        }
+
+        if (caller.DeviceId is { } deviceId)
+        {
+            await _devices.RevokeAsync(deviceId, ct).ConfigureAwait(false); // also revokes every session of the device
+            await _audit.WriteAsync(caller, "device.logout", "device:" + deviceId).ConfigureAwait(false);
+            _events.EndSessions(c => c.DeviceId == deviceId, "This device was signed out.");
+            _events.PublishLibraryChanged(new LibraryChangedDto(LibraryChangeKind.DevicesChanged, deviceId));
             return;
         }
 

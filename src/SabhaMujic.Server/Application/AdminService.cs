@@ -216,7 +216,10 @@ public sealed class AdminService
 
         var code = await _pairingCodes.CreateAsync(role, _clock.GetUtcNow() + _options.PairingCodeLifetime, caller.UserId, ct).ConfigureAwait(false);
         await _audit.WriteAsync(caller, "device.pairing_code", null, "role=" + role).ConfigureAwait(false);
-        return new PairingCodeDto(code.Code, _urls.GetPairingUrl(code.Code), _urls.GetBootstrapUrl(), code.Role, code.ExpiresAt);
+        return new PairingCodeDto(code.Code, _urls.GetPairingUrl(code.Code), _urls.GetBootstrapUrl(), code.Role, code.ExpiresAt)
+        {
+            CaFingerprint = _urls.CaFingerprint,
+        };
     }
 
     public async Task RevokeDeviceAsync(CallerContext caller, Guid deviceId, CancellationToken ct)

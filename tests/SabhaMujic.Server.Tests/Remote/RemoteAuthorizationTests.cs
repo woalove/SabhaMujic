@@ -156,10 +156,13 @@ public sealed class RemoteAuthorizationTests(RemoteAuthorizationFixture fixture)
     public async Task Http_endpoint_is_authorized_exactly_per_the_matrix(string method, string route, As role)
     {
         var host = fixture.Host;
-        var phone = role switch
+        // Logout unpairs the calling device, so it gets a phone of its own instead of the shared fixture phones.
+        var phone = (role, route) switch
         {
-            As.Admin => fixture.Admin,
-            As.Volunteer => fixture.Volunteer,
+            (As.Admin, "/api/logout") => await host.PairAsync(Role.Admin),
+            (As.Volunteer, "/api/logout") => await host.PairAsync(Role.Volunteer),
+            (As.Admin, _) => fixture.Admin,
+            (As.Volunteer, _) => fixture.Volunteer,
             _ => null,
         };
         // Pair and logout are anonymous operations; /api/me needs any session; uploads need an admin.

@@ -99,6 +99,9 @@ public interface IRemoteUrlProvider
     string GetPairingUrl(string code);
 
     string GetBootstrapUrl();
+
+    /// <summary>Fingerprint of the local CA phones must trust (see <see cref="PairingCodeDto.CaFingerprint"/>); null without a remote.</summary>
+    string? CaFingerprint => null;
 }
 
 /// <summary>Tunables for the application layer. Defaults are the production values.</summary>

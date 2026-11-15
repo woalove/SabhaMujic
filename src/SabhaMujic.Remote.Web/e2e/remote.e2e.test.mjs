@@ -117,8 +117,10 @@ after(async () => {
 });
 
 test('admin pairs through the bootstrap page and the #code fragment', { timeout: 60000 }, async () => {
-  const { code, pairingUrl } = await host.pairingCode('Admin');
+  const { code, pairingUrl, caFingerprint } = await host.pairingCode('Admin');
   assert.match(pairingUrl, new RegExp(`^http://127\\.0\\.0\\.1:${host.ready.bootstrapPort}/#code=${code}$`));
+  // The PC shows the same CA fingerprint as the phone's setup page.
+  assert.equal(caFingerprint, host.ready.fingerprint);
 
   await admin.goto(pairingUrl);
   await admin.locator('#fingerprint', { hasText: host.ready.fingerprint }).waitFor();
@@ -256,6 +258,31 @@ test('connection pill shows reconnecting while the hub restarts, then recovers',
   // Still in control after reconnecting, and state is re-fetched.
   await admin.locator('#np-play').click();
   for (const page of [admin, volunteer]) await expectStatus(page, 'Paused');
+});
+
+test('signing out unpairs the phone', { timeout: 60000 }, async () => {
+  const { context, page } = await newPhone('leaver');
+  const { code } = await host.pairingCode('Volunteer');
+  await page.goto(`${origin}/pair#code=${code}`);
+  await page.locator('#pair-name').fill('Leaving iPhone');
+  await page.locator('#pair-submit').click();
+  await page.locator('#view-now').waitFor({ state: 'visible' });
+  await expectConnected(page);
+  host.send('devices');
+  assert.ok((await host.next('devices')).names.includes('Leaving iPhone'));
+
+  await page.locator('#signout').click();
+  await page.locator('#confirm-ok').click();
+  await page.locator('#view-pair').waitFor({ state: 'visible' });
+
+  // The device is revoked on the server, not just forgotten by the browser: it is gone from the admin's list and a
+  // reload lands on pairing again.
+  host.send('devices');
+  assert.ok(!(await host.next('devices')).names.includes('Leaving iPhone'));
+  assert.equal((await context.cookies(origin)).some((c) => c.name === '__Host-SabhaMujic'), false);
+  await page.goto(`${origin}/`);
+  await page.locator('#view-pair').waitFor({ state: 'visible' });
+  await context.close();
 });
 
 test('no CSP violations or script errors on any page', { timeout: 30000 }, async () => {

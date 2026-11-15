@@ -233,17 +233,54 @@ public sealed class RemoteSecurityTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Logout_clears_the_cookie_but_the_device_stays_paired()
+    public async Task Logout_unpairs_the_device_and_clears_the_cookie()
     {
         var phone = await _host.PairAsync(Role.Volunteer);
+        var other = await _host.PairAsync(Role.Volunteer);
+        var hub = await _host.ConnectHubAsync(phone.Token);
+        var ended = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        hub.On<string>(nameof(IClientEvents.SessionEnded), reason => ended.TrySetResult(reason));
+        var admin = _host.Server.App.CreateSession(ClientKind.Desktop, "test-admin");
+        await admin.LoginAsync(TestServer.AdminName, TestServer.AdminSecret);
+        var adminEvents = new System.Collections.Concurrent.ConcurrentQueue<LibraryChangedDto>();
+        await using var adminSub = _host.Server.App.Events.Subscribe(new LibraryRecorder(adminEvents), admin.Caller);
+
         using var response = await _host.Http(phone.Token).SendAsync(RemoteTestHost.Api(HttpMethod.Post, "/api/logout"));
+
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         var cleared = response.Headers.GetValues("Set-Cookie").Single();
         Assert.StartsWith(RemoteAuth.CookieName + "=;", cleared);
         Assert.Contains("expires=Thu, 01 Jan 1970", cleared, StringComparison.OrdinalIgnoreCase);
 
+        // The device itself is revoked (no admin involved): its token is dead and it is no longer listed.
         using var me = await _host.Http(phone.Token).GetAsync("/api/me");
-        Assert.Equal(HttpStatusCode.OK, me.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, me.StatusCode);
+        Assert.True((await _host.Server.App.Devices.GetAsync(phone.DeviceId))!.IsRevoked);
+        Assert.DoesNotContain(phone.DeviceId, (await admin.GetDevicesAsync()).Select(d => d.Id));
+        Assert.Contains(other.DeviceId, (await admin.GetDevicesAsync()).Select(d => d.Id));
+        Assert.Contains("signed out", await ended.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+        await AssertEx.Eventually(() => adminEvents.Any(e => e.Kind == LibraryChangeKind.DevicesChanged && e.EntityId == phone.DeviceId),
+            "admins learn that the device list changed");
+        Assert.Contains(await _host.Server.App.AuditLog.QueryRecentAsync(), a => a.Action == "device.logout");
+
+        // Logging out again (or with a dead token) still succeeds and just clears the cookie.
+        using var again = await _host.Http(phone.Token).SendAsync(RemoteTestHost.Api(HttpMethod.Post, "/api/logout"));
+        Assert.Equal(HttpStatusCode.NoContent, again.StatusCode);
+        using var anonymous = await _host.Http().SendAsync(RemoteTestHost.Api(HttpMethod.Post, "/api/logout"));
+        Assert.Equal(HttpStatusCode.NoContent, anonymous.StatusCode);
+    }
+
+    private sealed class LibraryRecorder(System.Collections.Concurrent.ConcurrentQueue<LibraryChangedDto> sink) : Application.IEventSink
+    {
+        public ValueTask DeliverAsync(Application.ServerEvent serverEvent, CancellationToken ct)
+        {
+            if (serverEvent is Application.LibraryEvent e)
+            {
+                sink.Enqueue(e.Change);
+            }
+
+            return ValueTask.CompletedTask;
+        }
     }
 
     [Fact]

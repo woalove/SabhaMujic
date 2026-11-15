@@ -15,6 +15,8 @@ public sealed partial class DevicesAdminViewModel : ViewModelBase
 {
     public static readonly TimeSpan CountdownInterval = TimeSpan.FromSeconds(1);
 
+    public const string FingerprintHint = "Check this matches the fingerprint on the phone's setup page";
+
     private readonly ISabhaClient _client;
     private readonly UiServices _ui;
     private IDisposable? _countdown;
@@ -37,8 +39,29 @@ public sealed partial class DevicesAdminViewModel : ViewModelBase
     public partial Role PairingRole { get; set; } = Role.Volunteer;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsPairingVisible))]
+    [NotifyPropertyChangedFor(nameof(IsPairingVisible), nameof(CaFingerprintText), nameof(IsFingerprintVisible))]
     public partial PairingCodeDto? Pairing { get; private set; }
+
+    /// <summary>The local CA fingerprint in lines of 8 bytes, for comparing with the phone's setup page; null without a remote.</summary>
+    public string? CaFingerprintText => Pairing?.CaFingerprint is { Length: > 0 } fingerprint ? FormatFingerprint(fingerprint) : null;
+
+    public bool IsFingerprintVisible => CaFingerprintText is not null;
+
+    /// <summary>
+    /// "AB:CD:…" (32 bytes) → 4 lines of 8 bytes, each byte pair kept colon-separated like on the phone, so the halves are
+    /// easy to compare a line at a time. Anything unexpected is returned unchanged.
+    /// </summary>
+    public static string FormatFingerprint(string fingerprint, int bytesPerLine = 8)
+    {
+        ArgumentNullException.ThrowIfNull(fingerprint);
+        var bytes = fingerprint.Trim().Split(':');
+        if (bytes.Length < 2 || bytes.Any(b => b.Length != 2 || !b.All(Uri.IsHexDigit)))
+        {
+            return fingerprint;
+        }
+
+        return string.Join(Environment.NewLine, bytes.Chunk(bytesPerLine).Select(line => string.Join(':', line).ToUpperInvariant()));
+    }
 
     /// <summary>PNG bytes of the QR code for <see cref="PairingCodeDto.PairingUrl"/>.</summary>
     [ObservableProperty]

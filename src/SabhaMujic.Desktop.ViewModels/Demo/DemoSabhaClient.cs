@@ -1150,7 +1150,11 @@ public sealed class DemoSabhaClient : ISabhaClient
                 $"https://demo.sabhamujic.invalid:{Endpoints.RemoteHttpsPort}/pair#{code}",
                 $"http://demo.sabhamujic.invalid:{Endpoints.BootstrapHttpPort}/",
                 role,
-                s._time.GetUtcNow().AddMinutes(5));
+                s._time.GetUtcNow().AddMinutes(5))
+            {
+                // A fixed, made-up fingerprint so the demo shows the comparison panel.
+                CaFingerprint = string.Join(":", Enumerable.Range(0, 32).Select(i => ((i * 37 + 11) % 256).ToString("X2", System.Globalization.CultureInfo.InvariantCulture))),
+            };
         }, admin: true);
 
         public Task RevokeDeviceAsync(Guid deviceId, CancellationToken ct = default) => s.Run(() =>
