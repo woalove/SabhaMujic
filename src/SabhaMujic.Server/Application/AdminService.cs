@@ -159,8 +159,8 @@ public sealed class AdminService
     }
 
     /// <summary>
-    /// Changes a password/PIN. Other users' existing sessions are revoked (they must sign in again); changing your own
-    /// keeps your sessions.
+    /// Changes a password/PIN. Every session of that user is revoked (they must sign in again), except the caller's own
+    /// session when users change their own PIN.
     /// </summary>
     public async Task SetUserSecretAsync(CallerContext caller, Guid userId, string secret, CancellationToken ct)
     {
@@ -171,7 +171,12 @@ public sealed class AdminService
             throw Errors.UserNotFound();
         }
 
-        if (caller.UserId != userId)
+        if (caller.UserId == userId && Guid.TryParse(caller.SessionId, out var ownSession))
+        {
+            await _sessions.RevokeAllForUserExceptAsync(userId, ownSession, ct).ConfigureAwait(false);
+            _events.EndSessions(c => c.UserId == userId && c.SessionId != caller.SessionId, "Your password was changed. Please sign in again.");
+        }
+        else
         {
             await _sessions.RevokeAllForUserAsync(userId, ct).ConfigureAwait(false);
             _events.EndSessions(c => c.UserId == userId, "Your password was changed. Please sign in again.");

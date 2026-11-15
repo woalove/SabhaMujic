@@ -39,6 +39,12 @@ public interface ITrackRepository
 
     Task<TrackDto?> GetAsync(Guid id, CancellationToken ct = default);
 
+    /// <summary>
+    /// Batch lookup in one query. Order follows <paramref name="ids"/>; unknown ids are omitted and a repeated id is
+    /// returned once (at its first position). InvalidArgument above <see cref="SqliteTrackRepository.MaxBatch"/> ids.
+    /// </summary>
+    Task<IReadOnlyList<TrackDto>> GetManyAsync(IReadOnlyList<Guid> ids, CancellationToken ct = default);
+
     Task<TrackFileInfo?> GetFileInfoAsync(Guid id, CancellationToken ct = default);
 
     /// <summary>Updates title, artist and category. Null when the track is unknown; NotFound when the category is unknown.</summary>
@@ -62,6 +68,7 @@ public sealed class SqliteTrackRepository(SqliteDatabase database) : SqliteRepos
     public const int MaxArtistLength = 300;
     public const int MaxSearchLength = 200;
     public const int MaxTake = 1000;
+    public const int MaxBatch = 1000;
     private const int MaxOriginalFileNameLength = 255;
 
     internal const string SelectTrackDto =
@@ -159,6 +166,29 @@ public sealed class SqliteTrackRepository(SqliteDatabase database) : SqliteRepos
     {
         await using var conn = await OpenAsync(ct).ConfigureAwait(false);
         return await GetAsync(conn, id, ct).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<TrackDto>> GetManyAsync(IReadOnlyList<Guid> ids, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        if (ids.Count > MaxBatch)
+        {
+            throw DataRules.Invalid($"At most {MaxBatch} tracks can be looked up at once.");
+        }
+
+        var distinct = ids.Distinct().ToArray();
+        if (distinct.Length == 0)
+        {
+            return [];
+        }
+
+        // The ids travel as one JSON array parameter (json_each), so the statement stays fully parameterized.
+        var idsJson = System.Text.Json.JsonSerializer.Serialize(distinct.Select(DapperTypeHandlers.ToDb));
+        await using var conn = await OpenAsync(ct).ConfigureAwait(false);
+        var rows = await conn.QueryAsync<TrackRow>(new CommandDefinition(
+            SelectTrackDto + " WHERE t.id IN (SELECT value FROM json_each(@Ids));", new { Ids = idsJson }, cancellationToken: ct)).ConfigureAwait(false);
+        var byId = rows.ToDictionary(r => r.Id, r => r.ToDto());
+        return distinct.Where(byId.ContainsKey).Select(id => byId[id]).ToArray();
     }
 
     public async Task<TrackFileInfo?> GetFileInfoAsync(Guid id, CancellationToken ct = default)

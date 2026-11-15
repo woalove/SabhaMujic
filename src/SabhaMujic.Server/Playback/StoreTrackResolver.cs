@@ -27,9 +27,6 @@ public sealed class StoreTrackResolver : ITrackResolver
     private readonly ILogger _logger;
     private readonly ConcurrentDictionary<Guid, ResolvedTrack> _cache = new();
 
-    // Full-fidelity analyses produced in this process (seam correlation etc. are not stored in the database).
-    private readonly ConcurrentDictionary<Guid, AudioAnalysis> _fresh = new();
-
     public StoreTrackResolver(ITrackRepository tracks, ITrackAnalysisRepository analysis, ProtectedStore store, ILogger<StoreTrackResolver> logger)
     {
         _tracks = tracks;
@@ -72,18 +69,7 @@ public sealed class StoreTrackResolver : ITrackResolver
     public void Invalidate(Guid trackId) => _cache.TryRemove(trackId, out _);
 
     /// <summary>Forgets everything about a deleted track.</summary>
-    public void Forget(Guid trackId)
-    {
-        _cache.TryRemove(trackId, out _);
-        _fresh.TryRemove(trackId, out _);
-    }
-
-    /// <summary>Remembers a freshly computed analysis (it is stored in the database by the caller) and refreshes the entry.</summary>
-    public void StoreAnalysis(Guid trackId, AudioAnalysis analysis)
-    {
-        _fresh[trackId] = analysis;
-        Invalidate(trackId);
-    }
+    public void Forget(Guid trackId) => _cache.TryRemove(trackId, out _);
 
     private async Task<ResolvedTrack?> LoadAsync(Guid trackId, CancellationToken ct)
     {
@@ -101,9 +87,7 @@ public sealed class StoreTrackResolver : ITrackResolver
         AudioAnalysis? analysis = null;
         if (stored is { Status: AnalysisStatus.Ready })
         {
-            analysis = _fresh.TryGetValue(trackId, out var fresh) && fresh.Version == stored.AnalysisVersion
-                ? fresh
-                : AnalysisMapping.FromStored(stored, duration);
+            analysis = AnalysisMapping.FromStored(stored, duration);
         }
 
         if (loopOverride is not null)

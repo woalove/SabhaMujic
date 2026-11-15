@@ -59,7 +59,9 @@ public sealed class AnalysisMappingTests
             TotalFrames = 48_000 * 30,
             LeadingTrimFrame = 24_000,
             TrailingTrimFrame = 48_000 * 29,
-            Loop = new LoopRegion(48_000 * 5, 48_000 * 25, 9_600, 0.8) { SeamCorrelation = 0.6 },
+            Loop = new LoopRegion(48_000 * 5, 48_000 * 25, 9_600, 0.8) { SeamCorrelation = 0.6, IsFallback = true },
+            TempoBpm = 117.5,
+            Gaps = [new SilenceGap(48_000 * 12, 48_000 * 13)],
         };
         var trackId = Guid.NewGuid();
         var stored = AnalysisMapping.ToStored(trackId, analysis);
@@ -70,8 +72,22 @@ public sealed class AnalysisMappingTests
         Assert.Equal(analysis.TrailingTrimFrame, back.TrailingTrimFrame);
         Assert.Equal((analysis.Loop.StartFrame, analysis.Loop.EndFrame, analysis.Loop.CrossfadeFrames, analysis.Loop.Confidence),
             (back.Loop.StartFrame, back.Loop.EndFrame, back.Loop.CrossfadeFrames, back.Loop.Confidence));
-        Assert.Equal(0, back.Loop.SeamCorrelation); // not stored in the database (documented)
         Assert.Equal(analysis.TotalFrames, back.TotalFrames);
+
+        // Schema v2 details keep everything the columns cannot.
+        Assert.Equal(0.6, back.Loop.SeamCorrelation);
+        Assert.True(back.Loop.IsFallback);
+        Assert.Equal(117.5, back.TempoBpm);
+        Assert.Equal(analysis.Gaps, back.Gaps);
+
+        // Rows written before v2 (no details) are rebuilt from the columns with a plain equal-power seam.
+        var legacy = AnalysisMapping.FromStored(stored with { DetailsJson = null }, durationSeconds: 30)!;
+        Assert.Equal(0, legacy.Loop.SeamCorrelation);
+        Assert.Equal(analysis.Loop.StartFrame, legacy.Loop.StartFrame);
+
+        // Details from another analysis version are ignored in favour of the columns.
+        var mismatched = AnalysisMapping.FromStored(stored with { AnalysisVersion = analysis.Version + 1 }, durationSeconds: 30)!;
+        Assert.Equal(0, mismatched.Loop.SeamCorrelation);
     }
 
     [Theory]

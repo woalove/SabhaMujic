@@ -189,7 +189,7 @@ public sealed class AnalysisWorker : IAnalysisQueue, IDisposable
         if (TrySave(AnalysisMapping.ToStored(trackId, result), ct))
         {
             CorrectDuration(trackId, result, ct);
-            _resolver.StoreAnalysis(trackId, result);
+            _resolver.Invalidate(trackId);
             Changed(trackId);
             Progress(job, ImportStages.Done);
         }
@@ -208,7 +208,7 @@ public sealed class AnalysisWorker : IAnalysisQueue, IDisposable
         if (TrySave(AnalysisMapping.ToStored(trackId, analysis), ct))
         {
             CorrectDuration(trackId, analysis, ct);
-            _resolver.StoreAnalysis(trackId, analysis);
+            _resolver.Invalidate(trackId);
             Changed(trackId);
             Interlocked.Increment(ref _completed);
         }

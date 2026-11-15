@@ -46,6 +46,9 @@ public interface ISessionRepository
 
     Task<int> RevokeAllForUserAsync(Guid userId, CancellationToken ct = default);
 
+    /// <summary>Revokes every session of the user except <paramref name="keepSessionId"/> (e.g. the one changing its own PIN).</summary>
+    Task<int> RevokeAllForUserExceptAsync(Guid userId, Guid keepSessionId, CancellationToken ct = default);
+
     Task<int> RevokeAllForDeviceAsync(Guid deviceId, CancellationToken ct = default);
 
     /// <summary>Deletes sessions that are expired or revoked. Returns the number removed.</summary>
@@ -155,6 +158,14 @@ public sealed class SqliteSessionRepository(SqliteDatabase database) : SqliteRep
             "UPDATE sessions SET revoked_at = @Now WHERE id = @Id AND revoked_at IS NULL;",
             new { Id = sessionId, Now = Now() }, cancellationToken: ct)).ConfigureAwait(false);
         return changed == 1;
+    }
+
+    public async Task<int> RevokeAllForUserExceptAsync(Guid userId, Guid keepSessionId, CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync(ct).ConfigureAwait(false);
+        return await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE sessions SET revoked_at = @Now WHERE user_id = @Id AND id <> @Keep AND revoked_at IS NULL;",
+            new { Id = userId, Keep = keepSessionId, Now = Now() }, cancellationToken: ct)).ConfigureAwait(false);
     }
 
     public async Task<int> RevokeAllForUserAsync(Guid userId, CancellationToken ct = default)

@@ -37,16 +37,7 @@ public sealed class LibraryService(ICategoryRepository categories, ITrackReposit
             throw new SabhaMujicException(ErrorCode.InvalidArgument, $"At most {LibraryLimits.MaxBatchLookup} tracks can be looked up at once.");
         }
 
-        var result = new List<TrackDto>(trackIds.Count);
-        foreach (var id in trackIds.Distinct())
-        {
-            if (await tracks.GetAsync(id, ct).ConfigureAwait(false) is { } track)
-            {
-                result.Add(track);
-            }
-        }
-
-        return result;
+        return await tracks.GetManyAsync(trackIds, ct).ConfigureAwait(false);
     }
 }
 
