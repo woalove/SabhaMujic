@@ -1,0 +1,20 @@
+# Progress
+
+_Last updated: 2026-11-15_
+
+## Current milestone: M0 Foundations
+| Task | Status | Evidence |
+|---|---|---|
+| Cloud environment (limited network, .NET 10 setup script) | Done | Setup script ran here; NuGet restore works under the limited network. |
+| Docs: plan, CLAUDE.md, architecture, progress, testing | Done | `docs/` |
+| Solution skeleton (`SabhaMujic.slnx`, 8 src + 5 test projects, central packages) | Done | `dotnet build` green on Linux (WPF compile-only) |
+| Contracts v1 (DTOs, `IAuthApi`/`ILibraryApi`/`IPlaybackApi`/`IPlaylistApi`/`IAdminApi`, `IClientEvents`) | Done | Compiles; serialization tests |
+| Core: Authorizer + OperationMap, SecretHasher/Tokens, PlaybackStateMachine, PlaybackQueue | Done | 74 tests pass on Linux |
+| CI (Linux + Windows) | Pushed; awaiting first run | `.github/workflows/ci.yml` |
+
+## Next
+- M1 Audio engine (Agent 1) and M2 Data/storage (Agent 3), in parallel worktrees, once Windows CI is green.
+- M4a WPF shell against a fake client (Agent 2) can start alongside.
+
+## Blockers
+None.

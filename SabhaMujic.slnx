@@ -1,0 +1,19 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SabhaMujic.Audio.Windows/SabhaMujic.Audio.Windows.csproj" />
+    <Project Path="src/SabhaMujic.Audio/SabhaMujic.Audio.csproj" />
+    <Project Path="src/SabhaMujic.Contracts/SabhaMujic.Contracts.csproj" />
+    <Project Path="src/SabhaMujic.Core/SabhaMujic.Core.csproj" />
+    <Project Path="src/SabhaMujic.Data/SabhaMujic.Data.csproj" />
+    <Project Path="src/SabhaMujic.Desktop/SabhaMujic.Desktop.csproj" />
+    <Project Path="src/SabhaMujic.Server/SabhaMujic.Server.csproj" />
+    <Project Path="src/SabhaMujic.Service/SabhaMujic.Service.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SabhaMujic.Audio.Tests/SabhaMujic.Audio.Tests.csproj" />
+    <Project Path="tests/SabhaMujic.Core.Tests/SabhaMujic.Core.Tests.csproj" />
+    <Project Path="tests/SabhaMujic.Data.Tests/SabhaMujic.Data.Tests.csproj" />
+    <Project Path="tests/SabhaMujic.Server.Tests/SabhaMujic.Server.Tests.csproj" />
+    <Project Path="tests/SabhaMujic.Windows.Tests/SabhaMujic.Windows.Tests.csproj" />
+  </Folder>
+</Solution>

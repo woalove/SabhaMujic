@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../SabhaMujic.Audio/SabhaMujic.Audio.csproj" />
+    <ProjectReference Include="../SabhaMujic.Data/SabhaMujic.Data.csproj" />
+    <PackageReference Include="StreamJsonRpc" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SabhaMujic.Server.Tests" />
+  </ItemGroup>
+</Project>

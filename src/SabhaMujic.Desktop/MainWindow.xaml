@@ -1,0 +1,9 @@
+<Window x:Class="SabhaMujic.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SabhaMujic" Height="720" Width="1180" MinHeight="480" MinWidth="760"
+        ResizeMode="CanResize" WindowStartupLocation="CenterScreen">
+    <Grid>
+        <TextBlock Text="SabhaMujic (M0 skeleton)" HorizontalAlignment="Center" VerticalAlignment="Center" />
+    </Grid>
+</Window>

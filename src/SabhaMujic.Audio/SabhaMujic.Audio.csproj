@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../SabhaMujic.Core/SabhaMujic.Core.csproj" />
+    <PackageReference Include="NAudio.Core" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SabhaMujic.Audio.Tests" />
+  </ItemGroup>
+</Project>

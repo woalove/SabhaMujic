@@ -1,0 +1,10 @@
+bin/
+obj/
+*.user
+.vs/
+TestResults/
+node_modules/
+dist/
+*.msi
+*.wixpdb
+artifacts/
