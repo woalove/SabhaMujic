@@ -290,8 +290,11 @@ public sealed partial class NowPlayingViewModel : ViewModelBase
     {
         switch (Status)
         {
-            case PlaybackStatus.Playing or PlaybackStatus.Crossfading or PlaybackStatus.Loading:
+            case PlaybackStatus.Playing or PlaybackStatus.Crossfading:
                 await _client.Playback.PauseAsync().ConfigureAwait(true);
+                break;
+            case PlaybackStatus.Loading:
+                // The state machine has no Pause transition from Loading; wait for the track to start.
                 break;
             case PlaybackStatus.Paused:
                 await _client.Playback.ResumeAsync().ConfigureAwait(true);

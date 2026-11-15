@@ -201,6 +201,16 @@ public class NowPlayingViewModelTests
     }
 
     [Fact]
+    public async Task Play_pause_while_loading_sends_nothing()
+    {
+        _vm.ApplyState(State(1, PlaybackStatus.Loading, timestamp: Now));
+
+        await _vm.PlayPauseCommand.ExecuteAsync(null);
+
+        Assert.DoesNotContain(_client.Calls, c => c.Method != "GetTrackAsync");
+    }
+
+    [Fact]
     public async Task Play_when_idle_starts_the_current_queue_item()
     {
         _client.Playback.Queue = Queue(3, 1, Id(1), Id(2));
