@@ -56,11 +56,11 @@ public sealed class ImportTests : IAsyncLifetime
         Assert.Equal(0, _server.Uploads.ActiveCount);
         Assert.Empty(Directory.EnumerateFiles(_server.Uploads.StagingDirectory));
 
-        await AssertEx.Eventually(() => progress.Any(p => p.Stage == ImportService.StageDone), "Done progress");
+        await AssertEx.Eventually(() => progress.Any(p => p.Stage == ImportStages.Done), "Done progress");
         await AssertEx.Eventually(() => library.Any(c => c.Kind == LibraryChangeKind.TrackAdded && c.EntityId == result.TrackId), "TrackAdded");
         Assert.All(progress, p => Assert.Equal(id, p.UploadId));
         Assert.Equal(progress.Count, progress.Distinct().Count());
-        Assert.Contains(progress, p => p.Stage == ImportService.StageUploading && p.BytesReceived == bytes.Length);
+        Assert.Contains(progress, p => p.Stage == ImportStages.Uploading && p.BytesReceived == bytes.Length);
     }
 
     [Fact]

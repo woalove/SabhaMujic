@@ -113,7 +113,11 @@ public sealed class EventBroadcaster
 
     public void PublishQueue(QueueDto queue) => Publish(new QueueEvent(queue), s => s.IsAuthenticated);
 
-    public void PublishLibraryChanged(LibraryChangedDto change) => Publish(new LibraryEvent(change), s => s.IsAuthenticated);
+    /// <summary><see cref="LibraryChangeKind.UsersChanged"/> and <see cref="LibraryChangeKind.DevicesChanged"/> go to admin sessions only.</summary>
+    public void PublishLibraryChanged(LibraryChangedDto change) =>
+        Publish(new LibraryEvent(change), change.Kind is LibraryChangeKind.UsersChanged or LibraryChangeKind.DevicesChanged
+            ? s => s.Role == Role.Admin
+            : s => s.IsAuthenticated);
 
     /// <summary>Import progress goes only to the session that owns the upload.</summary>
     public void PublishImportProgress(string sessionId, ImportProgressDto progress) =>

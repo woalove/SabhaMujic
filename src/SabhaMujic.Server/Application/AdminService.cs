@@ -153,6 +153,7 @@ public sealed class AdminService
         }
 
         var user = await _users.CreateAsync(userName, role, _auth.HashSecret(secret), ct).ConfigureAwait(false);
+        _events.PublishLibraryChanged(new LibraryChangedDto(LibraryChangeKind.UsersChanged, user.Id));
         await _audit.WriteAsync(caller, "user.create", "user:" + user.UserName, "role=" + role).ConfigureAwait(false);
         return user.ToDto();
     }
@@ -193,6 +194,7 @@ public sealed class AdminService
         }
 
         _events.EndSessions(c => c.UserId == userId, "Your account was removed.");
+        _events.PublishLibraryChanged(new LibraryChangedDto(LibraryChangeKind.UsersChanged, userId));
         await _audit.WriteAsync(caller, "user.delete", "user:" + user.UserName).ConfigureAwait(false);
     }
 
@@ -217,6 +219,7 @@ public sealed class AdminService
         var device = await _devices.GetAsync(deviceId, ct).ConfigureAwait(false) ?? throw Errors.DeviceNotFound();
         await _devices.RevokeAsync(deviceId, ct).ConfigureAwait(false);
         _events.EndSessions(c => c.DeviceId == deviceId, "This device was removed by an administrator.");
+        _events.PublishLibraryChanged(new LibraryChangedDto(LibraryChangeKind.DevicesChanged, deviceId));
         await _audit.WriteAsync(caller, "device.revoke", "device:" + deviceId, device.Name).ConfigureAwait(false);
     }
 

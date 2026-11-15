@@ -40,6 +40,8 @@ public sealed class ServerDependencies
 public sealed class ServerApplication : IDisposable
 {
     private readonly IPlaybackBackend _playback;
+    private readonly Action<PlaybackStateDto> _onState;
+    private readonly Action<QueueDto> _onQueue;
 
     public ServerApplication(ServerDependencies deps)
     {
@@ -48,6 +50,7 @@ public sealed class ServerApplication : IDisposable
         Clock = deps.Database.Clock;
         LoggerFactory = deps.LoggerFactory;
         _playback = deps.Playback;
+        ServerEpoch = Guid.NewGuid();
 
         var db = deps.Database;
         Users = new SqliteUserRepository(db);
@@ -67,7 +70,7 @@ public sealed class ServerApplication : IDisposable
         Auth = new AuthService(Users, Sessions, Devices, PairingCodes, Events, audit, Options, Clock);
         Library = new LibraryService(Categories, Tracks);
         PlaylistService = new PlaylistService(Playlists, Events);
-        Playback = new PlaybackService(deps.Playback, Tracks, Playlists);
+        Playback = new PlaybackService(deps.Playback, Tracks, Playlists, ServerEpoch);
         Admin = new AdminService(Categories, Tracks, Analysis, Users, Sessions, Devices, PairingCodes, deps.Store, deps.Playback,
             deps.AnalysisQueue, deps.RemoteUrls, Auth, Events, audit, Options, Clock, LoggerFactory.CreateLogger<AdminService>());
         Import = new ImportService(deps.Uploads, deps.Store, Tracks, Categories, Analysis, deps.AudioProbe, deps.AnalysisQueue, Events, audit,
@@ -76,9 +79,16 @@ public sealed class ServerApplication : IDisposable
             LoggerFactory.CreateLogger<MaintenanceService>());
         Uploads = deps.Uploads;
 
-        _playback.StateChanged += Events.PublishPlaybackState;
-        _playback.QueueChanged += Events.PublishQueue;
+        // Engine pushes (status/track/seek/loop-wrap/setting changes and the ~5 s heartbeat) are stamped and fanned out;
+        // the broadcaster coalesces snapshots, so heartbeats never pile up behind a slow client.
+        _onState = state => Events.PublishPlaybackState(state with { ServerEpoch = ServerEpoch });
+        _onQueue = queue => Events.PublishQueue(queue with { ServerEpoch = ServerEpoch });
+        _playback.StateChanged += _onState;
+        _playback.QueueChanged += _onQueue;
     }
+
+    /// <summary>Random per process start; stamped on every playback state and queue the server returns or pushes.</summary>
+    public Guid ServerEpoch { get; }
 
     public ServerOptions Options { get; }
 
@@ -133,7 +143,7 @@ public sealed class ServerApplication : IDisposable
 
     public void Dispose()
     {
-        _playback.StateChanged -= Events.PublishPlaybackState;
-        _playback.QueueChanged -= Events.PublishQueue;
+        _playback.StateChanged -= _onState;
+        _playback.QueueChanged -= _onQueue;
     }
 }

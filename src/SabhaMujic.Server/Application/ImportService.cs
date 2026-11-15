@@ -9,17 +9,10 @@ namespace SabhaMujic.Server.Application;
 /// <summary>
 /// Chunked admin import: upload into <see cref="UploadStaging"/>, then on completion decode-validate with
 /// <see cref="IAudioProbe"/>, move into the <see cref="ProtectedStore"/>, add the track (duplicates by content hash are
-/// reported, not re-added) and queue it for analysis. Uploads are owned by the session that began them.
+/// reported, not re-added) and queue it for analysis. Progress uses <see cref="ImportStages"/>; a duplicate ends in Done. Uploads are owned by the session that began them.
 /// </summary>
 public sealed class ImportService
 {
-    public const string StageUploading = "Uploading";
-    public const string StageValidating = "Validating";
-    public const string StageStoring = "Storing";
-    public const string StageDone = "Done";
-    public const string StageDuplicate = "Duplicate";
-    public const string StageFailed = "Failed";
-
     private readonly UploadStaging _staging;
     private readonly ProtectedStore _store;
     private readonly ITrackRepository _tracks;
@@ -51,7 +44,7 @@ public sealed class ImportService
     {
         var id = _staging.Begin(fileName, totalBytes, Owner(caller));
         var status = _staging.GetStatus(id, Owner(caller));
-        Progress(caller, status, StageUploading);
+        Progress(caller, status, ImportStages.Uploading);
         return Task.FromResult(id);
     }
 
@@ -59,7 +52,7 @@ public sealed class ImportService
     {
         Errors.RequireNotNull(data, "data");
         var status = await _staging.AppendChunkAsync(uploadId, Owner(caller), offset, data, ct).ConfigureAwait(false);
-        Progress(caller, status, StageUploading);
+        Progress(caller, status, ImportStages.Uploading);
     }
 
     public Task CancelImportAsync(CallerContext caller, Guid uploadId, CancellationToken ct)
@@ -81,7 +74,7 @@ public sealed class ImportService
         var status = new UploadStatus(uploadId, upload.FileName, upload.Length, upload.Length);
         try
         {
-            Progress(caller, status, StageValidating);
+            Progress(caller, status, ImportStages.Validating);
             var probe = await _probe.ProbeAsync(upload.TempPath, ct).ConfigureAwait(false);
             if (!probe.IsSupported || !double.IsFinite(probe.DurationSeconds) || probe.DurationSeconds <= 0)
             {
@@ -89,7 +82,7 @@ public sealed class ImportService
                     $"'{upload.FileName}' could not be read as audio{(probe.Error is null ? "." : ": " + probe.Error)}");
             }
 
-            Progress(caller, status, StageStoring);
+            Progress(caller, status, ImportStages.Storing);
             StoredFile stored;
             await using (var content = upload.OpenRead())
             {
@@ -117,7 +110,7 @@ public sealed class ImportService
                     await DeleteIfNewAsync(stored).ConfigureAwait(false);
                 }
 
-                Progress(caller, status, StageDuplicate);
+                Progress(caller, status, ImportStages.Done);
                 await _audit.WriteAsync(caller, "import.duplicate", "track:" + added.Track.Id, upload.FileName).ConfigureAwait(false);
                 return new ImportResultDto(added.Track.Id, WasDuplicate: true);
             }
@@ -125,13 +118,13 @@ public sealed class ImportService
             await _analysis.UpsertAsync(new TrackAnalysis(added.Track.Id, AnalysisStatus.Pending, 0), CancellationToken.None).ConfigureAwait(false);
             _analysisQueue.Enqueue(added.Track.Id);
             _events.PublishLibraryChanged(new LibraryChangedDto(LibraryChangeKind.TrackAdded, added.Track.Id));
-            Progress(caller, status, StageDone);
+            Progress(caller, status, ImportStages.Done);
             await _audit.WriteAsync(caller, "import.complete", "track:" + added.Track.Id, upload.FileName).ConfigureAwait(false);
             return new ImportResultDto(added.Track.Id, WasDuplicate: false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Progress(caller, status, StageFailed);
+            Progress(caller, status, ImportStages.Failed);
             await _audit.WriteAsync(caller, "import.failed", null, upload.FileName).ConfigureAwait(false);
             throw;
         }

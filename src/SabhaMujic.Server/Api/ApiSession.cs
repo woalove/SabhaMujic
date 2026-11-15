@@ -105,6 +105,9 @@ public sealed class ApiSession : IAuthApi, ILibraryApi, IPlaybackApi, IPlaylistA
     public Task<TrackDto> GetTrackAsync(Guid trackId, CancellationToken ct = default) =>
         Run(Library, c => _app.Library.GetTrackAsync(c, trackId, ct), ct);
 
+    public Task<IReadOnlyList<TrackDto>> GetTracksByIdsAsync(IReadOnlyList<Guid> trackIds, CancellationToken ct = default) =>
+        Run(Library, c => _app.Library.GetTracksByIdsAsync(c, trackIds, ct), ct);
+
     // ------------------------------------------------------------------ IPlaybackApi
 
     public Task<PlaybackStateDto> GetStateAsync(CancellationToken ct = default) => Run(Playback, c => _app.Playback.GetStateAsync(c, ct), ct);

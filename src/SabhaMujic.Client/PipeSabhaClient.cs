@@ -27,10 +27,12 @@ public sealed class PipeClientOptions
 /// <see cref="ISabhaClient"/> over the service's named pipe (StreamJsonRpc, the protocol in <see cref="RpcProtocol"/>).
 /// <para>
 /// <see cref="ConnectAsync"/> starts a background loop that connects, performs the <c>Hello</c> version check, resumes the
-/// stored session if there is one, and after a lost connection reconnects with exponential backoff, until the client is
-/// disposed or the token passed to <see cref="ConnectAsync"/> is cancelled. The returned task completes at the first
-/// successful connection (or fails with <see cref="ErrorCode.IncompatibleClient"/>, which stops the loop).
+/// stored session if there is one, and after a lost connection reconnects with exponential backoff until the client is
+/// disposed. The returned task completes after the first successful connect + Hello; its token only bounds that wait.
+/// An incompatible service fails it with <see cref="ErrorCode.IncompatibleClient"/> and stops the loop.
 /// </para>
+/// <see cref="Session"/> is set by successful login/resume through <see cref="Auth"/>, and cleared by logout, a
+/// <c>SessionEnded</c> event or a failed resume (explicit, or the automatic one after a reconnect).
 /// API calls made while disconnected fail with <see cref="SabhaMujicException"/>; every remote failure is surfaced as a
 /// <see cref="SabhaMujicException"/> carrying the service's <see cref="ErrorCode"/>.
 /// </summary>
@@ -43,7 +45,6 @@ public sealed class PipeSabhaClient : ISabhaClient
     private JsonRpc? _rpc;
     private ConnectionState _state = ConnectionState.Disconnected;
     private SessionDto? _session;
-    private CancellationTokenSource? _lifetime;
     private Task _loop = Task.CompletedTask;
     private bool _started;
 
@@ -106,8 +107,7 @@ public sealed class PipeSabhaClient : ISabhaClient
             if (!_started)
             {
                 _started = true;
-                _lifetime = CancellationTokenSource.CreateLinkedTokenSource(_disposed.Token, ct);
-                var token = _lifetime.Token;
+                var token = _disposed.Token;
                 _loop = Task.Run(() => RunAsync(token), CancellationToken.None);
             }
         }
@@ -133,7 +133,6 @@ public sealed class PipeSabhaClient : ISabhaClient
         }
 
         _firstConnected.TrySetCanceled();
-        _lifetime?.Dispose();
         _disposed.Dispose();
     }
 
@@ -301,7 +300,17 @@ public sealed class PipeSabhaClient : ISabhaClient
 
         public async Task<SessionDto> ResumeSessionAsync(string token, CancellationToken ct = default)
         {
-            var session = await inner.ResumeSessionAsync(token, ct).ConfigureAwait(false);
+            SessionDto session;
+            try
+            {
+                session = await inner.ResumeSessionAsync(token, ct).ConfigureAwait(false);
+            }
+            catch (SabhaMujicException ex) when (ex.Code == ErrorCode.Unauthenticated)
+            {
+                owner.SetSession(null);
+                throw;
+            }
+
             owner.SetSession(session);
             return session;
         }

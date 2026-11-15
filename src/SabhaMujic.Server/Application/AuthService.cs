@@ -202,6 +202,7 @@ public sealed class AuthService
         var record = await _sessions.CreateAsync(new NewSession(tokenHash, null, device.Id, consumed.Role, ClientKind.Remote,
             _clock.GetUtcNow() + _options.DeviceSessionLifetime), ct).ConfigureAwait(false);
         var bound = BoundCaller(caller with { Client = ClientKind.Remote }, record, device.Name);
+        _events.PublishLibraryChanged(new LibraryChangedDto(LibraryChangeKind.DevicesChanged, device.Id));
         await _audit.WriteAsync(bound, "device.paired", "device:" + device.Id, "role=" + device.Role).ConfigureAwait(false);
         return new PairingResult(device.ToDto(), new SessionDto(token, device.Name, device.Role, record.ExpiresAt), tokenHash, bound);
     }
@@ -222,6 +223,7 @@ public sealed class AuthService
 
             var user = await _users.CreateAsync(userName, Role.Admin, HashSecret(secret), ct).ConfigureAwait(false);
             var system = new CallerContext(ClientKind.Desktop, Role.Admin, null, null, null, "service (first-run setup)");
+            _events.PublishLibraryChanged(new LibraryChangedDto(LibraryChangeKind.UsersChanged, user.Id));
             await _audit.WriteAsync(system, "user.bootstrap_admin", "user:" + user.UserName).ConfigureAwait(false);
             return true;
         }

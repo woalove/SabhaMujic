@@ -10,11 +10,44 @@ public sealed class LibraryService(ICategoryRepository categories, ITrackReposit
 {
     public Task<IReadOnlyList<CategoryDto>> GetCategoriesAsync(CallerContext caller, CancellationToken ct) => categories.ListAsync(ct);
 
-    public Task<PagedResult<TrackDto>> GetTracksAsync(CallerContext caller, TrackQuery? query, CancellationToken ct) =>
-        tracks.QueryAsync(query ?? new TrackQuery(), ct);
+    /// <summary>InvalidArgument when <see cref="TrackQuery.Take"/> exceeds <see cref="LibraryLimits.MaxPageSize"/>.</summary>
+    public Task<PagedResult<TrackDto>> GetTracksAsync(CallerContext caller, TrackQuery? query, CancellationToken ct)
+    {
+        query ??= new TrackQuery();
+        if (query.Take > LibraryLimits.MaxPageSize)
+        {
+            throw new SabhaMujicException(ErrorCode.InvalidArgument, $"At most {LibraryLimits.MaxPageSize} tracks can be requested per page.");
+        }
+
+        return tracks.QueryAsync(query, ct);
+    }
 
     public async Task<TrackDto> GetTrackAsync(CallerContext caller, Guid trackId, CancellationToken ct) =>
         await tracks.GetAsync(trackId, ct).ConfigureAwait(false) ?? throw Errors.TrackNotFound();
+
+    /// <summary>
+    /// Batch lookup in request order. Unknown ids are omitted and a repeated id is returned once (at its first position).
+    /// InvalidArgument above <see cref="LibraryLimits.MaxBatchLookup"/> ids.
+    /// </summary>
+    public async Task<IReadOnlyList<TrackDto>> GetTracksByIdsAsync(CallerContext caller, IReadOnlyList<Guid> trackIds, CancellationToken ct)
+    {
+        Errors.RequireNotNull(trackIds, "trackIds");
+        if (trackIds.Count > LibraryLimits.MaxBatchLookup)
+        {
+            throw new SabhaMujicException(ErrorCode.InvalidArgument, $"At most {LibraryLimits.MaxBatchLookup} tracks can be looked up at once.");
+        }
+
+        var result = new List<TrackDto>(trackIds.Count);
+        foreach (var id in trackIds.Distinct())
+        {
+            if (await tracks.GetAsync(id, ct).ConfigureAwait(false) is { } track)
+            {
+                result.Add(track);
+            }
+        }
+
+        return result;
+    }
 }
 
 /// <summary>Playlists (any signed-in user may edit, per the role matrix).</summary>
@@ -61,13 +94,14 @@ public sealed class PlaylistService(IPlaylistRepository playlists, EventBroadcas
 }
 
 /// <summary>Validates playback commands, then forwards them to the <see cref="IPlaybackBackend"/>.</summary>
-public sealed class PlaybackService(IPlaybackBackend backend, ITrackRepository tracks, IPlaylistRepository playlists)
+/// <remarks>Every state/queue returned is stamped with <paramref name="serverEpoch"/> (see <see cref="PlaybackStateDto.ServerEpoch"/>).</remarks>
+public sealed class PlaybackService(IPlaybackBackend backend, ITrackRepository tracks, IPlaylistRepository playlists, Guid serverEpoch)
 {
     public const double MaxCrossfadeSeconds = 12;
 
-    public Task<PlaybackStateDto> GetStateAsync(CallerContext caller, CancellationToken ct) => Task.FromResult(backend.GetState());
+    public Task<PlaybackStateDto> GetStateAsync(CallerContext caller, CancellationToken ct) => Task.FromResult(backend.GetState() with { ServerEpoch = serverEpoch });
 
-    public Task<QueueDto> GetQueueAsync(CallerContext caller, CancellationToken ct) => Task.FromResult(backend.GetQueue());
+    public Task<QueueDto> GetQueueAsync(CallerContext caller, CancellationToken ct) => Task.FromResult(Stamp(backend.GetQueue()));
 
     public async Task PlayTrackAsync(CallerContext caller, Guid trackId, CancellationToken ct)
     {
@@ -122,7 +156,7 @@ public sealed class PlaybackService(IPlaybackBackend backend, ITrackRepository t
         Errors.RequireNotNull(trackIds, "trackIds");
         RequireQueueSize(trackIds.Count);
         await RequireTracksAsync(trackIds, ct).ConfigureAwait(false);
-        return await backend.EnqueueAsync(trackIds, playNext, ct).ConfigureAwait(false);
+        return Stamp(await backend.EnqueueAsync(trackIds, playNext, ct).ConfigureAwait(false));
     }
 
     public async Task<QueueDto> EnqueuePlaylistAsync(CallerContext caller, Guid playlistId, bool replaceQueue, CancellationToken ct)
@@ -130,12 +164,12 @@ public sealed class PlaybackService(IPlaybackBackend backend, ITrackRepository t
         var playlist = await playlists.GetAsync(playlistId, ct).ConfigureAwait(false) ?? throw Errors.PlaylistNotFound();
         RequireQueueSize(playlist.TrackIds.Count);
         return replaceQueue
-            ? await backend.ReplaceQueueAsync(playlist.TrackIds, ct).ConfigureAwait(false)
-            : await backend.EnqueueAsync(playlist.TrackIds, playNext: false, ct).ConfigureAwait(false);
+            ? Stamp(await backend.ReplaceQueueAsync(playlist.TrackIds, ct).ConfigureAwait(false))
+            : Stamp(await backend.EnqueueAsync(playlist.TrackIds, playNext: false, ct).ConfigureAwait(false));
     }
 
     public Task<QueueDto> RemoveFromQueueAsync(CallerContext caller, Guid queueItemId, CancellationToken ct) =>
-        backend.RemoveFromQueueAsync(queueItemId, ct);
+        StampAsync(backend.RemoveFromQueueAsync(queueItemId, ct));
 
     public Task<QueueDto> MoveQueueItemAsync(CallerContext caller, Guid queueItemId, int newIndex, CancellationToken ct)
     {
@@ -144,10 +178,14 @@ public sealed class PlaybackService(IPlaybackBackend backend, ITrackRepository t
             throw new SabhaMujicException(ErrorCode.InvalidArgument, "The new index must not be negative.");
         }
 
-        return backend.MoveQueueItemAsync(queueItemId, newIndex, ct);
+        return StampAsync(backend.MoveQueueItemAsync(queueItemId, newIndex, ct));
     }
 
-    public Task<QueueDto> ClearQueueAsync(CallerContext caller, CancellationToken ct) => backend.ClearQueueAsync(ct);
+    public Task<QueueDto> ClearQueueAsync(CallerContext caller, CancellationToken ct) => StampAsync(backend.ClearQueueAsync(ct));
+
+    private QueueDto Stamp(QueueDto queue) => queue with { ServerEpoch = serverEpoch };
+
+    private async Task<QueueDto> StampAsync(Task<QueueDto> queue) => Stamp(await queue.ConfigureAwait(false));
 
     private static void RequireQueueSize(int count)
     {
