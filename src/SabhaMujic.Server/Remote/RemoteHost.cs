@@ -266,7 +266,7 @@ public sealed class RemoteHost : IAsyncDisposable
         builder.WebHost.ConfigureKestrel(kestrel =>
         {
             ConfigureLimits(kestrel);
-            kestrel.Limits.MaxRequestBodySize = 0;
+            kestrel.Limits.MaxRequestBodySize = 16 * 1024; // GET-only site; small bodies are drained, not read
             Listen(kestrel, port, listen => listen.Protocols = HttpProtocols.Http1);
         });
         var site = new BootstrapSite(_certificates.Authority, () => _httpsPort,

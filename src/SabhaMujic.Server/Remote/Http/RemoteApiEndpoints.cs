@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using SabhaMujic.Contracts;
+using SabhaMujic.Core.Security;
 using SabhaMujic.Server.Api;
 using SabhaMujic.Server.Application;
 
@@ -94,6 +95,8 @@ public static class RemoteApiEndpoints
                 throw new SabhaMujicException(ErrorCode.InvalidArgument, "A non-negative 'offset' query parameter is required.");
             }
 
+            // Early refusal so unauthorized callers cannot make the server buffer a chunk; ApiSession re-checks (re-validated).
+            Authorizer.Demand(session.Caller, Operation.ImportTracks);
             var data = await ReadChunkAsync(context).ConfigureAwait(false);
             await session.UploadChunkAsync(id, offset, data, context.RequestAborted).ConfigureAwait(false);
             context.Response.StatusCode = StatusCodes.Status204NoContent;
