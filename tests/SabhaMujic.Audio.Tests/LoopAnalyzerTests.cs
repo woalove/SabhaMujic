@@ -71,6 +71,7 @@ public class LoopAnalyzerTests(ITestOutputHelper output)
     }
 
     [Fact]
+    [Trait("Category", "Performance")]
     public void Analyzing_a_five_minute_track_takes_less_than_five_seconds()
     {
         using var dir = new TempDir();

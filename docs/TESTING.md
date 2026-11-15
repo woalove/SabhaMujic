@@ -16,6 +16,7 @@
 | 2026-11-15 | GitHub Actions run 7 (M3a) | Linux + Windows success: pipe/server tests pass over real Windows named pipes |
 | 2026-11-15 | Linux cloud env (after M5 merge) | .NET: Core 76 + Audio 46 + Desktop 144 + Data 111 + Server 384 = 761 passed, 0 failed. Remote web: `tsc` clean; Playwright e2e 7/7 (Chromium, iPhone 13 emulation) |
 | 2026-11-15 | GitHub Actions run 8 (M1) | Windows: 2 MediaFoundation tests failed (seek accuracy bug, wrong crossfade timing in a test); fixed in e5cbb7a |
+| 2026-11-15 | GitHub Actions run 11 (M3b + seek fix), **Windows** | Windows.Tests 8/8 passed: exact store DACL; **a temporary standard user is denied the protected folders**, can connect to the pipe and can't create a pipe instance (anti-squatting); elevation detection; console-hosted service completes first-run setup over the ACL'd pipe. Audio (net10.0-windows) 53 passed / 1 skipped (sox): MediaFoundation MP3/AAC/WMA/FLAC/WAV decoding, exact seeks, engine crossfade. Server 229 passed over real named pipes. One failure: the wall-clock analysis perf test (5.006 s vs a 5 s budget, under parallel load), now run in its own CI step |
 | 2026-11-15 | GitHub Actions run 3 (Linux + Windows) | Build, tests (incl. Windows smoke test), self-contained publish: success |
 
 ## Verification status of completion criteria
@@ -25,7 +26,7 @@
 | Volunteers browse/play categorized tracks | Full stack tested on Linux (real engine, null output, pipe clients). Desktop UI **unverified** on Windows |
 | Smart Loop + crossfade with real audio | Engine + DSP tested on synthetic WAV signals (Linux). **Unverified** with real recordings and real audio output |
 | Playlists and queues | Unit, server and integration tests (Linux) |
-| Volunteers cannot access protected files | App-level: exhaustive authorization tests over the real pipe; clients never receive paths or bytes. Windows ACL: not started (M3b) |
+| Volunteers cannot access protected files | **Verified on Windows CI**: a standard user is denied listing and reading the protected folders (real `LogonUser` impersonation), and the exact DACL is checked. App level: exhaustive authorization tests over the pipe and the remote. Still to check manually: the installed service under `NT SERVICE\SabhaMujic` |
 | Admin-only uploads | Implemented end to end over the pipe (fake audio probe); volunteer uploads denied with no side effects |
 | iPhone remote controls playback | Automated: Chromium with iPhone emulation, against a scripted backend. Real iPhone Safari: **unverified** (manual checklist) |
 | Playback continues when remote disconnects | Tested: pipe clients against the real engine (integration test), and remote hub connections + `RemoteHost` stop against a fake backend. Windows: pending CI |

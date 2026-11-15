@@ -29,7 +29,9 @@ jobs:
           global-json-file: global.json
       - run: dotnet restore SabhaMujic.slnx
       - run: dotnet build SabhaMujic.slnx --no-restore -c Release
-      - run: dotnet test SabhaMujic.slnx --no-build -c Release --logger "trx" --logger "console;verbosity=minimal" --results-directory TestResults
+      - run: dotnet test SabhaMujic.slnx --no-build -c Release --filter "Category!=Performance" --logger "trx" --logger "console;verbosity=minimal" --results-directory TestResults
+      # Wall-clock performance budgets run alone, after the main suite, so parallel test load can't skew them.
+      - run: dotnet test tests/SabhaMujic.Audio.Tests --no-build -c Release --filter "Category=Performance" --logger "console;verbosity=normal"
       # Uploads are best-effort: the account's artifact storage quota may be exhausted.
       - uses: actions/upload-artifact@v4
         if: always()
@@ -49,7 +51,9 @@ jobs:
           global-json-file: global.json
       - run: dotnet restore SabhaMujic.slnx
       - run: dotnet build SabhaMujic.slnx --no-restore -c Release
-      - run: dotnet test SabhaMujic.slnx --no-build -c Release --logger "trx" --logger "console;verbosity=minimal" --results-directory TestResults
+      - run: dotnet test SabhaMujic.slnx --no-build -c Release --filter "Category!=Performance" --logger "trx" --logger "console;verbosity=minimal" --results-directory TestResults
+      # Wall-clock performance budgets run alone, after the main suite, so parallel test load can't skew them.
+      - run: dotnet test tests/SabhaMujic.Audio.Tests --no-build -c Release --filter "Category=Performance" --logger "console;verbosity=normal"
       - name: Publish desktop + service (self-contained win-x64)
         shell: pwsh
         run: |
