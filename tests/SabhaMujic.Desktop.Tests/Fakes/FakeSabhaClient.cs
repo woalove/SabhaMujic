@@ -160,6 +160,13 @@ public sealed class FakeLibrary(FakeSabhaClient c) : ILibraryApi
             : Task.FromResult(track);
     }
 
+    public Task<IReadOnlyList<TrackDto>> GetTracksByIdsAsync(IReadOnlyList<Guid> trackIds, CancellationToken ct = default)
+    {
+        c.Record(nameof(GetTracksByIdsAsync), trackIds);
+        IReadOnlyList<TrackDto> found = trackIds.Select(id => Tracks.FirstOrDefault(t => t.Id == id)).OfType<TrackDto>().ToList();
+        return Task.FromResult(found);
+    }
+
     public TrackDto AddTrack(string title, Guid? categoryId = null, double duration = 200)
     {
         var track = new TrackDto(Guid.NewGuid(), title, "Artist", categoryId, duration, AnalysisStatus.Ready, null, DateTimeOffset.UtcNow);

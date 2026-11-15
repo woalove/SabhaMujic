@@ -525,6 +525,12 @@ public sealed class DemoSabhaClient : ISabhaClient
         });
 
         public Task<TrackDto> GetTrackAsync(Guid trackId, CancellationToken ct = default) => s.Run(() => s.TrackOrThrow(trackId));
+
+        public Task<IReadOnlyList<TrackDto>> GetTracksByIdsAsync(IReadOnlyList<Guid> trackIds, CancellationToken ct = default) =>
+            s.Run(() => (IReadOnlyList<TrackDto>)trackIds
+                .Where(s._tracks.ContainsKey)
+                .Select(id => s._tracks[id])
+                .ToList());
     }
 
     private sealed class PlaybackApi(DemoSabhaClient s) : IPlaybackApi

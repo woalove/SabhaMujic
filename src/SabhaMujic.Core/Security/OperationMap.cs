@@ -19,6 +19,7 @@ public static class OperationMap
         [$"{nameof(ILibraryApi)}.{nameof(ILibraryApi.GetCategoriesAsync)}"] = Operation.BrowseLibrary,
         [$"{nameof(ILibraryApi)}.{nameof(ILibraryApi.GetTracksAsync)}"] = Operation.BrowseLibrary,
         [$"{nameof(ILibraryApi)}.{nameof(ILibraryApi.GetTrackAsync)}"] = Operation.BrowseLibrary,
+        [$"{nameof(ILibraryApi)}.{nameof(ILibraryApi.GetTracksByIdsAsync)}"] = Operation.BrowseLibrary,
 
         [$"{nameof(IPlaybackApi)}.{nameof(IPlaybackApi.GetStateAsync)}"] = Operation.ReadPlayback,
         [$"{nameof(IPlaybackApi)}.{nameof(IPlaybackApi.GetQueueAsync)}"] = Operation.ReadPlayback,
