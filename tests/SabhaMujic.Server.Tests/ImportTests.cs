@@ -56,7 +56,9 @@ public sealed class ImportTests : IAsyncLifetime
         Assert.Equal(0, _server.Uploads.ActiveCount);
         Assert.Empty(Directory.EnumerateFiles(_server.Uploads.StagingDirectory));
 
-        await AssertEx.Eventually(() => progress.Any(p => p.Stage == ImportStages.Done), "Done progress");
+        await AssertEx.Eventually(() => progress.Any(p => p.Stage == ImportStages.Analyzing), "Analyzing progress (the analyzer reports Done later)");
+        var target = Assert.Single(_server.AnalysisQueue.Progress);
+        Assert.Equal((id, "Jay Swaminarayan.mp3", (long)bytes.Length), (target!.UploadId, target.FileName, target.TotalBytes));
         await AssertEx.Eventually(() => library.Any(c => c.Kind == LibraryChangeKind.TrackAdded && c.EntityId == result.TrackId), "TrackAdded");
         Assert.All(progress, p => Assert.Equal(id, p.UploadId));
         Assert.Equal(progress.Count, progress.Distinct().Count());

@@ -82,9 +82,16 @@ public interface IAnalysisQueue
     /// <summary>Version of the analysis algorithm; tracks analysed with an older version are re-queued at startup.</summary>
     int AnalysisVersion { get; }
 
-    /// <summary>Queues a track for analysis. Must not block; duplicates may be ignored.</summary>
-    void Enqueue(Guid trackId);
+    /// <summary>
+    /// Queues a track for analysis. Must not block; duplicates may be ignored. With <paramref name="progress"/> the
+    /// analyzer reports <see cref="ImportStages.Analyzing"/> / <see cref="ImportStages.Done"/> (or Failed) to the
+    /// importing session.
+    /// </summary>
+    void Enqueue(Guid trackId, ImportProgressTarget? progress = null);
 }
+
+/// <summary>Where to send import progress for an analysis that belongs to an upload.</summary>
+public sealed record ImportProgressTarget(string SessionId, Guid UploadId, string FileName, long TotalBytes);
 
 /// <summary>Builds the URLs shown with a pairing code (QR content and the CA bootstrap page). M5 supplies the real one.</summary>
 public interface IRemoteUrlProvider

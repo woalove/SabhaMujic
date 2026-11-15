@@ -193,7 +193,13 @@ public sealed class FakeAnalysisQueue : IAnalysisQueue
 
     public ConcurrentQueue<Guid> Queued { get; } = new();
 
-    public void Enqueue(Guid trackId) => Queued.Enqueue(trackId);
+    public ConcurrentQueue<ImportProgressTarget?> Progress { get; } = new();
+
+    public void Enqueue(Guid trackId, ImportProgressTarget? progress = null)
+    {
+        Queued.Enqueue(trackId);
+        Progress.Enqueue(progress);
+    }
 }
 
 public sealed class FakeUrls : IRemoteUrlProvider
