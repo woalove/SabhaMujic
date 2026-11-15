@@ -4,5 +4,9 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../SabhaMujic.Contracts/SabhaMujic.Contracts.csproj" />
+    <PackageReference Include="StreamJsonRpc" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SabhaMujic.Server.Tests" />
   </ItemGroup>
 </Project>

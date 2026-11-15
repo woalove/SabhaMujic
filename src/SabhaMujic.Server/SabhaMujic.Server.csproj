@@ -8,6 +8,8 @@
   <ItemGroup>
     <ProjectReference Include="../SabhaMujic.Audio/SabhaMujic.Audio.csproj" />
     <ProjectReference Include="../SabhaMujic.Data/SabhaMujic.Data.csproj" />
+    <!-- Shared JSON-RPC wire protocol (method naming, framing, error mapping) lives in Client. -->
+    <ProjectReference Include="../SabhaMujic.Client/SabhaMujic.Client.csproj" />
     <PackageReference Include="StreamJsonRpc" />
   </ItemGroup>
   <ItemGroup>
