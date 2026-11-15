@@ -8,3 +8,4 @@ dist/
 *.msi
 *.wixpdb
 artifacts/
+.claude/worktrees/
