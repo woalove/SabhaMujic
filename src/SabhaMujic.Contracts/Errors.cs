@@ -14,6 +14,8 @@ public enum ErrorCode
     TooLarge = 7,
     RateLimited = 8,
     IncompatibleClient = 9,
+    /// <summary>Client-side only: the service is not reachable or the connection was lost.</summary>
+    Unavailable = 10,
 }
 
 /// <summary>

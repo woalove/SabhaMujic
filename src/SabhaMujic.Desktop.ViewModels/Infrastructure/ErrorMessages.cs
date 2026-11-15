@@ -39,6 +39,7 @@ public static class ErrorMessages
             ErrorCode.IncompatibleClient =>
                 "This version of the app does not match the SabhaMujic service. Please reinstall or update SabhaMujic.",
             ErrorCode.Internal => "The SabhaMujic service hit a problem. Please try again.",
+            ErrorCode.Unavailable => "Not connected to the SabhaMujic service. Reconnecting…",
             _ => detail ?? "Something went wrong. Please try again.",
         };
     }

@@ -43,7 +43,7 @@ public static class RpcProtocol
         RemoteInvocationException { ErrorCode: (int)JsonRpcErrorCode.InvalidParams } =>
             new SabhaMujicException(ErrorCode.InvalidArgument, "The request arguments were not valid."),
         ConnectionLostException or ObjectDisposedException or IOException =>
-            new SabhaMujicException(ErrorCode.Internal, "The connection to the SabhaMujic service was lost."),
+            new SabhaMujicException(ErrorCode.Unavailable, "The connection to the SabhaMujic service was lost."),
         _ => new SabhaMujicException(ErrorCode.Internal, InternalErrorMessage),
     };
 

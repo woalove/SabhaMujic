@@ -68,7 +68,7 @@ public class RpcProxy : DispatchProxy
     }
 
     private JsonRpc Current() =>
-        _connection() ?? throw new SabhaMujicException(ErrorCode.Internal, "Not connected to the SabhaMujic service.");
+        _connection() ?? throw new SabhaMujicException(ErrorCode.Unavailable, "Not connected to the SabhaMujic service.");
 
     private sealed record CallShape(string RpcName, Type[] ArgumentTypes, bool HasCancellationToken, Type? ResultType, MethodInfo InvokeTyped)
     {

@@ -163,7 +163,7 @@ public sealed class TransportTests : IAsyncLifetime
 
         await _server.StopPipeAsync();
         await AssertEx.Eventually(() => client.State == ConnectionState.Reconnecting, "client notices the drop");
-        await AssertEx.ThrowsCode(ErrorCode.Internal, () => client.Playback.GetStateAsync());
+        await AssertEx.ThrowsCode(ErrorCode.Unavailable, () => client.Playback.GetStateAsync());
 
         _server.StartPipe();
         await AssertEx.Eventually(() => client.State == ConnectionState.Connected, "client reconnects");

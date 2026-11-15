@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-11-15 (M0 done; M2, M4a merged; M1, M3a in progress)_
+_Last updated: 2026-11-15 (M0 done; M2, M4a, M3a merged; M1 in progress)_
 
 ## Current milestone: M0 Foundations
 | Task | Status | Evidence |
@@ -24,6 +24,13 @@ _Last updated: 2026-11-15 (M0 done; M2, M4a merged; M1, M3a in progress)_
 - `SabhaMujic.Desktop.ViewModels` (Shell, Login, Library, NowPlaying, Queue, Playlists, Admin: import, categories, tracks/loop override, users, devices/pairing QR), a WPF app (main window, mini-player, theme, shortcuts), and a `--demo` in-memory client.
 - Evidence: 131 Desktop tests pass on Linux. XAML compiles. **The WPF runtime is unverified**; see `docs/WINDOWS_TEST_CHECKLIST.md`.
 - Remaining for M4: use the real pipe client (M3), and switch the queue/playlist title lookups to `GetTracksByIdsAsync`.
+
+## M3a Server application layer: merged
+- Auth service: login with rate limiting, sessions, pairing, first-run admin. Library, playlist, admin and import (orchestration) services.
+- `ApiSession`: the authorization choke point, shared by the pipe and (later) the remote.
+- `EventBroadcaster` (bounded, coalescing, per-role filtering), maintenance jobs, `PipeRpcServer`, `PipeSabhaClient` (reconnect + session resume). The desktop now uses the real pipe client.
+- Evidence: 204 Server tests pass on Linux over a real pipe (Unix domain socket), including the exhaustive authorization matrix with zero side effects on denial, and playback continuing when all clients disconnect (fake backend).
+- Unverified: the Windows pipe ACL and impersonation (M3b Service).
 
 ## Next
 - M1 Audio engine (Agent 1) and M2 Data/storage (Agent 3), in parallel worktrees, once Windows CI is green.
