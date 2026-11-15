@@ -315,6 +315,15 @@ public sealed class PipeSabhaClient : ISabhaClient
             return session;
         }
 
+        public Task<bool> IsSetupRequiredAsync(CancellationToken ct = default) => inner.IsSetupRequiredAsync(ct);
+
+        public async Task<SessionDto> CompleteInitialSetupAsync(string adminUserName, string secret, CancellationToken ct = default)
+        {
+            var session = await inner.CompleteInitialSetupAsync(adminUserName, secret, ct).ConfigureAwait(false);
+            owner.SetSession(session);
+            return session;
+        }
+
         public async Task LogoutAsync(CancellationToken ct = default)
         {
             try

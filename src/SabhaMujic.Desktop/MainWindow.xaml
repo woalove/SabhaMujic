@@ -65,9 +65,11 @@
             </StackPanel>
         </Border>
 
-        <!-- Signed out: login -->
+        <!-- Signed out: login, or first-run setup on a fresh install -->
         <views:LoginView Grid.Row="2" DataContext="{Binding Login}"
-                         Visibility="{Binding DataContext.IsSignedIn, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}" />
+                         Visibility="{Binding DataContext.IsLoginVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibility}}" />
+        <views:SetupView Grid.Row="2" DataContext="{Binding Setup}"
+                         Visibility="{Binding DataContext.IsSetupVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibility}}" />
 
         <!-- Signed in: sidebar | content | queue panel -->
         <Grid Grid.Row="2" Visibility="{Binding IsSignedIn, Converter={StaticResource BoolToVisibility}}">

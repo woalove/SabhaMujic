@@ -30,14 +30,16 @@ public sealed class ApiSession : IAuthApi, ILibraryApi, IPlaybackApi, IPlaylistA
     private readonly ServerApplication _app;
     private readonly ILogger _logger;
     private readonly CallerContext _anonymous;
+    private readonly bool _isElevatedAdministrator;
     private readonly Lock _gate = new();
     private CallerContext _caller;
     private string? _tokenHash;
     private long _binding;
 
-    internal ApiSession(ServerApplication app, ClientKind client, string transportPrincipal, ILogger<ApiSession> logger)
+    internal ApiSession(ServerApplication app, ClientKind client, string transportPrincipal, bool isElevatedAdministrator, ILogger<ApiSession> logger)
     {
         _app = app;
+        _isElevatedAdministrator = isElevatedAdministrator;
         _logger = logger;
         _anonymous = CallerContext.Anonymous(client, string.IsNullOrWhiteSpace(transportPrincipal) ? "unknown" : transportPrincipal);
         _caller = _anonymous;
@@ -45,6 +47,9 @@ public sealed class ApiSession : IAuthApi, ILibraryApi, IPlaybackApi, IPlaylistA
 
     /// <summary>Raised when the connection signs in or out (the transport updates its event subscription).</summary>
     public event Action<CallerContext>? CallerChanged;
+
+    /// <summary>True when the transport verified an elevated local Administrator token (desktop pipe on Windows only).</summary>
+    public bool IsElevatedAdministrator => _isElevatedAdministrator;
 
     /// <summary>The caller as of the last bind/unbind (not re-validated).</summary>
     public CallerContext Caller
@@ -79,6 +84,15 @@ public sealed class ApiSession : IAuthApi, ILibraryApi, IPlaybackApi, IPlaylistA
 
     public Task<SessionDto> ResumeSessionAsync(string token, CancellationToken ct = default) => Run(Auth, async _ =>
         Bind(await _app.Auth.ResumeAsync(_anonymous, token, ct).ConfigureAwait(false)), ct);
+
+    public Task<bool> IsSetupRequiredAsync(CancellationToken ct = default) => Run(Auth, _ => _app.Auth.IsSetupRequiredAsync(ct), ct);
+
+    /// <summary>
+    /// First-run setup. Beyond the (anonymous) matrix entry, <see cref="AuthService.CompleteInitialSetupAsync"/> requires the
+    /// desktop pipe and an elevated local Administrator as reported by the transport for this connection.
+    /// </summary>
+    public Task<SessionDto> CompleteInitialSetupAsync(string adminUserName, string secret, CancellationToken ct = default) => Run(Auth, async _ =>
+        Bind(await _app.Auth.CompleteInitialSetupAsync(_anonymous, _isElevatedAdministrator, adminUserName, secret, ct).ConfigureAwait(false)), ct);
 
     public Task LogoutAsync(CancellationToken ct = default) => Run(Auth, async caller =>
     {

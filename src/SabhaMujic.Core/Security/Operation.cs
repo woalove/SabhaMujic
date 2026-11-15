@@ -8,6 +8,9 @@ public enum Operation
     Login,
     ResumeSession,
     Pair,
+    /// <summary>First-run admin creation. Anonymous at the matrix level; the service additionally requires
+    /// an empty user table and a local Windows administrator on the desktop pipe.</summary>
+    InitialSetup,
 
     // Any authenticated user (Volunteer or Admin)
     Logout,

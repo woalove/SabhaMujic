@@ -109,6 +109,24 @@ public sealed class FakeAuth(FakeSabhaClient c) : IAuthApi
         return Task.CompletedTask;
     }
 
+    /// <summary>What IsSetupRequiredAsync answers.</summary>
+    public bool SetupRequired { get; set; }
+
+    public Func<string, string, SessionDto> OnCompleteSetup { get; set; } =
+        (user, _) => FakeSabhaClient.MakeSession(Role.Admin, user);
+
+    public Task<bool> IsSetupRequiredAsync(CancellationToken ct = default)
+    {
+        c.Record(nameof(IsSetupRequiredAsync));
+        return Task.FromResult(SetupRequired);
+    }
+
+    public Task<SessionDto> CompleteInitialSetupAsync(string adminUserName, string secret, CancellationToken ct = default)
+    {
+        c.Record(nameof(CompleteInitialSetupAsync), adminUserName, secret);
+        return Invoke(() => OnCompleteSetup(adminUserName, secret));
+    }
+
     internal static Task<T> Invoke<T>(Func<T> f)
     {
         try

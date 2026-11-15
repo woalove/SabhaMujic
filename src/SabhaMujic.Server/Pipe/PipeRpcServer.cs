@@ -25,25 +25,34 @@ public sealed class DefaultPipeStreamFactory : IPipeStreamFactory
         new(pipeName, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
 }
 
-/// <summary>Describes who is on the other end of a pipe connection, for the audit log only (never for authorization).</summary>
+/// <summary>
+/// What the OS says about the process on the other end of a pipe connection.
+/// <see cref="Principal"/> is for the audit log only. <see cref="IsElevatedAdministrator"/> gates first-run setup
+/// (decision #24) and must only be true when the client's token is an elevated local Administrator.
+/// </summary>
+public sealed record PipeCallerInfo(string Principal, bool IsElevatedAdministrator);
+
+/// <summary>Identifies the client of a pipe connection. The Windows service supplies a token-based implementation.</summary>
 public interface ICallerIdentity
 {
-    string Describe(NamedPipeServerStream pipe);
+    PipeCallerInfo Describe(NamedPipeServerStream pipe);
 }
 
-/// <summary>Uses the OS peer identity where available (Windows user name; Unix peer user), else a generic label.</summary>
+/// <summary>
+/// Default (cross-platform) identity: the OS peer user name where available, else a generic label; never elevated.
+/// </summary>
 public sealed class PipeCallerIdentity : ICallerIdentity
 {
-    public string Describe(NamedPipeServerStream pipe)
+    public PipeCallerInfo Describe(NamedPipeServerStream pipe)
     {
         try
         {
             var name = pipe.GetImpersonationUserName();
-            return string.IsNullOrWhiteSpace(name) ? "pipe-client" : name;
+            return new PipeCallerInfo(string.IsNullOrWhiteSpace(name) ? "pipe-client" : name, false);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or PlatformNotSupportedException)
         {
-            return "pipe-client";
+            return new PipeCallerInfo("pipe-client", false);
         }
     }
 }
@@ -185,8 +194,19 @@ public sealed class PipeRpcServer : IAsyncDisposable
 
         public async Task RunAsync()
         {
-            var principal = server._identity.Describe(pipe);
-            var session = server._app.CreateSession(ClientKind.Desktop, principal);
+            PipeCallerInfo info;
+            try
+            {
+                info = server._identity.Describe(pipe);
+            }
+            catch (Exception ex)
+            {
+                server._logger.LogWarning(ex, "Could not identify a pipe client; treating it as a standard user.");
+                info = new PipeCallerInfo("pipe-client", false);
+            }
+
+            var principal = info.Principal;
+            var session = server._app.CreateSession(ClientKind.Desktop, principal, info.IsElevatedAdministrator);
             var rpc = new SabhaJsonRpc(RpcProtocol.CreateMessageHandler(pipe, server._options.MaxMessageBytes))
             {
                 CancelLocallyInvokedMethodsWhenConnectionIsClosed = true,

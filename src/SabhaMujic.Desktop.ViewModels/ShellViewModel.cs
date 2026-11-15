@@ -34,6 +34,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
 
         Tracks = new TrackInfoCache(client);
         Login = new LoginViewModel(client);
+        Setup = new SetupViewModel(client);
         NowPlaying = new NowPlayingViewModel(client, ui, Tracks);
         Queue = new QueueViewModel(client, ui, Tracks);
         Playlists = new PlaylistsViewModel(client, ui, Tracks);
@@ -41,6 +42,12 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
         Admin = new AdminViewModel(client, ui);
 
         Login.LoggedIn += session => ApplySession(session);
+        Setup.SetupCompleted += session =>
+        {
+            IsSetupRequired = false;
+            ApplySession(session);
+        };
+        Setup.SetupNoLongerRequired += () => IsSetupRequired = false;
         _client.ConnectionStateChanged += (_, state) => _ui.Dispatcher.Post(() => OnClientConnectionStateChanged(state));
         _client.SessionChanged += (_, session) => _ui.Dispatcher.Post(() => ApplySession(session));
         _client.Events.SessionEndedReceived += reason => _ui.Dispatcher.Post(() => OnSessionEnded(reason));
@@ -49,6 +56,18 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
     public TrackInfoCache Tracks { get; }
 
     public LoginViewModel Login { get; }
+
+    /// <summary>First-run "create administrator" form, shown instead of <see cref="Login"/> while no accounts exist.</summary>
+    public SetupViewModel Setup { get; }
+
+    /// <summary>True while the service reports a fresh install (no accounts). Checked after each connect while signed out.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsLoginVisible), nameof(IsSetupVisible))]
+    public partial bool IsSetupRequired { get; private set; }
+
+    public bool IsLoginVisible => !IsSignedIn && !IsSetupRequired;
+
+    public bool IsSetupVisible => !IsSignedIn && IsSetupRequired;
 
     public NowPlayingViewModel NowPlaying { get; }
 
@@ -88,7 +107,8 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
     };
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsSignedIn), nameof(IsAdmin), nameof(IsAdminVisible), nameof(UserDisplayText))]
+    [NotifyPropertyChangedFor(nameof(IsSignedIn), nameof(IsAdmin), nameof(IsAdminVisible), nameof(UserDisplayText), nameof(IsLoginVisible),
+        nameof(IsSetupVisible))]
     public partial SessionDto? Session { get; private set; }
 
     public bool IsSignedIn => Session is not null;
@@ -121,9 +141,14 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
     {
         ConnectionState = _client.State;
         Login.IsConnected = IsConnected;
+        Setup.IsConnected = IsConnected;
         if (_client.Session is { } existing)
         {
             ApplySession(existing);
+        }
+        else if (IsConnected)
+        {
+            _ = CheckSetupAsync();
         }
 
         _connectTask ??= ConnectAsync();
@@ -183,9 +208,15 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
         var previous = ConnectionState;
         ConnectionState = state;
         Login.IsConnected = state == ConnectionState.Connected;
+        Setup.IsConnected = state == ConnectionState.Connected;
         if (state == ConnectionState.Connected)
         {
             ConnectionError = null;
+            if (previous != ConnectionState.Connected && Session is null)
+            {
+                _ = CheckSetupAsync();
+            }
+
             if (previous != ConnectionState.Connected && Session is not null)
             {
                 _ = LoadAllAsync(); // re-sync after (re)connect
@@ -224,6 +255,8 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
             _ = LoadAllAsync();
         }
     }
+
+    private async Task CheckSetupAsync() => IsSetupRequired = await Setup.IsSetupRequiredAsync().ConfigureAwait(true);
 
     private void OnSessionEnded(string reason)
     {
