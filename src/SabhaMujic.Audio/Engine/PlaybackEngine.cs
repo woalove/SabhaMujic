@@ -562,8 +562,13 @@ public sealed class PlaybackEngine : IDisposable
             _machine.TryFire(PlaybackTrigger.Loaded);
             _crossfadeEndedWhilePaused = false;
             CancelPlan();
-            int fade = crossfade && audible ? CrossfadeFrames(_current, session) : AudioFormat.MillisecondsToFrames(_options.StartFadeMilliseconds);
-            var kind = crossfade && audible && fade > 0 ? TransitionKind.Crossfade : TransitionKind.Cut;
+            int fade = crossfade && audible ? CrossfadeFrames(_current, session) : 0;
+            var kind = fade > 0 ? TransitionKind.Crossfade : TransitionKind.Cut;
+            if (fade == 0)
+            {
+                fade = AudioFormat.MillisecondsToFrames(_options.StartFadeMilliseconds); // de-click only
+            }
+
             _mixer.SetPaused(false);
             _mixer.Play(session.Voice, fade, kind);
             _current = session;
@@ -591,11 +596,7 @@ public sealed class PlaybackEngine : IDisposable
         CancelPlan();
         _current = null;
         _crossfadeEndedWhilePaused = false;
-        if (!_machine.TryFire(PlaybackTrigger.Stop) && _machine.State == PlaybackStatus.Crossfading)
-        {
-            _machine.TryFire(PlaybackTrigger.CrossfadeComplete);
-            _machine.TryFire(PlaybackTrigger.Stop);
-        }
+        _machine.TryFire(PlaybackTrigger.Stop); // no-op when already Idle/Stopped
     }
 
     /// <summary>Seek/restart within the current track with a short de-click fade (stays paused if paused).</summary>
@@ -692,7 +693,7 @@ public sealed class PlaybackEngine : IDisposable
 
         var session = _current;
         var voice = session.Voice;
-        if (voice.IsDisposed || voice.IsDecodeComplete && voice.IsDrained || _planBlockedFor == voice)
+        if (voice.IsDisposed || voice.IsDrained || _planBlockedFor == voice)
         {
             return;
         }

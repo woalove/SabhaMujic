@@ -147,13 +147,18 @@ public sealed class PlaybackVoice : IDisposable
     /// <summary>Blocks (not on the render thread!) until at least <paramref name="frames"/> are buffered or decoding completed.</summary>
     public bool WaitForBuffered(int frames, TimeSpan timeout)
     {
-        frames = Math.Min(frames, _ring.CapacityFrames);
+        // FillChunk only writes when at least 1024 frames are free, so never wait for more than that allows.
+        frames = Math.Min(frames, _ring.CapacityFrames - 1024);
         long deadline = Environment.TickCount64 + (long)timeout.TotalMilliseconds;
         while (_ring.AvailableFrames < frames && !_decodeComplete)
         {
             if (Feeder is null)
             {
-                FillChunk();
+                if (!FillChunk())
+                {
+                    break;
+                }
+
                 continue;
             }
 

@@ -72,26 +72,37 @@ public sealed class VoiceFeeder : IDisposable
 
     private void Run()
     {
+        var order = new PlaybackVoice[8];
+        var keys = new int[8];
         while (!_stopping)
         {
             bool worked = false;
             var voices = Volatile.Read(ref _voices);
-
-            // Neediest voice first: lowest fill ratio.
-            if (voices.Length > 1)
+            if (order.Length < voices.Length)
             {
-                voices = (PlaybackVoice[])voices.Clone();
-                Array.Sort(voices, static (a, b) => a.BufferedFrames.CompareTo(b.BufferedFrames));
+                order = new PlaybackVoice[voices.Length * 2];
+                keys = new int[voices.Length * 2];
             }
 
-            foreach (var voice in voices)
+            // Neediest voice first (fewest buffered frames), sorted on a snapshot because the render thread
+            // keeps draining the buffers while we sort.
+            int count = voices.Length;
+            for (int i = 0; i < count; i++)
+            {
+                order[i] = voices[i];
+                keys[i] = voices[i].BufferedFrames;
+            }
+
+            Array.Sort(keys, order, 0, count);
+            for (int i = 0; i < count; i++)
             {
                 if (_stopping)
                 {
                     return;
                 }
 
-                worked |= voice.FillChunk();
+                worked |= order[i].FillChunk();
+                order[i] = null!;
             }
 
             if (!worked)
