@@ -7,7 +7,7 @@
     <SelfContained>true</SelfContained>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../SabhaMujic.Contracts/SabhaMujic.Contracts.csproj" />
+    <ProjectReference Include="../SabhaMujic.Client/SabhaMujic.Client.csproj" />
     <PackageReference Include="StreamJsonRpc" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="QRCoder" />

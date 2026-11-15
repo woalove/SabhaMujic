@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/SabhaMujic.Audio.Windows/SabhaMujic.Audio.Windows.csproj" />
     <Project Path="src/SabhaMujic.Audio/SabhaMujic.Audio.csproj" />
+    <Project Path="src/SabhaMujic.Client/SabhaMujic.Client.csproj" />
     <Project Path="src/SabhaMujic.Contracts/SabhaMujic.Contracts.csproj" />
     <Project Path="src/SabhaMujic.Core/SabhaMujic.Core.csproj" />
     <Project Path="src/SabhaMujic.Data/SabhaMujic.Data.csproj" />

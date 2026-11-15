@@ -10,7 +10,8 @@ _Last updated: 2026-11-15_
 | Solution skeleton (`SabhaMujic.slnx`, 8 src + 5 test projects, central packages) | Done | `dotnet build` green on Linux (WPF compile-only) |
 | Contracts v1 (DTOs, `IAuthApi`/`ILibraryApi`/`IPlaybackApi`/`IPlaylistApi`/`IAdminApi`, `IClientEvents`) | Done | Compiles; serialization tests |
 | Core: Authorizer + OperationMap, SecretHasher/Tokens, PlaybackStateMachine, PlaybackQueue | Done | 74 tests pass on Linux |
-| CI (Linux + Windows) | Pushed; awaiting first run | `.github/workflows/ci.yml` |
+| CI (Linux + Windows) | Done: run 1 built, tested and published on Windows; only artifact upload failed (account artifact quota full), now non-fatal | `.github/workflows/ci.yml` |
+| `SabhaMujic.Client`: `ISabhaClient` abstraction for desktop view models | Done | Compiles |
 
 ## Next
 - M1 Audio engine (Agent 1) and M2 Data/storage (Agent 3), in parallel worktrees, once Windows CI is green.

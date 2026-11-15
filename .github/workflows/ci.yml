@@ -29,9 +29,11 @@ jobs:
           global-json-file: global.json
       - run: dotnet restore SabhaMujic.slnx
       - run: dotnet build SabhaMujic.slnx --no-restore -c Release
-      - run: dotnet test SabhaMujic.slnx --no-build -c Release --logger "trx" --results-directory TestResults
+      - run: dotnet test SabhaMujic.slnx --no-build -c Release --logger "trx" --logger "console;verbosity=minimal" --results-directory TestResults
+      # Uploads are best-effort: the account's artifact storage quota may be exhausted.
       - uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: linux-test-results
           path: TestResults
@@ -47,18 +49,21 @@ jobs:
           global-json-file: global.json
       - run: dotnet restore SabhaMujic.slnx
       - run: dotnet build SabhaMujic.slnx --no-restore -c Release
-      - run: dotnet test SabhaMujic.slnx --no-build -c Release --logger "trx" --results-directory TestResults
+      - run: dotnet test SabhaMujic.slnx --no-build -c Release --logger "trx" --logger "console;verbosity=minimal" --results-directory TestResults
       - name: Publish desktop + service (self-contained win-x64)
         shell: pwsh
         run: |
           dotnet publish src/SabhaMujic.Desktop -c Release -o artifacts/desktop
           dotnet publish src/SabhaMujic.Service -c Release -o artifacts/service
+      # Uploads are best-effort: the account's artifact storage quota may be exhausted.
       - uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: windows-test-results
           path: TestResults
       - uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: windows-binaries
           path: artifacts
