@@ -8,6 +8,10 @@
     <PackageReference Include="Dapper" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Versioned schema scripts: Migrations/NNNN_name.sql, applied in order by SqliteDatabase.MigrateAsync. -->
+    <EmbeddedResource Include="Migrations/*.sql" LogicalName="SabhaMujic.Data.Migrations.%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="SabhaMujic.Data.Tests" />
   </ItemGroup>
 </Project>
