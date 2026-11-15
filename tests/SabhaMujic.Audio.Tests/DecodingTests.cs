@@ -66,13 +66,18 @@ public class DecodingTests
         Assert.InRange(crossings, 999, 1001);
         Assert.InRange(peak, 0.49, 0.51);
 
-        // Seeking a resampled source lands on the same samples (within interpolation error).
-        source.Seek(60_000);
-        var part = new float[2 * 4800];
-        source.Read(part);
-        for (int i = 0; i < 4800; i++)
+        // Seeking a resampled source lands on the same samples as a continuous read, including targets that are
+        // not on the shared 44.1k/48k grid (70_001 -> 64_313.4 source frames) and targets inside the pre-roll.
+        foreach (var target in new long[] { 60_000, 70_001, 1_000, 0, 33_333 })
         {
-            Assert.True(Math.Abs(part[2 * i] - output[2 * (60_000 + i)]) < 0.01, $"frame {i}");
+            source.Seek(target);
+            Assert.Equal(target, source.PositionFrames);
+            var part = new float[2 * 4800];
+            source.Read(part);
+            for (int i = 0; i < 4800; i++)
+            {
+                Assert.True(Math.Abs(part[2 * i] - output[2 * (target + i)]) < 0.001, $"seek {target}, frame {i}");
+            }
         }
     }
 

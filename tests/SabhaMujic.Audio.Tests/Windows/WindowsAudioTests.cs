@@ -141,17 +141,31 @@ public class MediaFoundationDecoderTests(ITestOutputHelper log)
         await engine.SetCrossfadeAsync(1);
         var queue = await engine.EnqueueAsync([a, b], false);
         await engine.PlayQueueItemAsync(queue.Items[0].QueueItemId);
+        // 6 s tracks with a 1 s crossfade: the fade runs 5.0–6.0 s, and the engine reports the incoming track as current
+        // from the moment the fade starts.
         for (int i = 0; i < 11; i++)
         {
             output.Pump(TestSignals.Frames(0.5));
             await engine.SyncAsync();
         }
 
+        var mid = engine.GetState();
+        log.WriteLine($"5.5 s: {mid.Status} {mid.CurrentTrackId} {mid.PositionSeconds}");
+        Assert.Equal(b, mid.CurrentTrackId);
+        Assert.Equal(PlaybackStatus.Crossfading, mid.Status);
+        Assert.Equal(0.5, mid.PositionSeconds, 1);
+
+        for (int i = 0; i < 2; i++)
+        {
+            output.Pump(TestSignals.Frames(0.5));
+            await engine.SyncAsync();
+        }
+
         var state = engine.GetState();
-        log.WriteLine($"{state.Status} {state.CurrentTrackId} {state.PositionSeconds}");
+        log.WriteLine($"6.5 s: {state.Status} {state.CurrentTrackId} {state.PositionSeconds}");
         Assert.Equal(b, state.CurrentTrackId);
         Assert.Equal(PlaybackStatus.Playing, state.Status);
-        Assert.Equal(0.5, state.PositionSeconds, 1);
+        Assert.Equal(1.5, state.PositionSeconds, 1);
     }
 
     private void DecodeEncoded(string extension, Action<IWaveProvider, string> encode, double durationTolerance)

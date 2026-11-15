@@ -15,6 +15,9 @@ public sealed class NormalizedAudioSource : IAudioSource
     private const int ResampleBlockFrames = 4096;
     private const float Minus3Db = 0.70710678f;
 
+    /// <summary>Output frames decoded and discarded before a seek target so the resampler's filter is fully primed.</summary>
+    private const int SeekPreRollFrames = 2048;
+
     private readonly WaveStream _stream;
     private readonly ISampleProvider _samples;
     private readonly int _srcChannels;
@@ -25,6 +28,7 @@ public sealed class NormalizedAudioSource : IAudioSource
     private long _position;
     private bool _sourceEnded;
     private bool _disposed;
+    private float[]? _discard;
 
     public NormalizedAudioSource(WaveStream stream)
     {
@@ -86,13 +90,47 @@ public sealed class NormalizedAudioSource : IAudioSource
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         frame = Math.Clamp(frame, 0, TotalFrames);
-        long sourceFrame = _resampler is null
-            ? frame
-            : (long)Math.Floor(frame * (double)_srcRate / AudioFormat.SampleRate);
-        _stream.Position = sourceFrame * _blockAlign;
+        if (_resampler is null)
+        {
+            _stream.Position = frame * _blockAlign;
+            _sourceEnded = false;
+            _position = frame;
+            return;
+        }
+
+        // Restart the resampler on a frame where the source and 48 kHz grids coincide (so there is no fractional-phase
+        // error), some pre-roll before the target, then decode and discard up to the target. The output then matches a
+        // continuous read from the start sample-for-sample (up to float rounding), including the filter's history.
+        long gcd = Gcd(_srcRate, AudioFormat.SampleRate);
+        long outStep = AudioFormat.SampleRate / gcd;
+        long srcStep = _srcRate / gcd;
+        long start = Math.Max(0, frame - SeekPreRollFrames);
+        start -= start % outStep;
+
+        _stream.Position = start / outStep * srcStep * _blockAlign;
         _sourceEnded = false;
-        _resampler?.Reset();
-        _position = frame;
+        _resampler.Reset();
+        _position = start;
+
+        _discard ??= new float[ResampleBlockFrames * AudioFormat.Channels];
+        while (_position < frame)
+        {
+            int frames = (int)Math.Min(frame - _position, ResampleBlockFrames);
+            if (Read(_discard.AsSpan(0, frames * AudioFormat.Channels)) == 0)
+            {
+                break;
+            }
+        }
+    }
+
+    private static long Gcd(long a, long b)
+    {
+        while (b != 0)
+        {
+            (a, b) = (b, a % b);
+        }
+
+        return a;
     }
 
     public int Read(Span<float> buffer)
