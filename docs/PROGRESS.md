@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-11-15 (M0 done; M2, M4a, M3a merged; M1 in progress)_
+_Last updated: 2026-11-15 (M0 done; M1, M2, M3a, M4a merged; M3b and M5 in progress)_
 
 ## Current milestone: M0 Foundations
 | Task | Status | Evidence |
@@ -31,6 +31,11 @@ _Last updated: 2026-11-15 (M0 done; M2, M4a, M3a merged; M1 in progress)_
 - `EventBroadcaster` (bounded, coalescing, per-role filtering), maintenance jobs, `PipeRpcServer`, `PipeSabhaClient` (reconnect + session resume). The desktop now uses the real pipe client.
 - Evidence: 204 Server tests pass on Linux over a real pipe (Unix domain socket), including the exhaustive authorization matrix with zero side effects on denial, and playback continuing when all clients disconnect (fake backend).
 - Unverified: the Windows pipe ACL and impersonation (M3b Service).
+
+## M1 Audio engine: merged
+- Decoding (WAV everywhere, MediaFoundation on Windows), silence detection, Smart Loop analysis (analyzes 5 min of audio in 0.5 s in Release), the equal-power `CrossfadeMixer` with buffered voices, the `PlaybackEngine` (queue, state machine, Smart Loop, repeat, skipping unreadable files), `NullRealtimeOutput`, `WasapiOutput`, and the `tools/SabhaMujic.AudioSpike` manual test tool.
+- Evidence: 46 Audio tests pass on Linux. Planted loop found exactly (36.000 s). Crossfade power within ±0.5 dB. Zero render-thread allocations over 10 s with crossfades and seams.
+- **Unverified:** MediaFoundation decoding, WASAPI playback and device loss (8 Windows-only tests run on CI, which has no audio device), audible quality, and loop detection on real devotional recordings.
 
 ## Next
 - M1 Audio engine (Agent 1) and M2 Data/storage (Agent 3), in parallel worktrees, once Windows CI is green.

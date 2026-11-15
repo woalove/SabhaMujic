@@ -27,3 +27,12 @@ Anything not ticked here is **unverified**.
 
 ## Audio (M1): to be filled in when M1 merges
 ## Service, ACL, installer, iPhone remote (M3, M5, M6): to be filled in
+
+## Audio (M1): `tools/SabhaMujic.AudioSpike`
+Build it with `dotnet run --project tools/SabhaMujic.AudioSpike -c Release -- <file1> <file2> [--crossfade 6] [--smartloop] [--repeat]`.
+- [ ] MP3, M4A/AAC, WMA, FLAC and WAV files each decode and play at the correct pitch and speed.
+- [ ] Queue crossfade (6 s): smooth, with no dip or bump in loudness and no click.
+- [ ] `--smartloop` on a real dhun/kirtan recording: the loop seam is inaudible or musically acceptable over at least 5 repetitions. Note the detected loop start/end and confidence the tool prints.
+- [ ] A track with leading/trailing silence: the silence is skipped and the crossfade starts from the music's actual end.
+- [ ] Unplug the headphones / disable the default device during playback: no crash, and playback resumes on the new default device.
+- [ ] 30 minutes of continuous Smart Loop: no drift, crackle or memory growth (Task Manager).
