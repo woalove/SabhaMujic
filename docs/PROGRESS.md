@@ -13,6 +13,13 @@ _Last updated: 2026-11-15_
 | CI (Linux + Windows) | Done: run 1 built, tested and published on Windows; only artifact upload failed (account artifact quota full), now non-fatal | `.github/workflows/ci.yml` |
 | `SabhaMujic.Client`: `ISabhaClient` abstraction for desktop view models | Done | Compiles |
 
+## M2 Data & storage: merged
+- SQLite with WAL, versioned migrations, and repositories for users, sessions, devices, pairing codes, categories, tracks, analysis, playlists, playback state, settings and audit.
+- `ProtectedStore`: content-addressed storage, path-traversal-safe keys, atomic writes.
+- `UploadStaging`: chunked admin uploads with enforced limits.
+- Evidence: 111 Data tests pass on Linux.
+- Follow-ups for M3: rate-limit login and pairing; periodic purge/expiry job; `ResetInterruptedAsync` at startup; Windows `IStoreAcl` on both the library and uploads folders.
+
 ## Next
 - M1 Audio engine (Agent 1) and M2 Data/storage (Agent 3), in parallel worktrees, once Windows CI is green.
 - M4a WPF shell against a fake client (Agent 2) can start alongside.

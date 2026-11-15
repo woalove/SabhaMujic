@@ -8,6 +8,7 @@
 | Date | Where | Result |
 |---|---|---|
 | 2026-11-15 | Linux cloud env | Core.Tests: 74 passed, 0 failed |
+| 2026-11-15 | Linux cloud env (after M2 merge) | Core 74 + Data 111 passed, 0 failed |
 
 ## Verification status of completion criteria
 | Criterion | Status |
