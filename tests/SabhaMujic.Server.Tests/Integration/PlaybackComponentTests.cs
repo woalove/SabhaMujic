@@ -184,8 +184,10 @@ public sealed class PlaybackComponentTests : IAsyncLifetime
         var newer = resolved.Analysis! with { Version = LoopAnalyzer.AnalysisVersion + 1, Loop = resolved.Analysis.Loop with { SeamCorrelation = 0.42 } };
         _h.Host.Analysis.AcceptEngineResult(trackId, newer);
         await AssertEx.Eventually(() => _h.App.Analysis.GetAsync(trackId).GetAwaiter().GetResult()!.AnalysisVersion == newer.Version, "stored");
-        var again = await _h.Host.Resolver.ResolveAsync(trackId);
-        Assert.Equal(0.42, again!.Analysis!.Loop.SeamCorrelation);
+        // The worker stores the row first and then drops the cached entry, so the resolver catches up right after.
+        await AssertEx.Eventually(
+            () => _h.Host.Resolver.ResolveAsync(trackId).GetAwaiter().GetResult()?.Analysis?.Loop.SeamCorrelation == 0.42,
+            "the resolver serves the stored full-fidelity analysis");
     }
 
     [Fact]
