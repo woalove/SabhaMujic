@@ -16,6 +16,7 @@
     <Project Path="tests/SabhaMujic.Core.Tests/SabhaMujic.Core.Tests.csproj" />
     <Project Path="tests/SabhaMujic.Data.Tests/SabhaMujic.Data.Tests.csproj" />
     <Project Path="tests/SabhaMujic.Desktop.Tests/SabhaMujic.Desktop.Tests.csproj" />
+    <Project Path="tests/SabhaMujic.RemoteE2EHost/SabhaMujic.RemoteE2EHost.csproj" />
     <Project Path="tests/SabhaMujic.Server.Tests/SabhaMujic.Server.Tests.csproj" />
     <Project Path="tests/SabhaMujic.Windows.Tests/SabhaMujic.Windows.Tests.csproj" />
   </Folder>

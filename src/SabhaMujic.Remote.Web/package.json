@@ -1,0 +1,20 @@
+{
+  "name": "sabhamujic-remote-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SabhaMujic iPhone web remote: plain ES modules served from memory by SabhaMujic.Server (no bundler).",
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "vendor": "node scripts/vendor-signalr.mjs",
+    "icons": "node scripts/make-icons.mjs",
+    "build:e2e-host": "dotnet build ../../tests/SabhaMujic.RemoteE2EHost/SabhaMujic.RemoteE2EHost.csproj -c Debug -v q -nologo",
+    "test": "npm run build:e2e-host && node --test --test-concurrency=1 e2e/remote.e2e.test.mjs"
+  },
+  "devDependencies": {
+    "@microsoft/signalr": "10.0.11",
+    "playwright": "1.63.0",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Test host for the browser e2e suite (src/SabhaMujic.Remote.Web/e2e): the real ServerApplication + RemoteHost with a
+    temp database/store, a scripted playback backend and a WAV-only probe. Not a test project and never shipped.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/SabhaMujic.Server/SabhaMujic.Server.csproj" />
+  </ItemGroup>
+</Project>

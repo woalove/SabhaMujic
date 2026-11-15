@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#b4531f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="SabhaMujic">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>SabhaMujic Remote</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="/styles.css">
+<script src="/vendor/signalr/signalr.min.js" defer></script>
+<script type="module" src="/js/app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <span class="brand">SabhaMujic</span>
+  <span id="conn" class="pill pill-wait" role="status" aria-live="polite">Starting…</span>
+  <button id="signout" class="link" type="button" hidden>Sign out</button>
+</header>
+
+<div id="banner" class="banner" role="alert" hidden>
+  <span id="banner-text"></span>
+  <button id="banner-close" class="banner-close" type="button" aria-label="Dismiss">×</button>
+</div>
+
+<main id="views">
+  <!-- Pair -->
+  <section id="view-pair" class="view" hidden>
+    <h1>Pair this phone</h1>
+    <p class="muted">Enter the 6-digit code shown on the SabhaMujic PC (Admin → Devices → Pair new device) and give this phone a name.</p>
+    <form id="pair-form" class="stack" novalidate>
+      <label class="field">Pairing code
+        <input id="pair-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+      </label>
+      <label class="field">Device name
+        <input id="pair-name" name="deviceName" maxlength="100" autocomplete="off" required>
+      </label>
+      <button id="pair-submit" class="btn primary" type="submit">Pair</button>
+      <p id="pair-error" class="error" role="alert" hidden></p>
+    </form>
+  </section>
+
+  <!-- Now playing -->
+  <section id="view-now" class="view" hidden>
+    <div class="now-card">
+      <div class="badges">
+        <span id="np-status" class="badge">Idle</span>
+        <span id="np-xfade" class="badge badge-accent" hidden>Crossfading</span>
+      </div>
+      <h1 id="np-title" class="np-title">Nothing playing</h1>
+      <p id="np-artist" class="muted np-artist"></p>
+      <p id="np-error" class="error" role="alert" hidden></p>
+      <input id="np-seek" class="seek" type="range" min="0" max="0" step="0.1" value="0" aria-label="Position">
+      <div class="times"><span id="np-pos">0:00</span><span id="np-dur">0:00</span></div>
+      <div class="transport">
+        <button id="np-prev" class="round" type="button" aria-label="Previous">⏮</button>
+        <button id="np-play" class="round big" type="button" aria-label="Play">▶</button>
+        <button id="np-next" class="round" type="button" aria-label="Next">⏭</button>
+        <button id="np-stop" class="round" type="button" aria-label="Stop">⏹</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row">
+        <button id="np-mute" class="btn small" type="button" aria-pressed="false">Mute</button>
+        <input id="np-volume" class="grow" type="range" min="0" max="1" step="0.01" value="0.8" aria-label="Volume">
+        <span id="np-volume-label" class="num">80%</span>
+      </div>
+      <div class="label">Loop</div>
+      <div class="segmented" role="group" aria-label="Loop mode">
+        <button type="button" data-loop="Off">Off</button>
+        <button type="button" data-loop="SmartLoop">Smart Loop</button>
+        <button type="button" data-loop="RepeatQueue">Repeat queue</button>
+      </div>
+      <div class="label">Crossfade <span id="np-xfade-label" class="num">6 s</span></div>
+      <input id="np-crossfade" type="range" min="0" max="12" step="1" value="6" aria-label="Crossfade seconds">
+    </div>
+    <p class="muted upnext">Up next: <span id="np-next-title">—</span></p>
+  </section>
+
+  <!-- Queue -->
+  <section id="view-queue" class="view" hidden>
+    <div class="row between">
+      <h1>Queue</h1>
+      <button id="queue-clear" class="btn small danger" type="button">Clear</button>
+    </div>
+    <p id="queue-empty" class="muted" hidden>The queue is empty. Add tracks from the Library.</p>
+    <ol id="queue-list" class="list"></ol>
+  </section>
+
+  <!-- Library -->
+  <section id="view-library" class="view" hidden>
+    <h1>Library</h1>
+    <input id="lib-search" class="search" type="search" placeholder="Search title or artist" autocomplete="off" aria-label="Search">
+    <div id="lib-chips" class="chips" role="group" aria-label="Categories"></div>
+    <p id="lib-count" class="muted"></p>
+    <ul id="lib-list" class="list"></ul>
+    <button id="lib-more" class="btn" type="button" hidden>Load more</button>
+  </section>
+
+  <!-- Playlists -->
+  <section id="view-playlists" class="view" hidden>
+    <h1>Playlists</h1>
+    <p id="pl-empty" class="muted" hidden>No playlists yet. Create them on the PC.</p>
+    <ul id="pl-list" class="list"></ul>
+  </section>
+
+  <!-- Admin -->
+  <section id="view-admin" class="view" hidden>
+    <h1>Add music</h1>
+    <label class="btn primary file-btn">Choose audio files
+      <input id="up-files" type="file" multiple accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.wma">
+    </label>
+    <ul id="up-list" class="list uploads"></ul>
+    <button id="up-start" class="btn primary" type="button" hidden>Upload</button>
+    <div class="card">
+      <div class="label">New category</div>
+      <form id="cat-form" class="row">
+        <input id="cat-name" class="grow" maxlength="100" placeholder="Category name" autocomplete="off" aria-label="New category name">
+        <button class="btn small" type="submit">Add</button>
+      </form>
+    </div>
+  </section>
+</main>
+
+<nav id="tabbar" class="tabbar" hidden>
+  <button type="button" data-tab="now" aria-current="page"><span class="ti">♪</span>Now</button>
+  <button type="button" data-tab="queue"><span class="ti">☰</span>Queue</button>
+  <button type="button" data-tab="library"><span class="ti">⌕</span>Library</button>
+  <button type="button" data-tab="playlists"><span class="ti">▤</span>Playlists</button>
+  <button type="button" data-tab="admin" id="tab-admin" hidden><span class="ti">＋</span>Admin</button>
+</nav>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<dialog id="confirm" class="dialog">
+  <form method="dialog">
+    <p id="confirm-text"></p>
+    <div class="row end">
+      <button value="cancel" class="btn small" type="submit">Cancel</button>
+      <button id="confirm-ok" value="ok" class="btn small danger" type="submit">OK</button>
+    </div>
+  </form>
+</dialog>
+</body>
+</html>
