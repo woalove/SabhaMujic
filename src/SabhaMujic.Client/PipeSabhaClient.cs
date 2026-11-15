@@ -199,8 +199,7 @@ public sealed class PipeSabhaClient : ISabhaClient
     /// <summary>Connects, handshakes and resumes the session before the connection is published to API callers.</summary>
     private async Task<JsonRpc> OpenAsync(CancellationToken ct)
     {
-        var pipe = new NamedPipeClientStream(_options.ServerName, _options.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous,
-            TokenImpersonationLevel.Identification);
+        var pipe = CreatePipe();
         SabhaJsonRpc? rpc = null;
         try
         {
@@ -242,6 +241,17 @@ public sealed class PipeSabhaClient : ISabhaClient
             throw;
         }
     }
+
+    /// <summary>
+    /// Identification-level impersonation lets the service read our user name and elevation (for audit and first-run
+    /// setup) without being able to act as us. On Windows the pipe is opened with exactly Read/Write rights: the
+    /// service's pipe DACL deliberately withholds CreateNewInstance from users, which GENERIC_WRITE would request.
+    /// </summary>
+    private NamedPipeClientStream CreatePipe() => OperatingSystem.IsWindows()
+        ? new NamedPipeClientStream(_options.ServerName, _options.PipeName, PipeAccessRights.ReadWrite, PipeOptions.Asynchronous,
+            TokenImpersonationLevel.Identification, HandleInheritability.None)
+        : new NamedPipeClientStream(_options.ServerName, _options.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous,
+            TokenImpersonationLevel.Identification);
 
     private static async Task<T> CallAsync<T>(JsonRpc rpc, string method, object?[] args, Type[] types, CancellationToken ct)
     {
