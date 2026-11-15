@@ -1,21 +1,11 @@
-using CommunityToolkit.Mvvm.ComponentModel;
 using SabhaMujic.Client;
 using SabhaMujic.Contracts;
 using SabhaMujic.Desktop.ViewModels.Infrastructure;
 
 namespace SabhaMujic.Desktop.ViewModels.Admin;
 
-public enum AdminSection
-{
-    Import,
-    Categories,
-    Tracks,
-    Users,
-    Devices,
-}
-
 /// <summary>Admin area (only reachable with <see cref="Role.Admin"/>): import, categories, tracks, users, devices.</summary>
-public sealed partial class AdminViewModel : ViewModelBase
+public sealed class AdminViewModel : ViewModelBase
 {
     private readonly ISabhaClient _client;
     private readonly UiServices _ui;
@@ -48,9 +38,6 @@ public sealed partial class AdminViewModel : ViewModelBase
     public UsersAdminViewModel Users { get; }
 
     public DevicesAdminViewModel Devices { get; }
-
-    [ObservableProperty]
-    public partial AdminSection SelectedSection { get; set; }
 
     /// <summary>Loads every section (called when the admin area is opened).</summary>
     public async Task LoadAsync()

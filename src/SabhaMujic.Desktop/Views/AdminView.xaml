@@ -1,0 +1,25 @@
+<UserControl x:Class="SabhaMujic.Desktop.Views.AdminView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:admin="clr-namespace:SabhaMujic.Desktop.Views.Admin">
+    <DockPanel>
+        <TextBlock DockPanel.Dock="Top" Text="Admin" Style="{StaticResource PageTitle}" />
+        <TabControl Background="Transparent" BorderThickness="0,1,0,0" Padding="0,12,0,0">
+            <TabItem Header="Import music">
+                <admin:ImportView DataContext="{Binding Import}" />
+            </TabItem>
+            <TabItem Header="Categories">
+                <admin:CategoriesAdminView DataContext="{Binding Categories}" />
+            </TabItem>
+            <TabItem Header="Tracks">
+                <admin:TracksAdminView DataContext="{Binding Tracks}" />
+            </TabItem>
+            <TabItem Header="Users">
+                <admin:UsersAdminView DataContext="{Binding Users}" />
+            </TabItem>
+            <TabItem Header="Remote devices">
+                <admin:DevicesAdminView DataContext="{Binding Devices}" />
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</UserControl>

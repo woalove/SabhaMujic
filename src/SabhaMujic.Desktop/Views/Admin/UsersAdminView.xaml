@@ -1,0 +1,46 @@
+<UserControl x:Class="SabhaMujic.Desktop.Views.Admin.UsersAdminView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" MaxWidth="560" />
+            <ColumnDefinition Width="24" />
+            <ColumnDefinition Width="300" />
+        </Grid.ColumnDefinitions>
+
+        <DockPanel Grid.Column="0">
+            <ContentControl DockPanel.Dock="Top" Content="{Binding}" ContentTemplate="{StaticResource MessageStrip}" Focusable="False" />
+            <ListBox x:Name="UserList" ItemsSource="{Binding Users}" SelectedItem="{Binding SelectedUser}" AutomationProperties.Name="Users">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                <Button Content="Reset PIN…" Command="{Binding DataContext.ResetSecretCommand, ElementName=UserList}" CommandParameter="{Binding}" />
+                                <Button Style="{StaticResource IconButton}" Content="&#xE74D;" ToolTip="Delete user" AutomationProperties.Name="Delete user"
+                                        Command="{Binding DataContext.DeleteCommand, ElementName=UserList}" CommandParameter="{Binding}" />
+                            </StackPanel>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="{Binding UserName}" FontSize="16" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding Role}" Style="{StaticResource MutedText}" FontSize="12" />
+                            </StackPanel>
+                        </DockPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </DockPanel>
+
+        <Border Grid.Column="2" Style="{StaticResource Card}" VerticalAlignment="Top">
+            <StackPanel>
+                <TextBlock Text="New user" Style="{StaticResource SectionTitle}" Margin="0,0,0,4" />
+                <TextBlock Text="User name" Style="{StaticResource FieldLabel}" />
+                <TextBox Text="{Binding NewUserName, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="New user name" />
+                <TextBlock Text="Role" Style="{StaticResource FieldLabel}" />
+                <ComboBox ItemsSource="{Binding Roles}" SelectedItem="{Binding NewUserRole}" AutomationProperties.Name="Role" />
+                <TextBlock Text="PIN or password (at least 4 characters)" Style="{StaticResource FieldLabel}" TextWrapping="Wrap" />
+                <PasswordBox x:Name="NewSecretBox" PasswordChanged="OnNewSecretChanged" AutomationProperties.Name="New user PIN" />
+                <Button Content="Create user" Style="{StaticResource AccentButton}" Command="{Binding CreateCommand}" Margin="0,14,0,0"
+                        HorizontalAlignment="Left" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

@@ -1,4 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <!-- WPF shell: views, styles and thin Windows adapters only. All view-model logic lives in
+       SabhaMujic.Desktop.ViewModels (net10.0) so it can be unit-tested on Linux. -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
@@ -8,8 +10,8 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../SabhaMujic.Client/SabhaMujic.Client.csproj" />
+    <ProjectReference Include="../SabhaMujic.Desktop.ViewModels/SabhaMujic.Desktop.ViewModels.csproj" />
+    <!-- Used by the named-pipe client that M3 adds. -->
     <PackageReference Include="StreamJsonRpc" />
-    <PackageReference Include="CommunityToolkit.Mvvm" />
-    <PackageReference Include="QRCoder" />
   </ItemGroup>
 </Project>
