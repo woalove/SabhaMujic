@@ -1,6 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <!--
+      Cross-platform tests everywhere; on Windows also a net10.0-windows run that covers Media Foundation and WASAPI.
+      `-p:AudioWindowsTests=true` compiles (but cannot run) the Windows target on Linux.
+    -->
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <TargetFrameworks Condition="'$(OS)' == 'Windows_NT' Or '$(AudioWindowsTests)' == 'true'">net10.0;net10.0-windows</TargetFrameworks>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
@@ -13,5 +18,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/SabhaMujic.Audio/SabhaMujic.Audio.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
+    <ProjectReference Include="../../src/SabhaMujic.Audio.Windows/SabhaMujic.Audio.Windows.csproj" />
   </ItemGroup>
 </Project>
