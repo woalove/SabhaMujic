@@ -13,6 +13,10 @@
     <PackageReference Include="StreamJsonRpc" />
   </ItemGroup>
   <ItemGroup>
+    <!-- M5: the mobile web remote is served from memory (no build step at install time). See Remote/Http/WebAssets.cs. -->
+    <EmbeddedResource Include="../SabhaMujic.Remote.Web/wwwroot/**/*" LogicalName="RemoteWeb/%(RecursiveDir)%(Filename)%(Extension)" WithCulture="false" />
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="SabhaMujic.Server.Tests" />
   </ItemGroup>
 </Project>
