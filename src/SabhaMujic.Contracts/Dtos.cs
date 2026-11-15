@@ -34,7 +34,11 @@ public sealed record PlaylistDto(Guid Id, string Name, IReadOnlyList<Guid> Track
 public sealed record QueueItemDto(Guid QueueItemId, Guid TrackId);
 
 /// <summary>Queue snapshot. <see cref="Revision"/> increases on every change so clients can drop stale events.</summary>
-public sealed record QueueDto(IReadOnlyList<QueueItemDto> Items, int CurrentIndex, long Revision);
+public sealed record QueueDto(IReadOnlyList<QueueItemDto> Items, int CurrentIndex, long Revision)
+{
+    /// <summary>Changes every time the service starts. Clients reset revision tracking when it changes.</summary>
+    public Guid ServerEpoch { get; init; }
+}
 
 public sealed record PlaybackStateDto(
     PlaybackStatus Status,
@@ -49,7 +53,11 @@ public sealed record PlaybackStateDto(
     double CrossfadeSeconds,
     string? ErrorMessage,
     long Revision,
-    DateTimeOffset Timestamp);
+    DateTimeOffset Timestamp)
+{
+    /// <summary>Changes every time the service starts. Clients reset revision tracking when it changes.</summary>
+    public Guid ServerEpoch { get; init; }
+}
 
 public sealed record UserDto(Guid Id, string UserName, Role Role, DateTimeOffset CreatedAt);
 
@@ -64,6 +72,17 @@ public sealed record ImportResultDto(Guid TrackId, bool WasDuplicate);
 
 public sealed record ImportProgressDto(Guid UploadId, string FileName, long BytesReceived, long TotalBytes, string Stage);
 
+/// <summary>Values used for <see cref="ImportProgressDto.Stage"/>.</summary>
+public static class ImportStages
+{
+    public const string Uploading = "uploading";
+    public const string Validating = "validating";
+    public const string Storing = "storing";
+    public const string Analyzing = "analyzing";
+    public const string Done = "done";
+    public const string Failed = "failed";
+}
+
 public sealed record TrackUpdateDto(Guid TrackId, string Title, string? Artist, Guid? CategoryId);
 
 public enum LibraryChangeKind
@@ -74,6 +93,10 @@ public enum LibraryChangeKind
     CategoriesChanged = 3,
     PlaylistsChanged = 4,
     AnalysisUpdated = 5,
+    /// <summary>Admin-only data; only delivered to admin sessions.</summary>
+    UsersChanged = 6,
+    /// <summary>Admin-only data; only delivered to admin sessions.</summary>
+    DevicesChanged = 7,
 }
 
 public sealed record LibraryChangedDto(LibraryChangeKind Kind, Guid? EntityId);

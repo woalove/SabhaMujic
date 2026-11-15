@@ -25,6 +25,18 @@ public interface ILibraryApi
     Task<PagedResult<TrackDto>> GetTracksAsync(TrackQuery query, CancellationToken ct = default);
 
     Task<TrackDto> GetTrackAsync(Guid trackId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Batch lookup (e.g. to show titles for queue/playlist items). Unknown ids are omitted; order follows the request.
+    /// At most <see cref="LibraryLimits.MaxBatchLookup"/> ids.
+    /// </summary>
+    Task<IReadOnlyList<TrackDto>> GetTracksByIdsAsync(IReadOnlyList<Guid> trackIds, CancellationToken ct = default);
+}
+
+public static class LibraryLimits
+{
+    public const int MaxBatchLookup = 500;
+    public const int MaxPageSize = 500;
 }
 
 public interface IPlaybackApi
@@ -40,6 +52,10 @@ public interface IPlaybackApi
 
     Task PauseAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// Resumes when Paused. When Stopped/Idle/Error, starts the current queue item (or the first item);
+    /// a no-op when the queue is empty.
+    /// </summary>
     Task ResumeAsync(CancellationToken ct = default);
 
     Task StopAsync(CancellationToken ct = default);
@@ -66,6 +82,7 @@ public interface IPlaybackApi
 
     Task<QueueDto> RemoveFromQueueAsync(Guid queueItemId, CancellationToken ct = default);
 
+    /// <summary><paramref name="newIndex"/> is the item's final position after the move (clamped to the queue bounds).</summary>
     Task<QueueDto> MoveQueueItemAsync(Guid queueItemId, int newIndex, CancellationToken ct = default);
 
     /// <summary>Removes all items except the one currently playing.</summary>
@@ -138,6 +155,9 @@ public interface IAdminApi
 /// Server-to-client notifications. Desktop clients register an implementation as a StreamJsonRpc target;
 /// the SignalR hub invokes client methods with the same names.
 /// </summary>
+/// Delivery rules: the service pushes <c>PlaybackStateChanged</c> on every status change, track change, seek,
+/// Smart Loop wrap, and setting change, plus a periodic heartbeat (about every 5 s) while playing; clients
+/// interpolate position between pushes using <see cref="PlaybackStateDto.Timestamp"/>.
 public interface IClientEvents
 {
     void PlaybackStateChanged(PlaybackStateDto state);

@@ -20,7 +20,11 @@ public interface ISabhaClient : IAsyncDisposable
 {
     ConnectionState State { get; }
 
-    /// <summary>The current session, or null when signed out.</summary>
+    /// <summary>
+    /// The current session, or null when signed out. Successful <c>Auth.LoginAsync</c>/<c>ResumeSessionAsync</c> calls
+    /// made through this client set it; <c>LogoutAsync</c>, a <c>SessionEnded</c> event or a failed resume clear it.
+    /// Every change raises <see cref="SessionChanged"/>.
+    /// </summary>
     SessionDto? Session { get; }
 
     IAuthApi Auth { get; }
@@ -40,7 +44,11 @@ public interface ISabhaClient : IAsyncDisposable
 
     event EventHandler<SessionDto?>? SessionChanged;
 
-    /// <summary>Connects (and keeps reconnecting) until disposed or cancelled. Resumes the session after reconnects.</summary>
+    /// <summary>
+    /// Completes once the first connection (including the Hello handshake) succeeds; throws on an incompatible service
+    /// or cancellation. After that the client keeps reconnecting in the background with backoff until disposed, and
+    /// automatically resumes the stored session after each reconnect.
+    /// </summary>
     Task ConnectAsync(CancellationToken ct = default);
 }
 
