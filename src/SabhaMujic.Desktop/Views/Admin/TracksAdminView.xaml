@@ -1,0 +1,84 @@
+<UserControl x:Class="SabhaMujic.Desktop.Views.Admin.TracksAdminView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" MinWidth="220" MaxWidth="420" />
+            <ColumnDefinition Width="16" />
+            <ColumnDefinition Width="2*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Track list -->
+        <DockPanel Grid.Column="0">
+            <TextBox DockPanel.Dock="Top" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,6"
+                     ToolTip="Search tracks" AutomationProperties.Name="Search tracks" />
+            <TextBlock DockPanel.Dock="Top" Text="{Binding ResultText}" Style="{StaticResource MutedText}" FontSize="12" Margin="0,0,0,6" TextWrapping="Wrap" />
+            <ListBox ItemsSource="{Binding Tracks}" SelectedItem="{Binding SelectedTrack}" AutomationProperties.Name="Tracks">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel>
+                            <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding Artist}" Style="{StaticResource MutedText}" FontSize="12" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </DockPanel>
+
+        <!-- Editor -->
+        <TextBlock Grid.Column="2" Text="Choose a track to edit." Style="{StaticResource MutedText}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Visibility="{Binding HasSelection, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}" />
+        <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto"
+                      Visibility="{Binding HasSelection, Converter={StaticResource BoolToVisibility}}">
+            <StackPanel MaxWidth="560" HorizontalAlignment="Left">
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource MessageStrip}" Focusable="False" />
+
+                <TextBlock Text="Details" Style="{StaticResource SectionTitle}" Margin="0,0,0,4" />
+                <TextBlock Text="Title" Style="{StaticResource FieldLabel}" />
+                <TextBox Text="{Binding EditTitle, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Title" />
+                <TextBlock Text="Artist" Style="{StaticResource FieldLabel}" />
+                <TextBox Text="{Binding EditArtist, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Artist" />
+                <TextBlock Text="Category" Style="{StaticResource FieldLabel}" />
+                <ComboBox ItemsSource="{Binding CategoryOptions}" SelectedItem="{Binding EditCategory}" DisplayMemberPath="Name"
+                          AutomationProperties.Name="Category" />
+                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                    <Button Content="Save" Style="{StaticResource AccentButton}" Command="{Binding SaveCommand}" />
+                    <Button Content="Delete track…" Command="{Binding DeleteCommand}" />
+                </StackPanel>
+
+                <TextBlock Text="Smart Loop" Style="{StaticResource SectionTitle}" Margin="0,20,0,4" />
+                <TextBlock Text="{Binding AnalysisText}" Style="{StaticResource MutedText}" />
+                <TextBlock Text="{Binding CurrentLoopText}" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,2,0,6" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="12" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="12" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Loop start (s)" Style="{StaticResource FieldLabel}" />
+                        <TextBox Text="{Binding LoopStart}" AutomationProperties.Name="Loop start in seconds" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Loop end (s)" Style="{StaticResource FieldLabel}" />
+                        <TextBox Text="{Binding LoopEnd}" AutomationProperties.Name="Loop end in seconds" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="4">
+                        <TextBlock Text="Seam crossfade (s)" Style="{StaticResource FieldLabel}" />
+                        <TextBox Text="{Binding LoopCrossfade}" AutomationProperties.Name="Loop crossfade in seconds" />
+                    </StackPanel>
+                </Grid>
+                <TextBlock Text="Numbers are applied when you leave a box." Style="{StaticResource MutedText}" FontSize="12" Margin="0,4,0,0" />
+                <TextBlock Text="{Binding LoopValidationError}" Foreground="{StaticResource ErrorTextBrush}" Margin="0,6,0,0" TextWrapping="Wrap"
+                           Visibility="{Binding LoopValidationError, Converter={StaticResource NullToVisibility}}" />
+                <WrapPanel Margin="0,12,0,0">
+                    <Button Content="Save manual loop" Style="{StaticResource AccentButton}" Command="{Binding SaveLoopCommand}" Margin="0,0,8,6" />
+                    <Button Content="Use automatic loop" Command="{Binding UseAutomaticLoopCommand}" Margin="0,0,8,6" />
+                    <Button Content="Re-analyze" Command="{Binding ReanalyzeCommand}" Margin="0,0,8,6" />
+                </WrapPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

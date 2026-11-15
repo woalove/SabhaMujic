@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Cross-platform view models for the WPF desktop app. Everything here is unit-tested on Linux;
+       the WPF project (net10.0-windows) only contains views and thin platform adapters. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>SabhaMujic.Desktop.ViewModels</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../SabhaMujic.Client/SabhaMujic.Client.csproj" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="QRCoder" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SabhaMujic.Desktop.Tests" />
+  </ItemGroup>
+</Project>
