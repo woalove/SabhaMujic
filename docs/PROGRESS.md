@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-11-15 (M0–M3b, M4a merged; M5 in progress)_
+_Last updated: 2026-11-15 (M0–M5 merged except installer/hardening (M6); M4 desktop polish pending)_
 
 ## Current milestone: M0 Foundations
 | Task | Status | Evidence |
@@ -43,10 +43,16 @@ _Last updated: 2026-11-15 (M0–M3b, M4a merged; M5 in progress)_
 - Evidence (Linux): a full-stack integration test with the real engine runs import → analysis → play → crossfade → Smart Loop → all clients disconnected (playback continues) → reconnect → restart restore → delete the playing track → corrupt import. 606 tests green.
 - Windows tests (temporary standard user denied the files, can connect to the pipe, can't squat it): pending the CI result.
 
+## M5 iPhone remote: merged
+- Local CA + rotating leaf certificate, bootstrap page + `.mobileconfig`, fragment-only pairing code, cookie auth with CSRF checks, the local-network peer filter, a SignalR hub, chunked admin uploads, and the mobile web UI (Now / Queue / Library / Playlists / Admin) with live sync and reconnect.
+- Evidence (Linux): 155 remote .NET tests, including the exhaustive hub/HTTP authorization matrix with zero side effects, revoke closing live connections, and playback continuing when all remote connections drop. 7 Playwright e2e tests (Chromium, iPhone 13 emulation) pass. `tsc --checkJs` is clean.
+- **Unverified:** real iPhone Safari, CA profile install/trust, SChannel with the leaf under the service account. `RemoteHost` isn't yet started by the Windows service (integration step below).
+
 ## Backlog for M6
 - Engine `RefreshTrackAsync` (override applies to the live voice) and `RestoreQueueAsync` (keep ids and position). Data migration 0002 for full analysis fidelity.
 - `GetManyAsync` batch track lookup in Data. Desktop queue/playlist views should use `GetTracksByIdsAsync`.
 - Installer: create ProgramData + ACLs, Event Log source, launch the app elevated on finish, firewall rules.
+- Integration: start `RemoteHost` from the service as an `IHostedComponent` with a DPAPI `ISecretProtector` and an ACL'd `certs` folder; show the CA fingerprint on the desktop pairing screen; `/api/logout` unpairs (revokes) the device instead of leaving an orphaned token; DevHost `--remote` for manual e2e against the real engine.
 
 ## Next
 - M1 Audio engine (Agent 1) and M2 Data/storage (Agent 3), in parallel worktrees, once Windows CI is green.

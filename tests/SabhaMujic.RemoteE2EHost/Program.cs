@@ -200,7 +200,7 @@ internal sealed class NoAnalysis : IAnalysisQueue
 {
     public int AnalysisVersion => 1;
 
-    public void Enqueue(Guid trackId)
+    public void Enqueue(Guid trackId, ImportProgressTarget? progress = null)
     {
     }
 }

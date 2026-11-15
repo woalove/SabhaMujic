@@ -46,3 +46,23 @@ Build it with `dotnet run --project tools/SabhaMujic.AudioSpike -c Release -- <f
 - [ ] `logs\sabhamujic-*.log` grows and rolls, and entries appear in Event Viewer.
 - [ ] With the service stopped, another process holding the pipe name makes the service fail to start (anti-squatting).
 - [ ] With the service running, playback continues while the desktop app is closed or killed.
+
+## iPhone remote (M5): needs a PC with the service running and an iPhone on the same Wi-Fi
+- [ ] The PC firewall allows TCP 8443 and 8080 on the Private profile. `http://<pc-ip>:8080/health` returns OK from the phone.
+- [ ] Scanning the desktop pairing QR opens `http://<ip>:8080/#code=NNNNNN` in Safari. The page shows the code and the CA SHA-256 fingerprint, and the fingerprint matches the one on the PC.
+- [ ] "Download profile" → Allow → Settings → General → VPN & Device Management → SabhaMujic Remote → Install. The profile shows "SabhaMujic Local CA (<PC name>)".
+- [ ] Settings → General → About → Certificate Trust Settings: full trust for the SabhaMujic CA can be enabled.
+- [ ] "Continue" opens `https://<ip>:8443/pair#code=NNNNNN` with no certificate warning and the code prefilled. Pairing with a device name shows the Now tab, and the pill says Connected.
+- [ ] `https://<pc-hostname>.local:8443/` also loads without a warning.
+- [ ] Transport (play/pause, prev, next, stop), seek, volume, mute, loop mode, crossfade and the Crossfading badge all work; the position advances smoothly.
+- [ ] A second iPhone sees changes live.
+- [ ] Queue (play item, up/down, remove, clear with confirm), Library (chips, search, load more, play now / play next / add to queue), Playlists (add, replace with confirm).
+- [ ] A volunteer device shows no Admin tab.
+- [ ] Admin tab: pick several files from Files, edit title/artist/category, upload with progress, cancel mid-upload, re-upload the same file ("Already in the library"), add a category.
+- [ ] Lock the phone or toggle Wi-Fi: the pill shows Reconnecting… and returns to Connected with current state. Restarting the service: same.
+- [ ] **Playback continues on the PC while every phone is locked, offline or closed.**
+- [ ] Revoking the device on the PC returns the phone to the pair screen; reloading stays signed out.
+- [ ] Add to Home Screen: the icon shows and the app opens standalone. If iOS keeps separate cookies and asks to pair, pairing with a new code works.
+- [ ] Light and dark mode read well, touch targets are comfortable, and iOS 16.x is checked if available.
+- [ ] After the PC's IP changes, the phone connects without a warning within about 10 minutes (the leaf is re-issued).
+- [ ] The leaf certificate works with SChannel under the service account.

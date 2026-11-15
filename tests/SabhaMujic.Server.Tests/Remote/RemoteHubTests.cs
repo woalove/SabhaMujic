@@ -150,7 +150,7 @@ public sealed class RemoteHubTests : IAsyncLifetime
         Assert.Equal(1, _host.Server.StoredFileCount());
         Assert.Single(_host.Server.Probe.Probed);
         Assert.Contains(result.TrackId, _host.Server.AnalysisQueue.Queued);
-        await AssertEx.Eventually(() => progress.Any(p => p.UploadId == id && p.Stage == ImportStages.Done), "progress reaches the device's hub");
+        await AssertEx.Eventually(() => progress.Any(p => p.UploadId == id && p.Stage == ImportStages.Analyzing), "progress reaches the device's hub (imports end at analyzing; the analysis worker sends done)");
         Assert.Contains(progress, p => p.Stage == ImportStages.Uploading && p.BytesReceived == AdminLimits.MaxChunkBytes);
 
         // Same content again → duplicate; cancel works for an abandoned upload.
