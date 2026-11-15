@@ -18,6 +18,9 @@ internal sealed class FakeResolver : ITrackResolver
         return id;
     }
 
+    /// <summary>Replaces the analysis the resolver returns for a track (e.g. a new loop override).</summary>
+    public void Set(Guid trackId, TrackAnalysis? analysis) => _tracks[trackId] = _tracks[trackId] with { Analysis = analysis };
+
     public Task<ResolvedTrack?> ResolveAsync(Guid trackId, CancellationToken ct = default) =>
         Task.FromResult(_tracks.TryGetValue(trackId, out var track) ? track : null);
 }

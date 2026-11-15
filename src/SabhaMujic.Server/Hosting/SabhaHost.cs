@@ -108,6 +108,7 @@ public sealed class SabhaHost : IAsyncDisposable
         Analysis = new AnalysisWorker(Decoders, new SqliteTrackRepository(Database), new SqliteTrackAnalysisRepository(Database), Store, Resolver,
             events, loggers.CreateLogger<AnalysisWorker>(), _options.Engine?.Analysis);
         Engine.TrackAnalyzed += (_, e) => Analysis.AcceptEngineResult(e.TrackId, e.Analysis);
+        Analysis.AnalysisStored += trackId => _ = RefreshPlayingTrackAsync(trackId);
 
         App = new ServerApplication(new ServerDependencies
         {
@@ -212,6 +213,19 @@ public sealed class SabhaHost : IAsyncDisposable
     {
         await StopAsync(CancellationToken.None).ConfigureAwait(false);
         _lifetime.Dispose();
+    }
+
+    /// <summary>New analysis results reach the live voice (off the worker thread; failures only logged).</summary>
+    private async Task RefreshPlayingTrackAsync(Guid trackId)
+    {
+        try
+        {
+            await Playback.OnTrackChangedAsync(trackId, LibraryChangeKind.AnalysisUpdated, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            _logger.LogDebug(ex, "Could not refresh track {TrackId} in the engine.", trackId);
+        }
     }
 
     private async Task FadeOutAsync()

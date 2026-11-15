@@ -43,6 +43,34 @@ public sealed class PlaybackQueue
         return added;
     }
 
+    /// <summary>
+    /// Restores a saved queue exactly (same queue item ids) with <paramref name="currentIndex"/> selected (-1 for none).
+    /// Throws InvalidArgument for too many items, duplicate ids or an index outside the queue.
+    /// </summary>
+    public void Restore(IReadOnlyList<QueueItemDto> items, int currentIndex)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        if (items.Count > MaxItems)
+        {
+            throw new SabhaMujicException(ErrorCode.InvalidArgument, $"The queue is limited to {MaxItems} items.");
+        }
+
+        if (items.Select(i => i.QueueItemId).Distinct().Count() != items.Count)
+        {
+            throw new SabhaMujicException(ErrorCode.InvalidArgument, "Queue item ids must be unique.");
+        }
+
+        if (currentIndex < -1 || currentIndex >= items.Count)
+        {
+            throw new SabhaMujicException(ErrorCode.InvalidArgument, "The current index is outside the queue.");
+        }
+
+        _items.Clear();
+        _items.AddRange(items);
+        CurrentIndex = currentIndex;
+        Touch();
+    }
+
     public void ReplaceAll(IReadOnlyList<Guid> trackIds)
     {
         _items.Clear();

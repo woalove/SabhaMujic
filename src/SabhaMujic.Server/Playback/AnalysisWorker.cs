@@ -52,6 +52,12 @@ public sealed class AnalysisWorker : IAnalysisQueue, IDisposable
 
     public int AnalysisVersion => LoopAnalyzer.AnalysisVersion;
 
+    /// <summary>
+    /// Raised (on the worker thread) after a new Ready/Failed result was stored, so the host can hand it to the engine.
+    /// Handlers must not block.
+    /// </summary>
+    public event Action<Guid>? AnalysisStored;
+
     /// <summary>Tracks analysed or stored so far (diagnostics/tests).</summary>
     public int CompletedCount => Volatile.Read(ref _completed);
 
@@ -178,6 +184,7 @@ public sealed class AnalysisWorker : IAnalysisQueue, IDisposable
             if (TrySave(new StoredAnalysis(trackId, AnalysisStatus.Failed, AnalysisVersion, Error: reason), ct))
             {
                 _resolver.Invalidate(trackId);
+                Stored(trackId);
                 Changed(trackId);
                 Progress(job, ImportStages.Failed);
             }
@@ -190,6 +197,7 @@ public sealed class AnalysisWorker : IAnalysisQueue, IDisposable
         {
             CorrectDuration(trackId, result, ct);
             _resolver.Invalidate(trackId);
+            Stored(trackId);
             Changed(trackId);
             Progress(job, ImportStages.Done);
         }
@@ -209,6 +217,7 @@ public sealed class AnalysisWorker : IAnalysisQueue, IDisposable
         {
             CorrectDuration(trackId, analysis, ct);
             _resolver.Invalidate(trackId);
+            Stored(trackId);
             Changed(trackId);
             Interlocked.Increment(ref _completed);
         }
@@ -238,6 +247,18 @@ public sealed class AnalysisWorker : IAnalysisQueue, IDisposable
         catch (SabhaMujicException ex) when (ex.Code == ErrorCode.NotFound)
         {
             return false;
+        }
+    }
+
+    private void Stored(Guid trackId)
+    {
+        try
+        {
+            AnalysisStored?.Invoke(trackId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "An AnalysisStored handler failed.");
         }
     }
 

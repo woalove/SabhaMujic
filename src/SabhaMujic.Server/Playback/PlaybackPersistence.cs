@@ -9,10 +9,10 @@ namespace SabhaMujic.Server.Playback;
 /// <summary>
 /// Keeps the queue and playback settings in the database so the service restores them after a restart.
 /// <para>
-/// Restore: settings (volume, mute, loop mode, crossfade) and the queue in order, with the current item selected.
-/// Playback restarts <b>stopped</b> at that item (the position inside the track is not restored), and the restored
-/// queue items get new queue item ids. Save: debounced (default 1 s) after any queue or settings change, and
-/// immediately on <see cref="FlushAsync"/> (shutdown).
+/// Restore: settings (volume, mute, loop mode, crossfade) and the queue with its queue item ids and current item.
+/// Playback restarts <b>stopped</b>; the next Resume continues the current item at the saved position.
+/// Save: debounced (default 1 s) after any queue or settings change, and immediately on <see cref="FlushAsync"/>
+/// (shutdown). The position is written with every save, so after a crash it is that of the last save.
 /// </para>
 /// </summary>
 public sealed class PlaybackPersistence : IAsyncDisposable
@@ -54,12 +54,8 @@ public sealed class PlaybackPersistence : IAsyncDisposable
 
         if (queue.Items.Count > 0)
         {
-            // Restore with loop mode Off (the engine's initial mode) so selecting the current item never wraps.
-            await engine.ReplaceQueueAsync(queue.Items.Select(i => i.TrackId).ToArray(), startPlayback: false, ct).ConfigureAwait(false);
-            for (var i = 0; i <= queue.CurrentIndex; i++)
-            {
-                await engine.NextAsync(ct).ConfigureAwait(false); // when stopped, Next only moves the selection
-            }
+            await engine.RestoreQueueAsync(queue.Items, queue.CurrentIndex, queue.PositionSeconds > 0 ? queue.PositionSeconds : null, ct)
+                .ConfigureAwait(false);
         }
 
         await engine.SetCrossfadeAsync(settings.CrossfadeSeconds, ct).ConfigureAwait(false);
@@ -76,7 +72,8 @@ public sealed class PlaybackPersistence : IAsyncDisposable
 
         _backend.StateChanged += OnStateChanged;
         _backend.QueueChanged += OnQueueChanged;
-        _logger.LogInformation("Restored {Count} queue items (current index {Index}) and playback settings.", queue.Items.Count, queue.CurrentIndex);
+        _logger.LogInformation("Restored {Count} queue items (current index {Index}, position {Position:F1} s) and playback settings.",
+            queue.Items.Count, queue.CurrentIndex, queue.PositionSeconds);
     }
 
     /// <summary>Saves immediately if anything changed since the last save.</summary>
@@ -109,6 +106,16 @@ public sealed class PlaybackPersistence : IAsyncDisposable
         _backend.QueueChanged -= OnQueueChanged;
         await _saveGate.WaitAsync().ConfigureAwait(false);
         _saveGate.Release();
+    }
+
+    /// <summary>The position inside the current queue item while it is loaded (playing or paused), else 0.</summary>
+    private static double PositionOf(PlaybackStateDto state, QueueDto queue)
+    {
+        var current = queue.CurrentIndex >= 0 && queue.CurrentIndex < queue.Items.Count ? queue.Items[queue.CurrentIndex].QueueItemId : (Guid?)null;
+        var loaded = state.Status is PlaybackStatus.Playing or PlaybackStatus.Paused or PlaybackStatus.Crossfading;
+        return loaded && current is not null && state.CurrentQueueItemId == current && double.IsFinite(state.PositionSeconds)
+            ? Math.Max(0, state.PositionSeconds)
+            : 0;
     }
 
     private void OnStateChanged(PlaybackStateDto state)
@@ -188,6 +195,8 @@ public sealed class PlaybackPersistence : IAsyncDisposable
             {
                 await _repository.SaveSettingsAsync(settings, ct).ConfigureAwait(false);
             }
+
+            await _repository.SavePositionAsync(PositionOf(state, queue), ct).ConfigureAwait(false);
 
             lock (_gate)
             {
