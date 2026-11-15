@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-11-15 (M0 done; M1, M2, M3a, M4a merged; M3b and M5 in progress)_
+_Last updated: 2026-11-15 (M0–M3b, M4a merged; M5 in progress)_
 
 ## Current milestone: M0 Foundations
 | Task | Status | Evidence |
@@ -36,6 +36,17 @@ _Last updated: 2026-11-15 (M0 done; M1, M2, M3a, M4a merged; M3b and M5 in progr
 - Decoding (WAV everywhere, MediaFoundation on Windows), silence detection, Smart Loop analysis (analyzes 5 min of audio in 0.5 s in Release), the equal-power `CrossfadeMixer` with buffered voices, the `PlaybackEngine` (queue, state machine, Smart Loop, repeat, skipping unreadable files), `NullRealtimeOutput`, `WasapiOutput`, and the `tools/SabhaMujic.AudioSpike` manual test tool.
 - Evidence: 46 Audio tests pass on Linux. Planted loop found exactly (36.000 s). Crossfade power within ±0.5 dB. Zero render-thread allocations over 10 s with crossfades and seams.
 - **Unverified:** MediaFoundation decoding, WASAPI playback and device loss (8 Windows-only tests run on CI, which has no audio device), audible quality, and loop detection on real devotional recordings.
+
+## M3b Engine wiring + Windows service: merged
+- First-run setup: elevated Windows admin on the desktop pipe only. `EnginePlaybackBackend` (non-blocking dispatch, ~5 s heartbeat, safe deletion of the playing track), `StoreTrackResolver`, `PlaybackPersistence`, `DecoderAudioProbe`, `AnalysisWorker`, `SabhaHost`, `tools/SabhaMujic.DevHost`.
+- Windows service: `WindowsStoreAcl`, `WindowsPipeStreamFactory`, `WindowsCallerIdentity`, rolling file log.
+- Evidence (Linux): a full-stack integration test with the real engine runs import → analysis → play → crossfade → Smart Loop → all clients disconnected (playback continues) → reconnect → restart restore → delete the playing track → corrupt import. 606 tests green.
+- Windows tests (temporary standard user denied the files, can connect to the pipe, can't squat it): pending the CI result.
+
+## Backlog for M6
+- Engine `RefreshTrackAsync` (override applies to the live voice) and `RestoreQueueAsync` (keep ids and position). Data migration 0002 for full analysis fidelity.
+- `GetManyAsync` batch track lookup in Data. Desktop queue/playlist views should use `GetTracksByIdsAsync`.
+- Installer: create ProgramData + ACLs, Event Log source, launch the app elevated on finish, firewall rules.
 
 ## Next
 - M1 Audio engine (Agent 1) and M2 Data/storage (Agent 3), in parallel worktrees, once Windows CI is green.

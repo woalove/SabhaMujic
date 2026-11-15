@@ -36,3 +36,13 @@ Build it with `dotnet run --project tools/SabhaMujic.AudioSpike -c Release -- <f
 - [ ] A track with leading/trailing silence: the silence is skipped and the crossfade starts from the music's actual end.
 - [ ] Unplug the headphones / disable the default device during playback: no crash, and playback resumes on the new default device.
 - [ ] 30 minutes of continuous Smart Loop: no drift, crackle or memory growth (Task Manager).
+
+## Service, ACLs, first-run setup (M3b)
+- [ ] Install and start the service. `%ProgramData%\SabhaMujic\{data,library,uploads}` show only SYSTEM, Administrators and `NT SERVICE\SabhaMujic`, and a standard user gets "Access denied".
+- [ ] Fresh install, app opened normally: the setup form says to use "Run as administrator". Run as administrator: the admin account is created and you're signed in.
+- [ ] Audio from the service (session 0) is audible on the default device. Unplugging and replugging the device recovers. **(Risk #1)**
+- [ ] Stopping the service fades out with no click. Starting again restores the queue (stopped at the same item), volume, loop mode and crossfade.
+- [ ] Deleting the playing track (admin) skips to the next and removes the file from `library`.
+- [ ] `logs\sabhamujic-*.log` grows and rolls, and entries appear in Event Viewer.
+- [ ] With the service stopped, another process holding the pipe name makes the service fail to start (anti-squatting).
+- [ ] With the service running, playback continues while the desktop app is closed or killed.
