@@ -87,6 +87,16 @@ public sealed class AuthorizationMatrixTests(ServerFixture fixture) : IClassFixt
             await Task.Delay(20);
             Assert.Equal(before, await server.SnapshotAsync());
         }
+        else if (methodName == nameof(IAuthApi.CompleteInitialSetupAsync))
+        {
+            // Anonymous in the matrix, but the service adds its own gate (elevated desktop admin + empty user table);
+            // this fixture's pipe identity is never elevated and accounts exist.
+            Assert.NotNull(error);
+            Assert.Equal(ErrorCode.Forbidden, error.Code);
+            await Task.Delay(20);
+            var after = await server.SnapshotAsync();
+            Assert.Equal(StripAudit(before), StripAudit(after));
+        }
         else if (error is not null)
         {
             Assert.NotEqual(ErrorCode.Forbidden, error.Code);
@@ -97,6 +107,10 @@ public sealed class AuthorizationMatrixTests(ServerFixture fixture) : IClassFixt
             }
         }
     }
+
+    /// <summary>The denial itself is audited ("setup.denied"); everything else must be unchanged.</summary>
+    private static string StripAudit(string snapshot) =>
+        string.Join('\n', snapshot.Split('\n').Where(line => !line.StartsWith("audit_log:", StringComparison.Ordinal)));
 
     private static async Task<SabhaMujicException?> InvokeAsync(PipeSabhaClient client, Type api, MethodInfo method)
     {

@@ -89,13 +89,63 @@ public sealed class AuthService
         }
 
         _loginPerUser.Reset(userKey);
+        var result = await CreateUserSessionAsync(caller, user, ct).ConfigureAwait(false);
+        await _audit.WriteAsync(result.Caller, "login", "user:" + user.UserName).ConfigureAwait(false);
+        return result;
+    }
+
+    /// <summary>True while no user accounts exist (fresh install).</summary>
+    public async Task<bool> IsSetupRequiredAsync(CancellationToken ct) =>
+        (await _users.ListAsync(ct).ConfigureAwait(false)).Count == 0;
+
+    /// <summary>
+    /// First-run setup from the desktop app (decision #24): creates the first administrator and signs in as it.
+    /// Forbidden unless the caller is on the desktop pipe AND the transport reports an elevated local Administrator;
+    /// Conflict once any account exists. Serialized with <see cref="EnsureInitialAdminAsync"/>, so concurrent attempts
+    /// create exactly one account.
+    /// </summary>
+    /// <param name="caller">The connection's anonymous (transport) identity.</param>
+    /// <param name="isElevatedAdministrator">Set only by a transport that verified the OS token (never by the remote).</param>
+    public async Task<AuthResult> CompleteInitialSetupAsync(CallerContext caller, bool isElevatedAdministrator, string userName, string secret,
+        CancellationToken ct)
+    {
+        if (caller.Client != ClientKind.Desktop || !isElevatedAdministrator)
+        {
+            await _audit.WriteAsync(caller, "setup.denied").ConfigureAwait(false);
+            throw new SabhaMujicException(ErrorCode.Forbidden,
+                "First-time setup must be done in the SabhaMujic app started with 'Run as administrator' on this PC.");
+        }
+
+        UserRecord user;
+        await _bootstrapGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (!await IsSetupRequiredAsync(ct).ConfigureAwait(false))
+            {
+                throw new SabhaMujicException(ErrorCode.Conflict, "SabhaMujic is already set up. Sign in instead.");
+            }
+
+            user = await _users.CreateAsync(userName, Role.Admin, HashSecret(secret), ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _bootstrapGate.Release();
+        }
+
+        var result = await CreateUserSessionAsync(caller, user, CancellationToken.None).ConfigureAwait(false);
+        await _audit.WriteAsync(result.Caller, "setup.complete", "user:" + user.UserName).ConfigureAwait(false);
+        _events.PublishLibraryChanged(new LibraryChangedDto(LibraryChangeKind.UsersChanged, user.Id));
+        return result;
+    }
+
+    private async Task<AuthResult> CreateUserSessionAsync(CallerContext caller, UserRecord user, CancellationToken ct)
+    {
         var lifetime = caller.Client == ClientKind.Remote ? _options.RemoteSessionLifetime : _options.DesktopSessionLifetime;
         var token = Tokens.NewToken();
         var tokenHash = Tokens.HashToken(token);
         var record = await _sessions.CreateAsync(
             new NewSession(tokenHash, user.Id, null, user.Role, caller.Client, _clock.GetUtcNow() + lifetime), ct).ConfigureAwait(false);
         var bound = BoundCaller(caller, record, user.UserName);
-        await _audit.WriteAsync(bound, "login", "user:" + user.UserName).ConfigureAwait(false);
         return new AuthResult(new SessionDto(token, user.UserName, user.Role, record.ExpiresAt), tokenHash, bound);
     }
 

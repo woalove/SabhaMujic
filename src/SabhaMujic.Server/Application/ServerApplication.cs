@@ -137,9 +137,12 @@ public sealed class ServerApplication : IDisposable
 
     public IAuditLog AuditLog { get; }
 
-    /// <summary>Creates the authorization choke point for one client connection.</summary>
-    public ApiSession CreateSession(ClientKind client, string transportPrincipal) =>
-        new(this, client, transportPrincipal, LoggerFactory.CreateLogger<ApiSession>());
+    /// <summary>
+    /// Creates the authorization choke point for one client connection. <paramref name="isElevatedAdministrator"/> may only
+    /// be true when the transport verified the caller's OS token (the Windows desktop pipe); the remote never sets it.
+    /// </summary>
+    public ApiSession CreateSession(ClientKind client, string transportPrincipal, bool isElevatedAdministrator = false) =>
+        new(this, client, transportPrincipal, isElevatedAdministrator && client == ClientKind.Desktop, LoggerFactory.CreateLogger<ApiSession>());
 
     public void Dispose()
     {

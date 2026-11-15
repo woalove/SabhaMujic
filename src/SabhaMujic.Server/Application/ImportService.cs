@@ -116,9 +116,10 @@ public sealed class ImportService
             }
 
             await _analysis.UpsertAsync(new TrackAnalysis(added.Track.Id, AnalysisStatus.Pending, 0), CancellationToken.None).ConfigureAwait(false);
-            _analysisQueue.Enqueue(added.Track.Id);
+            // The track is in the library now; the analyzer reports "done" (or "failed") when its analysis finishes.
+            Progress(caller, status, ImportStages.Analyzing);
+            _analysisQueue.Enqueue(added.Track.Id, new ImportProgressTarget(Owner(caller), uploadId, upload.FileName, upload.Length));
             _events.PublishLibraryChanged(new LibraryChangedDto(LibraryChangeKind.TrackAdded, added.Track.Id));
-            Progress(caller, status, ImportStages.Done);
             await _audit.WriteAsync(caller, "import.complete", "track:" + added.Track.Id, upload.FileName).ConfigureAwait(false);
             return new ImportResultDto(added.Track.Id, WasDuplicate: false);
         }

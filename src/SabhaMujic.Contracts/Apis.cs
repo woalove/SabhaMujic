@@ -16,6 +16,16 @@ public interface IAuthApi
     Task<SessionDto> ResumeSessionAsync(string token, CancellationToken ct = default);
 
     Task LogoutAsync(CancellationToken ct = default);
+
+    /// <summary>True while no user accounts exist (fresh install). Anonymous.</summary>
+    Task<bool> IsSetupRequiredAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Creates the first administrator account and signs in as it. Only succeeds while no accounts exist AND the
+    /// caller is a local Windows administrator connected over the desktop pipe (never from the remote).
+    /// Otherwise <see cref="ErrorCode.Forbidden"/> / <see cref="ErrorCode.Conflict"/>.
+    /// </summary>
+    Task<SessionDto> CompleteInitialSetupAsync(string adminUserName, string secret, CancellationToken ct = default);
 }
 
 public interface ILibraryApi

@@ -152,7 +152,8 @@ public class ShellAndLoginTests
         client.Events.LibraryChanged(new LibraryChangedDto(LibraryChangeKind.TrackAdded, Guid.NewGuid()));
         client.Events.LibraryChanged(new LibraryChangedDto(LibraryChangeKind.PlaylistsChanged, null));
 
-        Assert.Empty(client.Calls);
+        // Only the anonymous first-run check is allowed before sign-in.
+        Assert.All(client.Calls, c => Assert.Equal("IsSetupRequiredAsync", c.Method));
     }
 
     [Fact]

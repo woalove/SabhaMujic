@@ -492,6 +492,28 @@ public sealed class DemoSabhaClient : ISabhaClient
             s.SetSession(null);
             return true;
         }, authenticated: false);
+
+        public Task<bool> IsSetupRequiredAsync(CancellationToken ct = default) => s.Run(() => s._users.Count == 0, authenticated: false);
+
+        /// <summary>The demo is always "elevated"; it ships with accounts, so this normally reports Conflict.</summary>
+        public Task<SessionDto> CompleteInitialSetupAsync(string adminUserName, string secret, CancellationToken ct = default) => s.Run(() =>
+        {
+            if (s._users.Count > 0)
+            {
+                throw new SabhaMujicException(ErrorCode.Conflict, "SabhaMujic is already set up.");
+            }
+
+            if (string.IsNullOrWhiteSpace(adminUserName) || (secret?.Length ?? 0) < 4)
+            {
+                throw new SabhaMujicException(ErrorCode.InvalidArgument, "A name and a PIN of at least 4 characters are required.");
+            }
+
+            var now = s._time.GetUtcNow();
+            s._users.Add(new DemoUser(Guid.NewGuid(), adminUserName.Trim(), Role.Admin, secret!, now));
+            var session = new SessionDto(Convert.ToHexString(RandomNumberGenerator.GetBytes(16)), adminUserName.Trim(), Role.Admin, now.AddHours(12));
+            s.SetSession(session);
+            return session;
+        }, authenticated: false);
     }
 
     private sealed class LibraryApi(DemoSabhaClient s) : ILibraryApi

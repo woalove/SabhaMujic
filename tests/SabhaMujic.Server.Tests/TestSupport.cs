@@ -193,7 +193,13 @@ public sealed class FakeAnalysisQueue : IAnalysisQueue
 
     public ConcurrentQueue<Guid> Queued { get; } = new();
 
-    public void Enqueue(Guid trackId) => Queued.Enqueue(trackId);
+    public ConcurrentQueue<ImportProgressTarget?> Progress { get; } = new();
+
+    public void Enqueue(Guid trackId, ImportProgressTarget? progress = null)
+    {
+        Queued.Enqueue(trackId);
+        Progress.Enqueue(progress);
+    }
 }
 
 public sealed class FakeUrls : IRemoteUrlProvider
@@ -259,13 +265,24 @@ public sealed class TestServer : IAsyncDisposable
 
     public Guid VolunteerId { get; private set; }
 
-    public static async Task<TestServer> StartAsync(int maxConnections = 32, int maxMessageBytes = 4 * 1024 * 1024, ServerOptions? options = null)
+    /// <summary>Pipe caller identity used by <see cref="StartPipe"/> (default: never elevated).</summary>
+    public ICallerIdentity? Identity { get; set; }
+
+    public static async Task<TestServer> StartAsync(int maxConnections = 32, int maxMessageBytes = 4 * 1024 * 1024, ServerOptions? options = null,
+        bool seedUsers = true, ICallerIdentity? identity = null)
     {
         var root = Path.Combine(Path.GetTempPath(), "sabhamujic-server-tests", Guid.NewGuid().ToString("N"));
         var pipeName = "sm-" + Guid.NewGuid().ToString("N")[..12];
         var server = new TestServer(root, new PipeServerOptions { PipeName = pipeName, MaxConnections = maxConnections, MaxMessageBytes = maxMessageBytes },
             options ?? new ServerOptions { SecretHashIterations = 1_000 });
         await server.Database.MigrateAsync();
+        server.Identity = identity;
+        if (!seedUsers)
+        {
+            server.StartPipe();
+            return server;
+        }
+
         Assert.True(await server.App.Auth.EnsureInitialAdminAsync(AdminName, AdminSecret));
         server.AdminId = (await server.App.Users.GetByNameAsync(AdminName))!.Id;
         var vol = await server.App.Users.CreateAsync(VolunteerName, Role.Volunteer, server.App.Auth.HashSecret(VolunteerSecret));
@@ -276,7 +293,7 @@ public sealed class TestServer : IAsyncDisposable
 
     public void StartPipe()
     {
-        Pipe = new PipeRpcServer(App, PipeOptions);
+        Pipe = new PipeRpcServer(App, PipeOptions, identity: Identity);
         Pipe.Start();
     }
 
@@ -404,4 +421,10 @@ public static class AssertEx
             await Task.Delay(20);
         }
     }
+}
+
+/// <summary>Reports every pipe client with a fixed identity (e.g. an elevated local Administrator).</summary>
+public sealed class FixedCallerIdentity(string principal, bool elevated) : ICallerIdentity
+{
+    public PipeCallerInfo Describe(System.IO.Pipes.NamedPipeServerStream pipe) => new(principal, elevated);
 }
