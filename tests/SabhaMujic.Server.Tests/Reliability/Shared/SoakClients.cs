@@ -16,6 +16,8 @@ public sealed class ClientView(string name, Action<string, string> violation, Ac
     private readonly Lock _gate = new();
     private PlaybackStateDto? _state;
     private QueueDto? _queue;
+    private bool _stateSeeded;
+    private bool _queueSeeded;
     private long _eventsReceived;
 
     public string Name { get; } = name;
@@ -50,13 +52,17 @@ public sealed class ClientView(string name, Action<string, string> violation, Ac
         lag((DateTimeOffset.UtcNow - state.Timestamp).TotalMilliseconds);
         lock (_gate)
         {
-            if (_state is { } last && last.ServerEpoch == state.ServerEpoch && state.Revision <= last.Revision)
+            if (_state is { } last && last.ServerEpoch == state.ServerEpoch
+                && (state.Revision < last.Revision || (state.Revision == last.Revision && !_stateSeeded)))
             {
                 violation("StateRevisionOrder", $"{Name}: state revision {state.Revision} after {last.Revision}");
                 return;
             }
 
+            // An event may legitimately repeat the revision a direct fetch just returned: it was published after the
+            // subscription started but delivered after the fetch's reply. Only a repeat of an *event* is a violation.
             _state = state;
+            _stateSeeded = false;
         }
     }
 
@@ -65,13 +71,15 @@ public sealed class ClientView(string name, Action<string, string> violation, Ac
         Interlocked.Increment(ref _eventsReceived);
         lock (_gate)
         {
-            if (_queue is { } last && last.ServerEpoch == queue.ServerEpoch && queue.Revision <= last.Revision)
+            if (_queue is { } last && last.ServerEpoch == queue.ServerEpoch
+                && (queue.Revision < last.Revision || (queue.Revision == last.Revision && !_queueSeeded)))
             {
                 violation("QueueRevisionOrder", $"{Name}: queue revision {queue.Revision} after {last.Revision}");
                 return;
             }
 
             _queue = queue;
+            _queueSeeded = false;
         }
     }
 
@@ -83,11 +91,13 @@ public sealed class ClientView(string name, Action<string, string> violation, Ac
             if (_state is null || _state.ServerEpoch != state.ServerEpoch || _state.Revision < state.Revision)
             {
                 _state = state;
+                _stateSeeded = true;
             }
 
             if (_queue is null || _queue.ServerEpoch != queue.ServerEpoch || _queue.Revision < queue.Revision)
             {
                 _queue = queue;
+                _queueSeeded = true;
             }
         }
     }

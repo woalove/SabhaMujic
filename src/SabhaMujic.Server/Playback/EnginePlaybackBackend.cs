@@ -151,39 +151,12 @@ public sealed class EnginePlaybackBackend : IPlaybackBackend, IAsyncDisposable
 
         var path = _resolver.TryGetCachedPath(trackId);
         _resolver.Forget(trackId);
-        var items = _engine.GetQueue().Items.Where(i => i.TrackId == trackId).Select(i => i.QueueItemId).ToList();
-        if (items.Count > 0)
+        if (_engine.GetQueue().Items.Any(i => i.TrackId == trackId))
         {
             await WarmQueueAsync(CancellationToken.None, except: trackId).ConfigureAwait(false);
-            var state = _engine.GetState();
-            var playingIt = state.CurrentTrackId == trackId && state.Status is PlaybackStatus.Playing or PlaybackStatus.Crossfading
-                or PlaybackStatus.Paused or PlaybackStatus.Loading;
-            var crossfade = state.CrossfadeSeconds;
-            if (playingIt)
-            {
-                await _engine.SetCrossfadeAsync(0, CancellationToken.None).ConfigureAwait(false);
-            }
-
-            try
-            {
-                foreach (var item in items)
-                {
-                    try
-                    {
-                        await _engine.RemoveFromQueueAsync(item, CancellationToken.None).ConfigureAwait(false);
-                    }
-                    catch (SabhaMujicException ex) when (ex.Code == ErrorCode.NotFound)
-                    {
-                    }
-                }
-            }
-            finally
-            {
-                if (playingIt)
-                {
-                    await _engine.SetCrossfadeAsync(crossfade, CancellationToken.None).ConfigureAwait(false);
-                }
-            }
+            // One engine command: every item goes, and if the track is playing the next one starts with a hard cut. The
+            // user's crossfade setting is never changed (no lost update, no 0 pushed to clients).
+            await _engine.RemoveTrackAsync(trackId, CancellationToken.None).ConfigureAwait(false);
         }
 
         if (path is not null)

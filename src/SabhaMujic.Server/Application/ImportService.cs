@@ -115,7 +115,18 @@ public sealed class ImportService
                 return new ImportResultDto(added.Track.Id, WasDuplicate: true);
             }
 
-            await _analysis.UpsertAsync(new TrackAnalysis(added.Track.Id, AnalysisStatus.Pending, 0), CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                await _analysis.UpsertAsync(new TrackAnalysis(added.Track.Id, AnalysisStatus.Pending, 0), CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Best-effort: the track and its file are in the library now, so the import must not report Failed (a
+                // retry would only say "duplicate"). The worker below stores the analysis status itself, and the next
+                // service start re-queues any track without a Ready analysis.
+                _logger.LogWarning(ex, "Could not mark the analysis of imported track {TrackId} as pending; it is analysed anyway.", added.Track.Id);
+            }
+
             // The track is in the library now; the analyzer reports "done" (or "failed") when its analysis finishes.
             Progress(caller, status, ImportStages.Analyzing);
             _analysisQueue.Enqueue(added.Track.Id, new ImportProgressTarget(Owner(caller), uploadId, upload.FileName, upload.Length));

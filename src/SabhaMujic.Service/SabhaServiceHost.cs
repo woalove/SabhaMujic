@@ -30,6 +30,7 @@ public static class WindowsHostComposition
         StoreAcl = new WindowsStoreAcl(),
         PipeStreams = new WindowsPipeStreamFactory(),
         CallerIdentity = new WindowsCallerIdentity(),
+        PipeMaxConnectionsPerPrincipal = 8, // any local account can open the pipe; one account cannot fill it
         Remote = remote,
         LoggerFactory = loggerFactory,
     };

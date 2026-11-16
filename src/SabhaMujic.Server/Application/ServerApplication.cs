@@ -67,7 +67,7 @@ public sealed class ServerApplication : IDisposable
 
         Events = deps.Events ?? new EventBroadcaster(LoggerFactory.CreateLogger<EventBroadcaster>());
         var audit = new AuditWriter(AuditLog, Clock, LoggerFactory.CreateLogger<AuditWriter>());
-        Auth = new AuthService(Users, Sessions, Devices, PairingCodes, Events, audit, Options, Clock);
+        Auth = new AuthService(Users, Sessions, Devices, PairingCodes, Events, audit, Options, Clock, LoggerFactory.CreateLogger<AuthService>());
         Library = new LibraryService(Categories, Tracks);
         PlaylistService = new PlaylistService(Playlists, Events);
         Playback = new PlaybackService(deps.Playback, Tracks, Playlists, ServerEpoch);
@@ -78,6 +78,8 @@ public sealed class ServerApplication : IDisposable
         Maintenance = new MaintenanceService(Sessions, PairingCodes, Analysis, deps.Uploads, deps.AnalysisQueue, Clock,
             LoggerFactory.CreateLogger<MaintenanceService>());
         Uploads = deps.Uploads;
+        // A signed-out, revoked or removed session's partial uploads are discarded at once (not after the idle expiry).
+        Events.SessionClosed += sessionId => Uploads.CancelAllForOwner(sessionId);
 
         // Engine pushes (status/track/seek/loop-wrap/setting changes and the ~5 s heartbeat) are stamped and fanned out;
         // the broadcaster coalesces snapshots, so heartbeats never pile up behind a slow client.

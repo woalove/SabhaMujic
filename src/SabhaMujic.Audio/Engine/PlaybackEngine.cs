@@ -65,6 +65,7 @@ public sealed class PlaybackEngine : IDisposable
     private volatile Snapshot _snapshot;
     private volatile QueueDto _queueSnapshot;
     private volatile bool _disposed;
+    private long _prebufferTimeouts;
 
     public PlaybackEngine(IAudioOutput output, IAudioDecoderFactory decoders, ITrackResolver resolver, PlaybackEngineOptions? options = null)
     {
@@ -104,6 +105,9 @@ public sealed class PlaybackEngine : IDisposable
     /// <summary>The mixer, for diagnostics and tests.</summary>
     public CrossfadeMixer Mixer => _mixer;
 
+    /// <summary>Voices that started before their pre-buffer filled within the timeout (slow storage). Diagnostics.</summary>
+    public long PrebufferTimeouts => Interlocked.Read(ref _prebufferTimeouts);
+
     // ---------------------------------------------------------------- queries
 
     public PlaybackStateDto GetState() => ToDto(_snapshot);
@@ -116,18 +120,27 @@ public sealed class PlaybackEngine : IDisposable
 
     // ---------------------------------------------------------------- commands (mirror IPlaybackApi)
 
-    /// <summary>Inserts the track after the current item and starts it (crossfading if something is playing).</summary>
+    /// <summary>
+    /// Inserts the track after the current item and starts it (crossfading if something is playing). If the track
+    /// cannot be opened while something is playing, the music carries on, the inserted item is removed again and the
+    /// error is reported in the state.
+    /// </summary>
     public Task PlayTrackAsync(Guid trackId, CancellationToken ct = default) => Post(() =>
     {
         _ = Resolve(trackId) ?? throw new SabhaMujicException(ErrorCode.NotFound, "Track not found.");
         var item = _queue.Enqueue([trackId], playNext: true)[0];
-        StartItem(item, crossfade: true, userInitiated: true);
+        if (StartItem(item, crossfade: true, userInitiated: true, onlyThisItem: true) == StartOutcome.KeptCurrent)
+        {
+            _queue.Remove(item.QueueItemId);
+            OnQueueEdited();
+        }
     }, ct);
 
+    /// <summary>Starts a queue item. If it cannot be opened while something is playing, the music carries on (error in the state).</summary>
     public Task PlayQueueItemAsync(Guid queueItemId, CancellationToken ct = default) => Post(() =>
     {
         var item = FindItem(queueItemId) ?? throw new SabhaMujicException(ErrorCode.NotFound, "Queue item not found.");
-        StartItem(item, crossfade: true, userInitiated: true);
+        StartItem(item, crossfade: true, userInitiated: true, onlyThisItem: true);
     }, ct);
 
     public Task PauseAsync(CancellationToken ct = default) => Post(() =>
@@ -346,6 +359,68 @@ public sealed class PlaybackEngine : IDisposable
         return _queue.Snapshot();
     }, ct);
 
+    /// <summary>
+    /// Removes every queue item of a track (e.g. it was deleted from the library) in one step. If it is playing, playback
+    /// moves on to the next item of another track with a hard cut (no crossfade out of a file that is going away), or
+    /// stops. The crossfade setting is not touched.
+    /// </summary>
+    public Task<QueueDto> RemoveTrackAsync(Guid trackId, CancellationToken ct = default) => Post(() =>
+    {
+        var items = _queue.Snapshot().Items;
+        var doomed = items.Where(i => i.TrackId == trackId).Select(i => i.QueueItemId).ToHashSet();
+        if (doomed.Count == 0)
+        {
+            return _queue.Snapshot();
+        }
+
+        bool removingCurrent = IsActive && _current is not null && doomed.Contains(_current.QueueItemId);
+        QueueItemDto? next = null;
+        if (removingCurrent)
+        {
+            int index = IndexOf(items, _current!.QueueItemId);
+            bool wrap = _loopMode == LoopMode.RepeatQueue;
+            for (int step = 1; step < items.Count; step++)
+            {
+                int candidate = index + step;
+                if (candidate >= items.Count)
+                {
+                    if (!wrap)
+                    {
+                        break;
+                    }
+
+                    candidate %= items.Count;
+                }
+
+                if (!doomed.Contains(items[candidate].QueueItemId))
+                {
+                    next = items[candidate];
+                    break;
+                }
+            }
+        }
+
+        foreach (var id in doomed)
+        {
+            _queue.Remove(id);
+        }
+
+        OnQueueEdited();
+        if (removingCurrent)
+        {
+            if (next is not null)
+            {
+                StartItem(next, crossfade: false, userInitiated: true);
+            }
+            else
+            {
+                StopPlayback();
+            }
+        }
+
+        return _queue.Snapshot();
+    }, ct);
+
     public Task<QueueDto> MoveQueueItemAsync(Guid queueItemId, int newIndex, CancellationToken ct = default) => Post(() =>
     {
         if (!_queue.Move(queueItemId, newIndex))
@@ -430,9 +505,10 @@ public sealed class PlaybackEngine : IDisposable
         _disposed = true;
         _commands.CompleteAdding();
         _lifetime.Cancel();
+        bool controlThreadStopped = true;
         if (Thread.CurrentThread != _controlThread)
         {
-            _controlThread.Join(TimeSpan.FromSeconds(10));
+            controlThreadStopped = _controlThread.Join(TimeSpan.FromSeconds(10));
         }
 
         while (_commands.TryTake(out var pending))
@@ -450,12 +526,18 @@ public sealed class PlaybackEngine : IDisposable
         {
         }
 
-        foreach (var voice in _liveVoices)
+        // If the control thread is still running (blocked past the timeout), its voices and the non-thread-safe set are
+        // left to it and the GC rather than disposed under its feet.
+        if (controlThreadStopped)
         {
-            voice.Dispose();
+            foreach (var voice in _liveVoices)
+            {
+                voice.Dispose();
+            }
+
+            _liveVoices.Clear();
         }
 
-        _liveVoices.Clear();
         _feeder.Dispose();
 
         // _commands and _lifetime are deliberately not disposed: a background analysis may still try to post or
@@ -559,7 +641,27 @@ public sealed class PlaybackEngine : IDisposable
 
     // ---------------------------------------------------------------- control thread: playback logic
 
-    private void StartItem(QueueItemDto item, bool crossfade, bool userInitiated, long? startFrame = null)
+    /// <summary>What <see cref="StartItem"/> did.</summary>
+    private enum StartOutcome
+    {
+        /// <summary>A candidate opened and is playing.</summary>
+        Started,
+
+        /// <summary>Nothing could be opened, but the music that was playing carries on untouched (user request while audible).</summary>
+        KeptCurrent,
+
+        /// <summary>Nothing could be opened; playback stopped with an error (or the item was not in the queue).</summary>
+        Failed,
+    }
+
+    /// <summary>
+    /// Starts <paramref name="item"/>, skipping to the following items (wrapping with RepeatQueue) when it cannot be
+    /// opened. A user request made while music is audible never interrupts it: the current voice keeps playing (the
+    /// state is not switched to Loading) until a candidate has opened, and if none opens the music carries on with the
+    /// error in the state. With <paramref name="onlyThisItem"/> (an explicitly chosen track) only that item is tried
+    /// while music is audible. With nothing audible the behaviour is unchanged: skip, or stop with an error.
+    /// </summary>
+    private StartOutcome StartItem(QueueItemDto item, bool crossfade, bool userInitiated, long? startFrame = null, bool onlyThisItem = false)
     {
         _pendingResume = null; // a restored position applies only to the very next start
         if (userInitiated)
@@ -574,13 +676,21 @@ public sealed class PlaybackEngine : IDisposable
         int start = IndexOf(items, item.QueueItemId);
         if (start < 0)
         {
-            return;
+            return StartOutcome.Failed;
         }
 
-        _machine.TryFire(PlaybackTrigger.Load);
-        Publish();
+        // Only when the playing item is still queued: if it was just removed (or the queue replaced), it must not linger.
+        bool keepCurrentOnFailure = userInitiated && audible && _current is not null && IndexOf(items, _current.QueueItemId) >= 0;
+        if (!keepCurrentOnFailure)
+        {
+            _machine.TryFire(PlaybackTrigger.Load);
+            Publish();
+        }
 
-        for (int attempt = 0; attempt < items.Count; attempt++)
+        int maxAttempts = keepCurrentOnFailure && onlyThisItem ? 1 : items.Count;
+        int tried = 0;
+        (Guid TrackId, string Reason)? lastFailure = null;
+        for (int attempt = 0; attempt < maxAttempts; attempt++)
         {
             int index = start + attempt;
             if (index >= items.Count)
@@ -594,6 +704,12 @@ public sealed class PlaybackEngine : IDisposable
             }
 
             var candidate = items[index];
+            if (keepCurrentOnFailure && candidate.QueueItemId == _current!.QueueItemId)
+            {
+                break; // wrapped round to what is playing: keep it
+            }
+
+            tried++;
             TrackSession session;
             try
             {
@@ -603,19 +719,32 @@ public sealed class PlaybackEngine : IDisposable
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                ReportFailure(candidate, ex);
+                lastFailure = (candidate.TrackId, ReportFailure(candidate, ex));
                 _consecutiveFailures++;
-                _machine.TryFire(PlaybackTrigger.LoadFailed);
+                if (!keepCurrentOnFailure)
+                {
+                    _machine.TryFire(PlaybackTrigger.LoadFailed);
+                }
+
                 if (_consecutiveFailures >= items.Count)
                 {
                     break;
                 }
 
-                _machine.TryFire(PlaybackTrigger.Load);
+                if (!keepCurrentOnFailure)
+                {
+                    _machine.TryFire(PlaybackTrigger.Load);
+                }
+
                 continue;
             }
 
             _queue.JumpTo(candidate.QueueItemId);
+            if (keepCurrentOnFailure)
+            {
+                _machine.TryFire(PlaybackTrigger.Load);
+            }
+
             _machine.TryFire(PlaybackTrigger.Loaded);
             _crossfadeEndedWhilePaused = false;
             CancelPlan();
@@ -631,10 +760,20 @@ public sealed class PlaybackEngine : IDisposable
             _current = session;
             _skipItems.Clear();
             _planBlockedFor = null;
-            return;
+            return StartOutcome.Started;
         }
 
-        // Nothing in the queue could be opened.
+        if (keepCurrentOnFailure)
+        {
+            // The requested track(s) could not be opened: the music that was playing carries on, nothing else changes.
+            _consecutiveFailures = 0;
+            _error = lastFailure is { } failure
+                ? $"Track {failure.TrackId} could not be played, so the current track keeps playing: {failure.Reason}"
+                : null;
+            return StartOutcome.KeptCurrent;
+        }
+
+        // Nothing could be opened.
         _mixer.Stop();
         CancelPlan();
         _current = null;
@@ -643,7 +782,11 @@ public sealed class PlaybackEngine : IDisposable
             _machine.TryFire(PlaybackTrigger.LoadFailed);
         }
 
-        _error = "None of the queued tracks could be played." + (_error is null ? string.Empty : " Last error: " + _error);
+        var summary = tried >= items.Count
+            ? "None of the queued tracks could be played."
+            : "No playable track was found from the selected one onwards.";
+        _error = summary + (_error is null ? string.Empty : " Last error: " + _error);
+        return StartOutcome.Failed;
     }
 
     private void StopPlayback()
@@ -1010,7 +1153,11 @@ public sealed class PlaybackEngine : IDisposable
         }
 
         _feeder.Register(voice);
-        voice.WaitForBuffered(_options.PrebufferFrames, _options.PrebufferTimeout);
+        if (!voice.WaitForBuffered(_options.PrebufferFrames, _options.PrebufferTimeout))
+        {
+            // Slow storage (a spun-down disk): the voice starts with less than the pre-buffer and may underrun.
+            Interlocked.Increment(ref _prebufferTimeouts);
+        }
         if (voice.IsFaulted)
         {
             _liveVoices.Remove(voice);
@@ -1287,7 +1434,8 @@ public sealed class PlaybackEngine : IDisposable
             DateTimeOffset.UtcNow);
     }
 
-    private void ReportFailure(QueueItemDto item, Exception ex)
+    /// <summary>Records and raises a load failure; returns the client-safe reason.</summary>
+    private string ReportFailure(QueueItemDto item, Exception ex)
     {
         string reason = ex switch
         {
@@ -1297,6 +1445,7 @@ public sealed class PlaybackEngine : IDisposable
         };
         _error = $"Track {item.TrackId} could not be played and was skipped: {reason}";
         RaiseError(item.TrackId, item.QueueItemId, _error, ex);
+        return reason;
     }
 
     private void RaiseError(Guid? trackId, Guid? queueItemId, string message, Exception? ex)

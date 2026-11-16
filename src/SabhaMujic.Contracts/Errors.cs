@@ -18,6 +18,16 @@ public enum ErrorCode
     Unavailable = 10,
 }
 
+/// <summary>Fixed, safe messages the service sends with some errors (clients may show them as they are).</summary>
+public static class ServiceMessages
+{
+    /// <summary>
+    /// With <see cref="ErrorCode.Internal"/> when the database or disk was busy or full (SQLITE_BUSY, SQLITE_LOCKED,
+    /// SQLITE_FULL, or no space left for an upload). Transient: the same request may succeed shortly.
+    /// </summary>
+    public const string StorageUnavailable = "The SabhaMujic service could not save data (storage busy or full). Try again shortly.";
+}
+
 /// <summary>
 /// Error payload carried by RPC errors (JSON-RPC error.data) and HTTP problem responses.
 /// </summary>

@@ -57,6 +57,9 @@ public sealed class SabhaHost : IAsyncDisposable
 
     public AnalysisWorker Analysis { get; private set; } = null!;
 
+    /// <summary>Saves the queue and playback settings (null until the engine is up).</summary>
+    public PlaybackPersistence? Persistence => _persistence;
+
     /// <summary>The application layer: services, repositories, events and <c>CreateSession</c> for transports.</summary>
     public ServerApplication App { get; private set; } = null!;
 
@@ -138,7 +141,14 @@ public sealed class SabhaHost : IAsyncDisposable
 
         if (_options.StartPipe)
         {
-            Pipe = new PipeRpcServer(App, new PipeServerOptions { PipeName = _options.PipeName, MaxConnections = _options.PipeMaxConnections },
+            Pipe = new PipeRpcServer(App, new PipeServerOptions
+                {
+                    PipeName = _options.PipeName,
+                    MaxConnections = _options.PipeMaxConnections,
+                    MaxConnectionsPerPrincipal = _options.PipeMaxConnectionsPerPrincipal,
+                    HelloTimeout = _options.PipeHelloTimeout,
+                    AuthenticationTimeout = _options.PipeAuthenticationTimeout,
+                },
                 _options.PipeStreams, _options.CallerIdentity, loggers.CreateLogger<PipeRpcServer>());
             Pipe.Start();
         }

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using SabhaMujic.Audio.Analysis;
 using SabhaMujic.Audio.Decoding;
 using SabhaMujic.Contracts;
+using SabhaMujic.Data;
 using SabhaMujic.Data.Repositories;
 using SabhaMujic.Data.Storage;
 using SabhaMujic.Server.Application;
@@ -18,6 +19,12 @@ namespace SabhaMujic.Server.Playback;
 /// imports) <see cref="ImportStages.Analyzing"/>/<see cref="ImportStages.Done"/> progress are published.
 /// Results the engine computed itself (<c>PlaybackEngine.TrackAnalyzed</c>) are persisted through the same thread via
 /// <see cref="AcceptEngineResult"/>. A bad file only fails its own track. Dispose cancels the running analysis.
+/// <para>
+/// Storage outages (database busy or locked, disk full): every save is retried on this thread with backoff
+/// (<see cref="SaveRetryDelays"/>). If it still fails, the job goes back into the queue after
+/// <see cref="RequeueDelay"/>; an analysis already computed is kept and only its save is repeated. So a track never stays
+/// <c>Analyzing</c> while the service runs; if the service stops meanwhile, startup resets it to Pending and re-queues it.
+/// </para>
 /// </summary>
 public sealed class AnalysisWorker : IAnalysisQueue, IDisposable
 {
@@ -33,11 +40,15 @@ public sealed class AnalysisWorker : IAnalysisQueue, IDisposable
     private readonly ConcurrentDictionary<Guid, byte> _queued = new();
     private readonly CancellationTokenSource _stop = new();
     private readonly Thread _thread;
+    private readonly ConcurrentDictionary<ITimer, byte> _requeueTimers = new();
+    private readonly TimeProvider _clock;
     private int _completed;
 
     public AnalysisWorker(IAudioDecoderFactory decoders, ITrackRepository tracks, ITrackAnalysisRepository analysis, ProtectedStore store,
-        StoreTrackResolver resolver, EventBroadcaster events, ILogger<AnalysisWorker> logger, AnalysisOptions? options = null)
+        StoreTrackResolver resolver, EventBroadcaster events, ILogger<AnalysisWorker> logger, AnalysisOptions? options = null,
+        TimeProvider? clock = null)
     {
+        _clock = clock ?? TimeProvider.System;
         _decoders = decoders;
         _tracks = tracks;
         _analysis = analysis;
@@ -51,6 +62,13 @@ public sealed class AnalysisWorker : IAnalysisQueue, IDisposable
     }
 
     public int AnalysisVersion => LoopAnalyzer.AnalysisVersion;
+
+    /// <summary>Waits between attempts to save a result while storage is busy or full (then the job is re-queued).</summary>
+    public IReadOnlyList<TimeSpan> SaveRetryDelays { get; init; } =
+        [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(8)];
+
+    /// <summary>How long a job whose save kept failing waits before it is tried again.</summary>
+    public TimeSpan RequeueDelay { get; init; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
     /// Raised (on the worker thread) after a new Ready/Failed result was stored, so the host can hand it to the engine.
@@ -106,6 +124,11 @@ public sealed class AnalysisWorker : IAnalysisQueue, IDisposable
         }
 
         _stop.Cancel();
+        foreach (var timer in _requeueTimers.Keys)
+        {
+            timer.Dispose();
+        }
+
         _jobs.CompleteAdding();
         _thread.Join(TimeSpan.FromSeconds(10));
     }
@@ -121,7 +144,7 @@ public sealed class AnalysisWorker : IAnalysisQueue, IDisposable
                 {
                     if (job.Precomputed is { } precomputed)
                     {
-                        StoreEngineResult(job.TrackId, precomputed, ct);
+                        StoreEngineResult(job, precomputed, ct);
                     }
                     else
                     {
@@ -132,9 +155,16 @@ public sealed class AnalysisWorker : IAnalysisQueue, IDisposable
                 {
                     return;
                 }
+                catch (StorageUnavailableException ex)
+                {
+                    _logger.LogWarning(ex.InnerException, "Could not save the analysis of track {TrackId} (storage busy or full); trying again in {Delay} s.",
+                        job.TrackId, RequeueDelay.TotalSeconds);
+                    RequeueLater(ex.Retry);
+                }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Analysis job for track {TrackId} failed unexpectedly.", job.TrackId);
+                    ResetToPending(job.TrackId);
                 }
                 finally
                 {
@@ -159,7 +189,7 @@ public sealed class AnalysisWorker : IAnalysisQueue, IDisposable
             return; // deleted meanwhile
         }
 
-        if (!TrySave(new StoredAnalysis(trackId, AnalysisStatus.Analyzing, AnalysisVersion), ct))
+        if (!TrySave(new StoredAnalysis(trackId, AnalysisStatus.Analyzing, AnalysisVersion), job, ct))
         {
             return;
         }
@@ -181,7 +211,7 @@ public sealed class AnalysisWorker : IAnalysisQueue, IDisposable
         {
             var reason = ex is AudioDecoderException ? ex.Message : "The audio could not be analysed.";
             _logger.LogWarning(ex, "Analysis of track {TrackId} failed.", trackId);
-            if (TrySave(new StoredAnalysis(trackId, AnalysisStatus.Failed, AnalysisVersion, Error: reason), ct))
+            if (TrySave(new StoredAnalysis(trackId, AnalysisStatus.Failed, AnalysisVersion, Error: reason), job, ct))
             {
                 _resolver.Invalidate(trackId);
                 Stored(trackId);
@@ -193,7 +223,8 @@ public sealed class AnalysisWorker : IAnalysisQueue, IDisposable
             return;
         }
 
-        if (TrySave(AnalysisMapping.ToStored(trackId, result), ct))
+        // If this save keeps failing, only the save is repeated later (the computed result travels with the job).
+        if (TrySave(AnalysisMapping.ToStored(trackId, result), job with { Precomputed = result }, ct))
         {
             CorrectDuration(trackId, result, ct);
             _resolver.Invalidate(trackId);
@@ -205,20 +236,22 @@ public sealed class AnalysisWorker : IAnalysisQueue, IDisposable
         Interlocked.Increment(ref _completed);
     }
 
-    private void StoreEngineResult(Guid trackId, AudioAnalysis analysis, CancellationToken ct)
+    private void StoreEngineResult(Job job, AudioAnalysis analysis, CancellationToken ct)
     {
+        var trackId = job.TrackId;
         var existing = Wait(_analysis.GetAsync(trackId, ct));
         if (existing is { Status: AnalysisStatus.Ready } && existing.AnalysisVersion >= analysis.Version)
         {
             return; // the worker (or an earlier run) already stored an equal or newer result
         }
 
-        if (TrySave(AnalysisMapping.ToStored(trackId, analysis), ct))
+        if (TrySave(AnalysisMapping.ToStored(trackId, analysis), job, ct))
         {
             CorrectDuration(trackId, analysis, ct);
             _resolver.Invalidate(trackId);
             Stored(trackId);
             Changed(trackId);
+            Progress(job, ImportStages.Done); // a re-queued import job finishes here
             Interlocked.Increment(ref _completed);
         }
     }
@@ -236,17 +269,103 @@ public sealed class AnalysisWorker : IAnalysisQueue, IDisposable
         }
     }
 
-    /// <summary>Saves the analysis row; false when the track was deleted meanwhile.</summary>
-    private bool TrySave(StoredAnalysis analysis, CancellationToken ct)
+    /// <summary>
+    /// Saves the analysis row; false when the track was deleted meanwhile. Busy or full storage is retried with
+    /// <see cref="SaveRetryDelays"/>; if it still fails, <see cref="StorageUnavailableException"/> carries
+    /// <paramref name="retry"/>, the job to run again later.
+    /// </summary>
+    private bool TrySave(StoredAnalysis analysis, Job retry, CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                Wait(_analysis.UpsertAsync(analysis, ct));
+                return true;
+            }
+            catch (SabhaMujicException ex) when (ex.Code == ErrorCode.NotFound)
+            {
+                return false;
+            }
+            catch (Exception ex) when (StorageErrors.IsBusyOrFull(ex))
+            {
+                if (attempt >= SaveRetryDelays.Count)
+                {
+                    throw new StorageUnavailableException(retry, ex);
+                }
+
+                _logger.LogDebug(ex, "Saving the analysis of track {TrackId} failed (storage busy or full); retrying.", analysis.TrackId);
+                if (ct.WaitHandle.WaitOne(SaveRetryDelays[attempt]))
+                {
+                    ct.ThrowIfCancellationRequested();
+                }
+            }
+        }
+    }
+
+    /// <summary>Puts a job back into the queue after <see cref="RequeueDelay"/> (unless the worker stops first).</summary>
+    private void RequeueLater(Job job)
+    {
+        if (_stop.IsCancellationRequested)
+        {
+            return;
+        }
+
+        ITimer? timer = null;
+        timer = _clock.CreateTimer(state =>
+        {
+            if (timer is not null && _requeueTimers.TryRemove(timer, out _))
+            {
+                timer.Dispose();
+            }
+
+            if (job.Precomputed is { } precomputed)
+            {
+                AddJob(job);
+            }
+            else if (!_stop.IsCancellationRequested && _queued.TryAdd(job.TrackId, 0))
+            {
+                AddJob(job);
+            }
+        }, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        _requeueTimers.TryAdd(timer, 0);
+        if (_stop.IsCancellationRequested)
+        {
+            _requeueTimers.TryRemove(timer, out _);
+            timer.Dispose();
+            return;
+        }
+
+        timer.Change(RequeueDelay, Timeout.InfiniteTimeSpan);
+    }
+
+    private void AddJob(Job job)
     {
         try
         {
-            Wait(_analysis.UpsertAsync(analysis, ct));
-            return true;
+            _jobs.Add(job);
         }
-        catch (SabhaMujicException ex) when (ex.Code == ErrorCode.NotFound)
+        catch (InvalidOperationException)
         {
-            return false;
+            // Shutting down.
+        }
+    }
+
+    /// <summary>After an unexpected failure: best effort back to Pending, so the track is not shown as analysing forever.</summary>
+    private void ResetToPending(Guid trackId)
+    {
+        try
+        {
+            var current = Wait(_analysis.GetAsync(trackId, CancellationToken.None));
+            if (current is { Status: AnalysisStatus.Analyzing })
+            {
+                Wait(_analysis.UpsertAsync(new StoredAnalysis(trackId, AnalysisStatus.Pending, AnalysisVersion), CancellationToken.None));
+                Changed(trackId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not reset the analysis of track {TrackId} to Pending; the next service start does.", trackId);
         }
     }
 
@@ -278,4 +397,10 @@ public sealed class AnalysisWorker : IAnalysisQueue, IDisposable
     private static void Wait(Task task) => task.GetAwaiter().GetResult();
 
     private sealed record Job(Guid TrackId, ImportProgressTarget? Progress, AudioAnalysis? Precomputed);
+
+    /// <summary>A save that kept failing because storage was busy or full; <see cref="Retry"/> is the job to run again.</summary>
+    private sealed class StorageUnavailableException(Job retry, Exception inner) : Exception("Storage busy or full.", inner)
+    {
+        public Job Retry { get; } = retry;
+    }
 }

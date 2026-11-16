@@ -253,11 +253,12 @@ public sealed class TransportTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Connections_beyond_the_limit_are_closed()
+    public async Task Connections_beyond_the_limit_are_closed_when_every_slot_is_signed_in()
     {
+        // Signed-out connections would make room instead (see PipeLimitsTests).
         for (var i = 0; i < 8; i++)
         {
-            await _server.ConnectAsync();
+            await _server.ConnectVolunteerAsync();
         }
 
         await AssertEx.Eventually(() => _server.Pipe!.ConnectionCount == 8, "8 connections open");

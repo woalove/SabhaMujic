@@ -81,6 +81,15 @@ public sealed class SabhaHostOptions
 
     public int PipeMaxConnections { get; init; } = 32;
 
+    /// <summary>Per OS account cap on pipe connections (<see cref="Pipe.PipeServerOptions.MaxConnectionsPerPrincipal"/>); the Windows service sets 8.</summary>
+    public int? PipeMaxConnectionsPerPrincipal { get; init; }
+
+    /// <summary>Handshake deadline for pipe connections (<see cref="Pipe.PipeServerOptions.HelloTimeout"/>).</summary>
+    public TimeSpan? PipeHelloTimeout { get; init; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>Sign-in deadline for pipe connections (<see cref="Pipe.PipeServerOptions.AuthenticationTimeout"/>).</summary>
+    public TimeSpan? PipeAuthenticationTimeout { get; init; } = TimeSpan.FromSeconds(60);
+
     public PlaybackEngineOptions? Engine { get; init; }
 
     /// <summary>Clock for the database, sessions and timers. Default: system clock.</summary>

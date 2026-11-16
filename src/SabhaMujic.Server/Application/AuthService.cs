@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using SabhaMujic.Contracts;
 using SabhaMujic.Core.Security;
 using SabhaMujic.Data.Repositories;
@@ -32,10 +34,13 @@ public sealed class AuthService
     private readonly FailureRateLimiter _recoveryPerCaller;
     private readonly Lazy<string> _dummyHash;
     private readonly SemaphoreSlim _bootstrapGate = new(1, 1);
+    private readonly ILogger _logger;
+    private long _touchSuspendedUntilTicks;
 
     public AuthService(IUserRepository users, ISessionRepository sessions, IDeviceRepository devices, IPairingCodeRepository pairingCodes,
-        EventBroadcaster events, AuditWriter audit, ServerOptions options, TimeProvider clock)
+        EventBroadcaster events, AuditWriter audit, ServerOptions options, TimeProvider clock, ILogger<AuthService>? logger = null)
     {
+        _logger = logger ?? NullLogger<AuthService>.Instance;
         _users = users;
         _sessions = sessions;
         _devices = devices;
@@ -269,6 +274,12 @@ public sealed class AuthService
     /// <summary>
     /// Returns the active session for a token hash, or null. Applies the sliding expiry at most once per
     /// <see cref="ServerOptions.SessionTouchInterval"/>.
+    /// <para>
+    /// The last-seen/expiry write is best-effort: it must never fail (or hold up for long) the command it rides on. When it
+    /// fails (database busy or full) the failure is logged at debug level, the command goes ahead with the session as
+    /// read, and touches pause for <see cref="ServerOptions.SessionTouchInterval"/> so an outage costs at most one slow
+    /// call per interval; the next call after that tries again.
+    /// </para>
     /// </summary>
     public async Task<SessionRecord?> ValidateAsync(string tokenHash, CancellationToken ct)
     {
@@ -279,17 +290,26 @@ public sealed class AuthService
         }
 
         var now = _clock.GetUtcNow();
-        if (now - record.LastSeenAt >= _options.SessionTouchInterval)
+        if (now - record.LastSeenAt >= _options.SessionTouchInterval && now.UtcTicks >= Volatile.Read(ref _touchSuspendedUntilTicks))
         {
             var extendTo = now + LifetimeOf(record);
-            if (await _sessions.TouchAsync(record.Id, extendTo, ct).ConfigureAwait(false))
+            try
             {
-                if (record.DeviceId is { } deviceId)
+                if (await _sessions.TouchAsync(record.Id, extendTo, ct).ConfigureAwait(false))
                 {
-                    await _devices.TouchAsync(deviceId, ct).ConfigureAwait(false);
-                }
+                    if (record.DeviceId is { } deviceId)
+                    {
+                        await _devices.TouchAsync(deviceId, ct).ConfigureAwait(false);
+                    }
 
-                record = record with { LastSeenAt = now, ExpiresAt = extendTo > record.ExpiresAt ? extendTo : record.ExpiresAt };
+                    record = record with { LastSeenAt = now, ExpiresAt = extendTo > record.ExpiresAt ? extendTo : record.ExpiresAt };
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Volatile.Write(ref _touchSuspendedUntilTicks, (now + _options.SessionTouchInterval).UtcTicks);
+                _logger.LogDebug(ex, "Could not record session activity; the session stays valid and the next call after {Interval} tries again.",
+                    _options.SessionTouchInterval);
             }
         }
 
@@ -313,6 +333,7 @@ public sealed class AuthService
             await _devices.RevokeAsync(deviceId, ct).ConfigureAwait(false); // also revokes every session of the device
             await _audit.WriteAsync(caller, "device.logout", "device:" + deviceId).ConfigureAwait(false);
             _events.EndSessions(c => c.DeviceId == deviceId, "This device was signed out.");
+            _events.CloseSession(sessionId); // even if this connection has no event subscription
             _events.PublishLibraryChanged(new LibraryChangedDto(LibraryChangeKind.DevicesChanged, deviceId));
             return;
         }
@@ -320,6 +341,7 @@ public sealed class AuthService
         await _sessions.RevokeAsync(id, ct).ConfigureAwait(false);
         await _audit.WriteAsync(caller, "logout").ConfigureAwait(false);
         _events.EndSessions(c => c.SessionId == sessionId, "Signed out.");
+        _events.CloseSession(sessionId);
     }
 
     /// <summary>Consumes a pairing code and creates a device with a long-lived token (rate-limited per caller and globally).</summary>

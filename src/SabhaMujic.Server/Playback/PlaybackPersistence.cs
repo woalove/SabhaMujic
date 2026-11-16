@@ -14,6 +14,11 @@ namespace SabhaMujic.Server.Playback;
 /// Save: debounced (default 1 s) after any queue or settings change, and immediately on <see cref="FlushAsync"/>
 /// (shutdown). The position is written with every save, so after a crash it is that of the last save.
 /// </para>
+/// <para>
+/// A failed save (database busy or locked, disk full) leaves the state dirty and is retried by itself with backoff
+/// (<see cref="RetryInitialDelay"/> doubling up to <see cref="RetryMaxDelay"/>) until it succeeds, without waiting for
+/// another change. One error is logged per outage, and one information entry when saving works again.
+/// </para>
 /// </summary>
 public sealed class PlaybackPersistence : IAsyncDisposable
 {
@@ -29,6 +34,8 @@ public sealed class PlaybackPersistence : IAsyncDisposable
     private long _savedQueueRevision = -1;
     private bool _attached;
     private bool _disposed;
+    private bool _dirty;
+    private int _consecutiveFailures;
 
     public PlaybackPersistence(IPlaybackStateRepository repository, IPlaybackBackend backend, ILogger<PlaybackPersistence> logger,
         TimeProvider? clock = null, TimeSpan? debounce = null)
@@ -40,8 +47,46 @@ public sealed class PlaybackPersistence : IAsyncDisposable
         _debounce = debounce ?? TimeSpan.FromSeconds(1);
     }
 
+    /// <summary>First retry delay after a failed save; doubles per consecutive failure.</summary>
+    public static TimeSpan RetryInitialDelay { get; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>Longest delay between retries while saving keeps failing.</summary>
+    public static TimeSpan RetryMaxDelay { get; } = TimeSpan.FromSeconds(30);
+
     /// <summary>Number of completed saves (diagnostics/tests).</summary>
     public int SaveCount { get; private set; }
+
+    /// <summary>True while a change has not reached the database yet (pending debounce, or a failed save awaiting retry).</summary>
+    public bool IsDirty
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _dirty;
+            }
+        }
+    }
+
+    /// <summary>Failed save attempts since the last successful one (0 when healthy).</summary>
+    public int ConsecutiveFailures
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _consecutiveFailures;
+            }
+        }
+    }
+
+    /// <summary>The delay before retry number <paramref name="failures"/> (1-based): 1 s, 2 s, 4 s … capped at 30 s.</summary>
+    public static TimeSpan RetryDelay(int failures)
+    {
+        var exponent = Math.Clamp(failures - 1, 0, 16);
+        var delay = TimeSpan.FromTicks(RetryInitialDelay.Ticks << exponent);
+        return delay < RetryMaxDelay ? delay : RetryMaxDelay;
+    }
 
     /// <summary>
     /// Applies the persisted settings and queue to the engine, then starts saving on change.
@@ -76,7 +121,10 @@ public sealed class PlaybackPersistence : IAsyncDisposable
             queue.Items.Count, queue.CurrentIndex, queue.PositionSeconds);
     }
 
-    /// <summary>Saves immediately if anything changed since the last save.</summary>
+    /// <summary>
+    /// Saves immediately if anything changed since the last save (shutdown), cancelling a pending debounce or retry.
+    /// Throws if the save fails; the state then stays dirty and, unless disposed, the retry timer is re-armed.
+    /// </summary>
     public async Task FlushAsync(CancellationToken ct = default)
     {
         lock (_gate)
@@ -85,7 +133,16 @@ public sealed class PlaybackPersistence : IAsyncDisposable
             _timer = null;
         }
 
-        await SaveAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await SaveAsync(ct).ConfigureAwait(false);
+            OnSaveSucceeded();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            OnSaveFailed(ex);
+            throw;
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -143,6 +200,8 @@ public sealed class PlaybackPersistence : IAsyncDisposable
                 return;
             }
 
+            _dirty = true;
+            // While a retry is pending its (longer) timer stays: changes during an outage do not hammer the database.
             _timer ??= _clock.CreateTimer(_ => _ = SaveFromTimerAsync(), null, _debounce, Timeout.InfiniteTimeSpan);
         }
     }
@@ -158,10 +217,54 @@ public sealed class PlaybackPersistence : IAsyncDisposable
         try
         {
             await SaveAsync(CancellationToken.None).ConfigureAwait(false);
+            OnSaveSucceeded();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Saving the playback state failed; it will be retried on the next change.");
+            OnSaveFailed(ex);
+        }
+    }
+
+    private void OnSaveSucceeded()
+    {
+        int failures;
+        lock (_gate)
+        {
+            failures = _consecutiveFailures;
+            _consecutiveFailures = 0;
+        }
+
+        if (failures > 0)
+        {
+            _logger.LogInformation("Saving the playback state works again (after {Failures} failed attempts).", failures);
+        }
+    }
+
+    /// <summary>Keeps the state dirty and re-arms the timer with backoff; logs an error once per outage.</summary>
+    private void OnSaveFailed(Exception ex)
+    {
+        int failures;
+        TimeSpan delay;
+        lock (_gate)
+        {
+            _dirty = true;
+            failures = ++_consecutiveFailures;
+            delay = RetryDelay(failures);
+            if (!_disposed && _attached)
+            {
+                _timer?.Dispose();
+                _timer = _clock.CreateTimer(_ => _ = SaveFromTimerAsync(), null, delay, Timeout.InfiniteTimeSpan);
+            }
+        }
+
+        if (failures == 1)
+        {
+            _logger.LogError(ex, "Saving the playback state failed; retrying in the background (every {MaxDelay} s at most) until it succeeds.",
+                RetryMaxDelay.TotalSeconds);
+        }
+        else
+        {
+            _logger.LogDebug(ex, "Saving the playback state failed again (attempt {Failures}); next retry in {Delay} s.", failures, delay.TotalSeconds);
         }
     }
 
@@ -183,6 +286,9 @@ public sealed class PlaybackPersistence : IAsyncDisposable
 
                 saveSettings = settings != _savedSettings;
                 saveQueue = queue.Revision != _savedQueueRevision;
+                // Cleared before writing: a change during the write sets it again (and schedules its own save); a
+                // failure sets it again in OnSaveFailed.
+                _dirty = false;
             }
 
             if (saveQueue)

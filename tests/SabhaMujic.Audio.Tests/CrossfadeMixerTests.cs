@@ -218,6 +218,31 @@ public class CrossfadeMixerTests
         Assert.Contains(events, e => e.Kind == MixerEventKind.VoiceReleased && e.Voice == a);
     }
 
+    /// <summary>R-11: a stalled consumer never loses VoiceReleased/VoiceEnded; overflow events arrive later, in order.</summary>
+    [Fact]
+    public void Events_beyond_the_ring_are_kept_in_order_and_none_is_lost()
+    {
+        var mixer = new CrossfadeMixer();
+        var voices = new List<PlaybackVoice>();
+        for (int i = 0; i < 700; i++)
+        {
+            var voice = Voice(Dc(0.1f, 0.05));
+            voices.Add(voice);
+            mixer.Play(voice, 0); // each hard cut releases the previous voice: TransitionStarted + VoiceReleased (+ more)
+            Render(mixer, 960);
+        }
+
+        Assert.True(mixer.DroppedEvents > 0, "the ring overflowed");
+        var events = Drain(mixer);
+        Assert.True(events.Count > 1024);
+        var released = events.Where(e => e.Kind == MixerEventKind.VoiceReleased).Select(e => e.Voice).ToList();
+        Assert.Equal(released.Count, released.Distinct().Count());
+        // Every voice but the last one (still current or just ended) was released exactly once, in play order.
+        Assert.Equal(voices.Take(released.Count), released);
+        Assert.True(released.Count >= voices.Count - 1);
+        Assert.False(mixer.TryDequeueEvent(out _));
+    }
+
     internal static PlaybackVoice Voice(float[] signal, long start = 0)
     {
         var voice = new PlaybackVoice(new MemoryAudioSource(signal), start, signal.Length / 2, bufferFrames: signal.Length / 2 + 1);

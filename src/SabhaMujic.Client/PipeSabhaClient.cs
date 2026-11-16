@@ -21,6 +21,13 @@ public sealed class PipeClientOptions
 
     /// <summary>Largest accepted frame from the service (track pages can be large).</summary>
     public int MaxMessageBytes { get; init; } = 16 * 1024 * 1024;
+
+    /// <summary>
+    /// A signed-out connection that lasted at least this long and is then closed is re-opened at once without reporting
+    /// Reconnecting (the service's sign-in deadline). Shorter-lived drops take the normal reconnect path, so a service that
+    /// keeps closing connections never causes a tight reconnect loop.
+    /// </summary>
+    public TimeSpan QuietReconnectAfter { get; init; } = TimeSpan.FromSeconds(5);
 }
 
 /// <summary>
@@ -138,18 +145,34 @@ public sealed class PipeSabhaClient : ISabhaClient
 
     private JsonRpc? CurrentRpc() => Volatile.Read(ref _rpc);
 
+    /// <remarks>
+    /// The service closes connections that stay signed out (its sign-in deadline, a defence against idle squatters). So
+    /// when a signed-out connection drops, one immediate reconnect is tried without reporting
+    /// <see cref="ConnectionState.Reconnecting"/>: a sign-in screen left open does not flash "connection lost". If that
+    /// quiet attempt fails, the normal reconnect (with state changes and backoff) follows.
+    /// </remarks>
     private async Task RunAsync(CancellationToken ct)
     {
         var backoff = _options.InitialBackoff;
         var everConnected = false;
+        var quietAttempt = false;
         while (!ct.IsCancellationRequested)
         {
-            SetState(everConnected ? ConnectionState.Reconnecting : ConnectionState.Connecting);
+            if (!quietAttempt)
+            {
+                SetState(everConnected ? ConnectionState.Reconnecting : ConnectionState.Connecting);
+            }
+
             JsonRpc? rpc = null;
+            var connected = false;
+            long connectedAt = 0;
             try
             {
                 rpc = await OpenAsync(ct).ConfigureAwait(false);
                 everConnected = true;
+                connected = true;
+                connectedAt = Environment.TickCount64;
+                quietAttempt = false;
                 backoff = _options.InitialBackoff;
                 Volatile.Write(ref _rpc, rpc);
                 SetState(ConnectionState.Connected);
@@ -180,6 +203,13 @@ public sealed class PipeSabhaClient : ISabhaClient
                 break;
             }
 
+            if (connected && Session is null && Environment.TickCount64 - connectedAt >= _options.QuietReconnectAfter.TotalMilliseconds)
+            {
+                quietAttempt = true; // see remarks: reconnect at once, still reporting Connected
+                continue;
+            }
+
+            quietAttempt = false;
             SetState(everConnected ? ConnectionState.Reconnecting : ConnectionState.Connecting);
             try
             {

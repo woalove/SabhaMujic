@@ -30,6 +30,10 @@ public sealed class CrossfadeMixer : IReadAheadSampleProvider
 
     private readonly ConcurrentQueue<Command> _commands = new();
     private readonly MixerEvent[] _events = new MixerEvent[EventCapacity];
+
+    // Spill-over when the ring is full (the control thread stalled): events are never lost, because a lost VoiceReleased
+    // leaks a voice and a lost VoiceEnded stalls the engine. While it holds anything, new events go here too (order).
+    private readonly ConcurrentQueue<MixerEvent> _overflow = new();
     private readonly float[] _scratch = new float[BlockFrames * 2];
     private readonly Slot[] _fading = new Slot[MaxFadingVoices];
     private long _eventWrite;
@@ -58,7 +62,10 @@ public sealed class CrossfadeMixer : IReadAheadSampleProvider
     /// <summary>The voice currently in front (as of the last render block).</summary>
     public PlaybackVoice? CurrentVoice => Volatile.Read(ref _publishedCurrent);
 
-    /// <summary>Events lost because the consumer fell more than 1024 events behind.</summary>
+    /// <summary>
+    /// Events that did not fit the 1024-event ring because the consumer fell behind. None is lost: they wait in an
+    /// overflow queue (allocating on the render thread, which only happens in that abnormal case). Should stay 0.
+    /// </summary>
     public long DroppedEvents => Interlocked.Read(ref _droppedEvents);
 
     /// <summary>
@@ -111,8 +118,8 @@ public sealed class CrossfadeMixer : IReadAheadSampleProvider
         long read = _eventRead;
         if (read >= Volatile.Read(ref _eventWrite))
         {
-            mixerEvent = default;
-            return false;
+            // The ring is drained; anything spilled over is newer than all of it.
+            return _overflow.TryDequeue(out mixerEvent);
         }
 
         int index = (int)(read % EventCapacity);
@@ -568,9 +575,10 @@ public sealed class CrossfadeMixer : IReadAheadSampleProvider
     private void Emit(MixerEventKind kind, TransitionKind transition, PlaybackVoice voice, PlaybackVoice? other)
     {
         long write = _eventWrite;
-        if (write - Volatile.Read(ref _eventRead) >= EventCapacity)
+        if (!_overflow.IsEmpty || write - Volatile.Read(ref _eventRead) >= EventCapacity)
         {
             Interlocked.Increment(ref _droppedEvents);
+            _overflow.Enqueue(new MixerEvent(kind, transition, voice, other));
             return;
         }
 

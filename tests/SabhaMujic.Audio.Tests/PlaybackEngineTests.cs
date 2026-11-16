@@ -309,6 +309,57 @@ public class PlaybackEngineTests(ITestOutputHelper output)
         Assert.Equal(PlaybackStatus.Stopped, h.State.Status);
     }
 
+    /// <summary>BUG-02: a failed load of the requested track never interrupts what is playing.</summary>
+    [Fact]
+    public async Task An_unplayable_requested_track_does_not_interrupt_the_music()
+    {
+        using var h = new EngineHarness();
+        var good = h.AddTone(30, 440);
+        var later = h.AddTone(30, 550);
+        var broken = h.AddBroken();
+        await h.Engine.SetLoopModeAsync(LoopMode.RepeatQueue);
+        var queue = await h.Engine.EnqueueAsync([good, later], false);
+        await h.Engine.PlayQueueItemAsync(queue.Items[0].QueueItemId);
+        await h.PlayFor(1);
+        var before = h.State.PositionSeconds;
+
+        // Play a broken track: it is not left in the queue, the current track carries on, the error names the track.
+        int seen = h.States.Count;
+        await h.Engine.PlayTrackAsync(broken);
+        var state = h.State;
+        Assert.Equal((PlaybackStatus.Playing, (Guid?)good), (state.Status, state.CurrentTrackId));
+        Assert.Contains(broken.ToString(), state.ErrorMessage);
+        Assert.Contains("keeps playing", state.ErrorMessage);
+        Assert.DoesNotContain("None of the queued tracks", state.ErrorMessage);
+        Assert.Equal([good, later], h.Engine.GetQueue().Items.Select(i => i.TrackId));
+        Assert.DoesNotContain(h.States.Skip(seen), s => s.Status != PlaybackStatus.Playing); // never Loading/Error in between
+        await h.PlayFor(1);
+        Assert.True(h.State.PositionSeconds > before, "still advancing");
+
+        // A broken queue item chosen explicitly: kept in the queue, but RepeatQueue does not wrap to some other item.
+        var withBroken = await h.Engine.EnqueueAsync([broken], false);
+        await h.Engine.PlayQueueItemAsync(withBroken.Items[^1].QueueItemId);
+        Assert.Equal((PlaybackStatus.Playing, (Guid?)good), (h.State.Status, h.State.CurrentTrackId));
+        Assert.Equal(0, h.Engine.GetQueue().CurrentIndex);
+        Assert.Equal(3, h.Engine.GetQueue().Items.Count);
+
+        // A good request still crossfades over as before; the error is cleared.
+        await h.Engine.PlayTrackAsync(later);
+        Assert.Equal(later, h.State.CurrentTrackId);
+        Assert.Null(h.State.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task With_nothing_playing_an_unplayable_track_still_ends_in_error()
+    {
+        using var h = new EngineHarness();
+        var broken = h.AddBroken();
+        await h.Engine.PlayTrackAsync(broken);
+        Assert.Equal(PlaybackStatus.Error, h.State.Status);
+        Assert.Contains(broken.ToString(), h.State.ErrorMessage);
+        Assert.Single(h.Engine.GetQueue().Items); // behaves as before: the item stays queued
+    }
+
     [Fact]
     public async Task Revisions_increase_with_every_published_change()
     {
