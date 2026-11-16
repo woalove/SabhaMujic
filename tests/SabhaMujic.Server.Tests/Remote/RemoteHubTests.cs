@@ -24,6 +24,7 @@ public sealed class RemoteHubTests : IAsyncLifetime
         var admin = await _host.PairAsync(Role.Admin);
         var states = new ConcurrentDictionary<string, ConcurrentQueue<PlaybackStateDto>>();
         var hubs = new List<HubConnection>();
+        var hubByName = new Dictionary<string, HubConnection>();
         foreach (var (name, phone, transport) in new[]
         {
             ("volunteer", volunteer, HttpTransportType.WebSockets),
@@ -34,11 +35,28 @@ public sealed class RemoteHubTests : IAsyncLifetime
             var hub = _host.Hub(phone.Token, transport);
             hub.On<PlaybackStateDto>(nameof(IClientEvents.PlaybackStateChanged), s => queue.Enqueue(s));
             await hub.StartAsync();
+            // Like the web app (refreshAll on every connect): fetch the state over the hub. SignalR completes StartAsync
+            // when it receives the handshake reply, which the server sends *before* OnConnectedAsync attaches the session
+            // and its event subscription; hub calls run only after OnConnectedAsync, so once this returns every push
+            // reaches this client. Without it, a Pause sent by the other client inside that window is never pushed here,
+            // and this test host has no 5 s state heartbeat (the real engine backend has) to catch up (CI run 30).
+            queue.Enqueue(await hub.InvokeAsync<PlaybackStateDto>("GetState"));
             hubs.Add(hub);
+            hubByName[name] = hub;
         }
 
         await hubs[0].InvokeAsync("Pause");
-        await AssertEx.Eventually(() => states.Values.All(q => q.Any(s => s.Status == PlaybackStatus.Paused)), "both clients see Paused");
+        try
+        {
+            await AssertEx.Eventually(() => states.Values.All(q => q.Any(s => s.Status == PlaybackStatus.Paused)), "both clients see Paused", 20_000);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            var seen = states.Select(kv =>
+                $"{kv.Key} ({hubByName[kv.Key].State}): {kv.Value.Count} states, last {kv.Value.LastOrDefault()?.Status} rev {kv.Value.LastOrDefault()?.Revision}");
+            Assert.Fail($"{ex.Message}. Seen: {string.Join("; ", seen)}");
+        }
+
         Assert.All(states.Values, q => Assert.Equal(_host.Server.App.ServerEpoch, q.Last().ServerEpoch));
 
         var queues = new ConcurrentQueue<QueueDto>();
