@@ -83,7 +83,8 @@ public sealed class RemoteServiceTests
         await using (hub)
         {
             await hub.StartAsync();
-            Assert.Equal(1, https.ConnectionCount);
+            // SignalR answers the handshake before the server's OnConnectedAsync runs, so registration can lag StartAsync.
+            await AssertEx.Eventually(() => https.ConnectionCount == 1, "hub connection registered");
 
             // The phone plays a track; the real engine's state arrives on the hub (stamped with this run's epoch).
             await hub.InvokeAsync("PlayTrack", track);

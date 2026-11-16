@@ -66,3 +66,12 @@ Build it with `dotnet run --project tools/SabhaMujic.AudioSpike -c Release -- <f
 - [ ] Light and dark mode read well, touch targets are comfortable, and iOS 16.x is checked if available.
 - [ ] After the PC's IP changes, the phone connects without a warning within about 10 minutes (the leaf is re-issued).
 - [ ] The leaf certificate works with SChannel under the service account.
+
+## M6a additions
+- [ ] The phone setup page's fingerprint equals the one on the PC pairing panel.
+- [ ] "Sign out" on the phone removes it from the PC device list; the phone needs a new code.
+- [ ] After installing the MSI, the unelevated first-run screen offers "Restart as administrator". Confirming creates the admin; cancelling UAC shows a message and keeps the app open.
+- [ ] Setting a loop override while that track plays takes effect at the next seam.
+- [ ] Restart the service mid-track, then press Play: it continues near the old position, with the same queue.
+- [ ] `%ProgramData%\SabhaMujic\certs` is ACL'd like `data`, and `ca.key` isn't readable as plain data.
+- [ ] With `SabhaMujic:Remote:Enabled=false`, nothing listens on 8443 or 8080.

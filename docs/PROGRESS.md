@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-11-15 (M0–M5 merged except installer/hardening (M6); M4 desktop polish pending)_
+_Last updated: 2026-11-15 (M0–M5 and M6a merged; M6b installer/docs and M6c QA in progress)_
 
 ## Current milestone: M0 Foundations
 | Task | Status | Evidence |
@@ -48,11 +48,10 @@ _Last updated: 2026-11-15 (M0–M5 merged except installer/hardening (M6); M4 de
 - Evidence (Linux): 155 remote .NET tests, including the exhaustive hub/HTTP authorization matrix with zero side effects, revoke closing live connections, and playback continuing when all remote connections drop. 7 Playwright e2e tests (Chromium, iPhone 13 emulation) pass. `tsc --checkJs` is clean.
 - **Unverified:** real iPhone Safari, CA profile install/trust, SChannel with the leaf under the service account. `RemoteHost` isn't yet started by the Windows service (integration step below).
 
-## Backlog for M6
-- Engine `RefreshTrackAsync` (override applies to the live voice) and `RestoreQueueAsync` (keep ids and position). Data migration 0002 for full analysis fidelity.
-- `GetManyAsync` batch track lookup in Data. Desktop queue/playlist views should use `GetTracksByIdsAsync`.
-- Installer: create ProgramData + ACLs, Event Log source, launch the app elevated on finish, firewall rules.
-- Integration: start `RemoteHost` from the service as an `IHostedComponent` with a DPAPI `ISecretProtector` and an ACL'd `certs` folder; show the CA fingerprint on the desktop pairing screen; `/api/logout` unpairs (revokes) the device instead of leaving an orphaned token; DevHost `--remote` for manual e2e against the real engine.
+## M6a Integration backlog: merged
+- Remote inside the service with DPAPI-protected keys and an ACL'd `certs` folder; config keys; DevHost `--remote`. CA fingerprint on the desktop pairing panel. Phone sign-out unpairs. "Restart as administrator" on the setup screen. Engine refresh/restore with saved position. Schema v2. Batched track lookups. A PIN change revokes the user's other sessions.
+- Evidence (Linux): 794 .NET tests and 8 e2e tests green. A real host + engine + remote + SignalR phone test shows playback continuing after every hub connection is cut. A test race (hub registration lagging the client handshake) was found and fixed by the lead: 0/10 failures after the fix.
+- Windows: the DPAPI round-trip, the SChannel handshake with DPAPI-loaded certificates, and the service with the remote enabled are pending the CI run.
 
 ## Next
 - M1 Audio engine (Agent 1) and M2 Data/storage (Agent 3), in parallel worktrees, once Windows CI is green.
