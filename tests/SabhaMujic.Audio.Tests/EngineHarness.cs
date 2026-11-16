@@ -30,10 +30,10 @@ internal sealed class EngineHarness : IDisposable
 {
     private readonly TempDir _dir = new();
 
-    public EngineHarness(PlaybackEngineOptions? options = null)
+    public EngineHarness(PlaybackEngineOptions? options = null, IAudioDecoderFactory? decoders = null)
     {
         Output = NullRealtimeOutput.CreateManual();
-        Engine = new PlaybackEngine(Output, new WaveFileDecoderFactory(), Resolver, options ?? new PlaybackEngineOptions { AnalyzeMissingTracks = false });
+        Engine = new PlaybackEngine(Output, decoders ?? new WaveFileDecoderFactory(), Resolver, options ?? new PlaybackEngineOptions { AnalyzeMissingTracks = false });
         Engine.StateChanged += (_, s) => States.Enqueue(s);
         Engine.QueueChanged += (_, q) => Queues.Enqueue(q);
         Engine.PlaybackError += (_, e) => Errors.Enqueue(e);
@@ -95,5 +95,34 @@ internal sealed class EngineHarness : IDisposable
         Engine.Dispose();
         Output.Dispose();
         _dir.Dispose();
+    }
+}
+
+/// <summary>Wraps WAV decoding with a delay per read, so the decode thread falls behind the renderer.</summary>
+internal sealed class SlowDecoderFactory(int sleepMilliseconds) : IAudioDecoderFactory
+{
+    private readonly WaveFileDecoderFactory _inner = new();
+
+    public IAudioSource Open(string path) => new SlowSource(_inner.Open(path), sleepMilliseconds);
+
+    private sealed class SlowSource(IAudioSource inner, int sleepMilliseconds) : IAudioSource
+    {
+        public NAudio.Wave.WaveFormat WaveFormat => inner.WaveFormat;
+
+        public long TotalFrames => inner.TotalFrames;
+
+        public TimeSpan Duration => inner.Duration;
+
+        public long PositionFrames => inner.PositionFrames;
+
+        public void Seek(long frame) => inner.Seek(frame);
+
+        public int Read(Span<float> buffer)
+        {
+            Thread.Sleep(sleepMilliseconds);
+            return inner.Read(buffer);
+        }
+
+        public void Dispose() => inner.Dispose();
     }
 }
