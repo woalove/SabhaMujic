@@ -36,7 +36,8 @@ public partial class App : Application
             new DispatcherScheduler(Dispatcher),
             new WpfDialogService(),
             new WpfFilePicker(),
-            new PhysicalFileSystem());
+            new PhysicalFileSystem(),
+            new WpfAppRestarter(this));
         _shell = new ShellViewModel(_client, ui);
 
         var demo = _client as DemoSabhaClient;

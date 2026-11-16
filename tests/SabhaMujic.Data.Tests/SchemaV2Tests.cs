@@ -96,6 +96,28 @@ public sealed class SchemaV2Tests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Playback_position_is_saved_with_the_current_item()
+    {
+        var a = await _t.AddTrackAsync("A");
+        var b = await _t.AddTrackAsync("B");
+        QueueItemDto[] items = [new(Guid.NewGuid(), a.Id), new(Guid.NewGuid(), b.Id)];
+        Assert.Equal(0, (await _t.Playback.LoadQueueAsync()).PositionSeconds);
+
+        await _t.Playback.SaveQueueAsync(items, 1);
+        await _t.Playback.SavePositionAsync(42.5);
+        var loaded = await _t.Playback.LoadQueueAsync();
+        Assert.Equal(items, loaded.Items);
+        Assert.Equal((1, 42.5), (loaded.CurrentIndex, loaded.PositionSeconds));
+
+        // When the current item is gone (its track was deleted), the position no longer applies.
+        await _t.Tracks.DeleteAsync(b.Id);
+        Assert.Equal(0, (await _t.Playback.LoadQueueAsync()).PositionSeconds);
+
+        await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => _t.Playback.SavePositionAsync(-1));
+        await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => _t.Playback.SavePositionAsync(double.NaN));
+    }
+
+    [Fact]
     public async Task Revoking_all_but_one_session()
     {
         var user = await _t.Users.CreateAsync("u", Role.Admin, TestDb.Secret());

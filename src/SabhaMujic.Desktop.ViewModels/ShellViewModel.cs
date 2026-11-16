@@ -34,7 +34,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
 
         Tracks = new TrackInfoCache(client);
         Login = new LoginViewModel(client);
-        Setup = new SetupViewModel(client);
+        Setup = new SetupViewModel(client, ui.Restarter);
         NowPlaying = new NowPlayingViewModel(client, ui, Tracks);
         Queue = new QueueViewModel(client, ui, Tracks);
         Playlists = new PlaylistsViewModel(client, ui, Tracks);

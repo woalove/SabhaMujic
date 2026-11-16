@@ -27,7 +27,9 @@ public class QueueViewModelTests
         Assert.Equal("2:05", _vm.Items[0].DurationText);
         Assert.Equal([false, true, false, false], _vm.Items.Select(i => i.IsCurrent).ToArray());
         Assert.Equal("4 tracks", _vm.Summary);
-        Assert.Single(_client.CallsTo("GetTrackAsync")); // one lookup per distinct track
+        var batch = Assert.Single(_client.CallsTo("GetTracksByIdsAsync")); // one batched lookup for the whole queue
+        Assert.Equal([TrackA], (IReadOnlyList<Guid>)batch.Args[0]!);
+        Assert.Empty(_client.CallsTo("GetTrackAsync"));
     }
 
     [Fact]

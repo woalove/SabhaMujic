@@ -51,6 +51,56 @@ public sealed class TrackInfoCache
         return task;
     }
 
+    /// <summary>
+    /// Many tracks at once (queue and playlist rows): ids not cached yet are fetched with
+    /// <see cref="ILibraryApi.GetTracksByIdsAsync"/> in batches of at most <see cref="LibraryLimits.MaxBatchLookup"/>;
+    /// lookups already in flight are shared. Missing tracks map to null.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<Guid, TrackDto?>> GetManyAsync(IEnumerable<Guid> ids)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        var result = new Dictionary<Guid, TrackDto?>();
+        var pending = new List<(Guid Id, Task<TrackDto?> Task)>();
+        var missing = new List<Guid>();
+        foreach (var id in ids.Distinct())
+        {
+            if (_known.TryGetValue(id, out var cached))
+            {
+                result[id] = cached;
+            }
+            else if (_inFlight.TryGetValue(id, out var inFlight))
+            {
+                pending.Add((id, inFlight));
+            }
+            else
+            {
+                missing.Add(id);
+            }
+        }
+
+        foreach (var chunk in missing.Chunk(LibraryLimits.MaxBatchLookup))
+        {
+            var batch = FetchBatchAsync(chunk);
+            foreach (var id in chunk)
+            {
+                var one = PickAsync(batch, id);
+                if (!one.IsCompleted)
+                {
+                    _inFlight[id] = one;
+                }
+
+                pending.Add((id, one));
+            }
+        }
+
+        foreach (var (id, task) in pending)
+        {
+            result[id] = await task.ConfigureAwait(true);
+        }
+
+        return result;
+    }
+
     public void Invalidate(Guid id)
     {
         _known.Remove(id);
@@ -66,6 +116,32 @@ public sealed class TrackInfoCache
             Invalidated?.Invoke(id);
         }
     }
+
+    private async Task<Dictionary<Guid, TrackDto?>> FetchBatchAsync(Guid[] ids)
+    {
+        try
+        {
+            var found = (await _client.Library.GetTracksByIdsAsync(ids).ConfigureAwait(true)).ToDictionary(t => t.Id);
+            var map = new Dictionary<Guid, TrackDto?>();
+            foreach (var id in ids)
+            {
+                map[id] = found.GetValueOrDefault(id);
+                _known[id] = map[id];
+            }
+
+            return map;
+        }
+        finally
+        {
+            foreach (var id in ids)
+            {
+                _inFlight.Remove(id);
+            }
+        }
+    }
+
+    private static async Task<TrackDto?> PickAsync(Task<Dictionary<Guid, TrackDto?>> batch, Guid id) =>
+        (await batch.ConfigureAwait(true)).GetValueOrDefault(id);
 
     private async Task<TrackDto?> FetchAsync(Guid id)
     {
