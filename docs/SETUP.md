@@ -41,7 +41,9 @@ There are no default accounts or passwords. The first SabhaMujic administrator i
 
 1. Open SabhaMujic (the installer can start it for you). It shows **Welcome to SabhaMujic**. If it says "Waiting for the SabhaMujic service…", wait a moment.
 2. Enter an **Administrator name** and a **PIN or password** (at least 4 characters), twice, and click **Create administrator**.
-3. Windows only allows this step from the app running **as administrator**. The installer starts the app normally, so the first attempt usually answers: "Close the app, then right-click SabhaMujic and choose 'Run as administrator'…". Do that: in the Start menu, right-click **SabhaMujic** → **More** → **Run as administrator**, confirm the prompt and fill in the form again. Some versions of the app offer a **Restart as administrator** button for the same purpose.
+3. Windows only allows this step from the app running **as administrator**. The installer starts the app normally, so the first attempt usually answers "Creating the first administrator needs Windows administrator rights" and shows a **Restart as administrator** button. Click it and confirm the Windows prompt. SabhaMujic reopens with administrator rights; fill in the form again and click **Create administrator**.
+   - If you cancel the Windows prompt, the app stays open and says so; click **Restart as administrator** again.
+   - Fallback: close the app, then in the Start menu right-click **SabhaMujic** → **More** → **Run as administrator**.
 4. You're signed in as the administrator. Close the app and open it normally from now on. Running it as administrator is only needed for this one step.
 
 Create a **second administrator account** straight away (next section). If the only administrator forgets their PIN, there is no reset yet; see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#forgotten-administrator-pin).
@@ -56,7 +58,7 @@ SabhaMujic accounts are separate from Windows accounts. Volunteers can share one
    - **Admin**: everything a volunteer can do, plus importing music, categories, tracks and loop points, accounts and iPhone pairing.
 3. Give each volunteer their user name and PIN.
 
-**Reset PIN…** changes a user's PIN. If it's another user's account, they are signed out wherever they were signed in. You can't delete your own account or the last administrator.
+**Reset PIN…** changes a user's PIN and signs that user out everywhere. If you change your own PIN, only the session you are using stays signed in. You can't delete your own account or the last administrator.
 
 ## Pair an iPhone
 
@@ -66,25 +68,26 @@ Each iPhone is set up once: it installs the PC's own certificate, then pairs wit
 
 1. Make sure the PC is on the sabha Wi-Fi or LAN and that the network is set to **Private** (see [Network and firewall](#network-and-firewall)).
 2. Open **Admin → Remote devices**. Under **Pair a new iPhone**, choose the **Role for the new device**. Choose **Admin** only for a phone an administrator keeps, because it gets admin rights without a PIN. Then click **Pair new device**.
-3. The app shows a QR code, a 6-digit code and a countdown from 5:00. The code works once and expires after 5 minutes; if it runs out, click **Pair new device** again.
+3. The app shows a QR code, a 6-digit code and a countdown from 5:00. The code works once and expires after 5 minutes; if it runs out, click **Pair new device** again. Below the code it shows the PC's certificate fingerprint in four lines, under "Check this matches the fingerprint on the phone's setup page".
 
 **On the iPhone:**
 
 1. Connect to the same Wi-Fi as the PC.
 2. Open the Camera and point it at the QR code, then tap the link. Safari opens the **Set up the SabhaMujic remote** page on `http://<PC address>:8080/`, showing your pairing code.
 3. **Install the certificate profile.** Tap **Download profile**, then **Allow** and **Close**. Open **Settings → General → VPN & Device Management**, tap **SabhaMujic Remote**, then **Install**, enter the iPhone passcode, tap **Install** again and **Done**.
-4. **Check the fingerprint.** The setup page shows `SHA-256 …` at the bottom. On the PC, open `http://localhost:8080/` in a browser: it shows the fingerprint of the PC's certificate. The two must be identical. In the iPhone's profile details (**VPN & Device Management → SabhaMujic Remote → More Details**), the certificate's SHA-256 fingerprint should match too. If they differ, don't continue: another device on the network may be pretending to be the PC.
+4. **Check the fingerprint.** The setup page shows `SHA-256 …` at the bottom. Compare it with the fingerprint on the PC's pairing panel (step 3 on the PC), a line at a time. The two must be identical. If they differ, don't continue: another device on the network may be pretending to be the PC.
 5. **Turn on full trust.** Open **Settings → General → About → Certificate Trust Settings**. Under "Enable full trust for root certificates", switch on **SabhaMujic Local CA (<PC name>)** and tap **Continue**.
 6. Go back to Safari and tap **Continue**. It opens `https://<PC address>:8443/pair` with the code filled in, and there must be no certificate warning. Enter a device name (for example "Kirtan iPhone") and pair.
 7. The remote opens on the **Now** tab and shows **Connected**. Tap Share → **Add to Home Screen** for quick access. If the home-screen app asks to pair again (iOS can keep its storage separate from Safari), pair it with a new code.
 
-To pair another iPhone, repeat these steps; the profile and trust steps are needed once per iPhone. To remove an iPhone, use **Revoke…** in **Admin → Remote devices**.
+To pair another iPhone, repeat these steps; the profile and trust steps are needed once per iPhone. To remove an iPhone, use **Revoke…** in **Admin → Remote devices**. **Sign out** on the iPhone unpairs it too: it disappears from the PC's list and needs a new pairing code to be used again.
 
 ## Network and firewall
 
 - The remote only works on the local network. The service refuses connections from public internet addresses. Phones on mobile data or on a guest Wi-Fi that isolates devices from each other can't reach it.
 - The firewall rules only apply on networks Windows treats as **Private**. In **Settings → Network & internet → Wi-Fi** (or **Ethernet**) → your network, set **Network profile type** to **Private network**. On a **Public** network the iPhone can't connect.
 - Ports: TCP **8080** serves only the setup page and the certificate (plain HTTP, nothing secret). TCP **8443** serves the remote itself over HTTPS.
+- To turn the remote off completely, see [Turning the iPhone remote off](ADMIN_GUIDE.md#turning-the-iphone-remote-off).
 - Give the PC a fixed address if you can. On the Wi-Fi router, add a DHCP reservation for the PC. The PC's certificate follows address changes by itself, but the iPhone was set up for the old address and may need to be paired again (see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#the-pcs-ip-address-changed)).
 
 ## Update
@@ -108,8 +111,9 @@ An older version can't be installed over a newer one; the installer says so and 
    Remove-Item -LiteralPath "$env:ProgramData\SabhaMujic" -Recurse -Force
    ```
 
-3. Optionally, for each Windows user who used the app, delete `%LOCALAPPDATA%\SabhaMujic`. It only holds window position and size.
-4. On each paired iPhone, remove the certificate: **Settings → General → VPN & Device Management → SabhaMujic Remote → Remove Profile**. Also delete the home-screen icon.
+3. If `C:\Program Files\SabhaMujic` is still there, it holds a settings file you added yourself (`Service\appsettings.json`, see [ADMIN_GUIDE.md](ADMIN_GUIDE.md#service-settings)); delete the folder.
+4. Optionally, for each Windows user who used the app, delete `%LOCALAPPDATA%\SabhaMujic`. It only holds window position and size.
+5. On each paired iPhone, remove the certificate: **Settings → General → VPN & Device Management → SabhaMujic Remote → Remove Profile**. Also delete the home-screen icon.
 
 ## Unattended install (IT)
 
