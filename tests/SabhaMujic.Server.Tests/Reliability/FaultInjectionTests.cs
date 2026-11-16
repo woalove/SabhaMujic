@@ -30,6 +30,10 @@ public sealed class FaultInjectionTests
         h.Host.Resolver.Invalidate(truncated);
 
         var states = new StateLog(h.Admin);
+        // Client-facing state is coalesced (latest wins), so a short-lived state can legitimately never reach a client on
+        // a slow machine. Engine transitions are raised one by one: use them to prove the truncated file was played.
+        var engineStates = new System.Collections.Concurrent.ConcurrentQueue<PlaybackStateDto>();
+        h.Host.Engine.StateChanged += (_, s) => engineStates.Enqueue(s);
         await h.Admin.Playback.SetCrossfadeAsync(0);
         var queue = await h.Admin.Playback.EnqueueAsync([a, corrupt, truncated, d], playNext: false);
         await h.Admin.Playback.PlayQueueItemAsync(queue.Items[0].QueueItemId);
@@ -37,7 +41,7 @@ public sealed class FaultInjectionTests
         await AssertEx.Eventually(() => h.Host.Engine.GetState() is { Status: PlaybackStatus.Playing } s && s.CurrentTrackId == d, "D playing", 20_000);
         Assert.True(states.Any(s => s.ErrorMessage?.Contains(corrupt.ToString(), StringComparison.Ordinal) == true),
             "clients were told the corrupt track was skipped");
-        Assert.True(states.Any(s => s.CurrentTrackId == truncated && s.Status == PlaybackStatus.Playing), "the truncated file played as far as it goes");
+        Assert.True(engineStates.Any(s => s.CurrentTrackId == truncated && s.Status == PlaybackStatus.Playing), "the truncated file played as far as it goes");
         Assert.DoesNotContain(states.Last!.ErrorMessage ?? string.Empty, "/"); // never a file path
 
         // Still healthy afterwards: D keeps playing and the position advances.
