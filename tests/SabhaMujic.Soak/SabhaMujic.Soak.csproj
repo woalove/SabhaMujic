@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Accelerated soak and performance harness for the whole service (SabhaHost + real pipe/SignalR clients).
+       The soak engine itself lives in tests/SabhaMujic.Server.Tests/Reliability/Shared and is compiled into both this
+       app and the test project (the 30-simulated-minute mini-soak), so the two cannot drift. See Program.cs for usage. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>SabhaMujic.Soak</AssemblyName>
+    <RootNamespace>SabhaMujic.Soak</RootNamespace>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../SabhaMujic.Server.Tests/Reliability/Shared/*.cs" LinkBase="Shared" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/SabhaMujic.Server/SabhaMujic.Server.csproj" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
+  </ItemGroup>
+</Project>
