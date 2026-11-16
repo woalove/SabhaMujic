@@ -19,11 +19,17 @@ public sealed class PipeLimitsTests
             AuthenticationTimeout = deadlines ? auth ?? TimeSpan.FromSeconds(60) : null,
         };
 
+    /// <summary>
+    /// A raw connection that never says a word. It allows Identification-level impersonation like the real client: on
+    /// Windows a client that allows none cannot be identified, and would land in the shared "unidentified" bucket instead
+    /// of its account's (CI run 24).
+    /// </summary>
     private static async Task<NamedPipeClientStream> SquatAsync(TestServer server)
     {
-        var pipe = new NamedPipeClientStream(".", server.PipeOptions.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        var pipe = new NamedPipeClientStream(".", server.PipeOptions.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous,
+            System.Security.Principal.TokenImpersonationLevel.Identification);
         await pipe.ConnectAsync(5_000);
-        return pipe; // connects, never says a word
+        return pipe;
     }
 
     private static async Task<bool> IsClosedAsync(Stream stream, int timeoutMs = 10_000)
@@ -203,18 +209,25 @@ public sealed class PipeLimitsTests
     [Fact]
     public async Task One_account_cannot_take_more_than_its_share()
     {
-        // Every test connection is the same OS account, so the per-account cap applies to all of them.
-        await using var server = await TestServer.StartAsync(pipe: Pipe(perPrincipal: 3, deadlines: false));
+        // One fixed account for every connection, whatever the OS reports for the test runner (deterministic on Windows,
+        // where how a client opens the pipe decides whether the service can identify it at all).
+        await using var server = await TestServer.StartAsync(pipe: Pipe(perPrincipal: 3, deadlines: false),
+            identity: new FixedCallerIdentity("PC\\volunteer", elevated: false));
         var signedIn = new List<PipeSabhaClient>();
         for (var i = 0; i < 3; i++)
         {
             signedIn.Add(await server.ConnectVolunteerAsync());
         }
 
+        await AssertEx.Eventually(() => server.Pipe!.ConnectionPrincipals.Count == 3, "3 connections");
+        var account = Assert.Single(server.Pipe!.ConnectionPrincipals.Distinct());
+        Assert.Equal("PC\\volunteer", account);
+
         // A fourth connection from the same account is refused while all three are signed in…
         await using (var raw = await SquatAsync(server))
         {
-            Assert.True(await IsClosedAsync(raw));
+            Assert.True(await IsClosedAsync(raw), $"a 4th connection of {account} was not refused; principals: " +
+                string.Join(", ", server.Pipe.ConnectionPrincipals));
         }
 
         // …but replaces that account's oldest signed-out connection once one signs out.

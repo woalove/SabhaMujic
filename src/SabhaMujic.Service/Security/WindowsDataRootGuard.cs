@@ -89,7 +89,9 @@ public sealed class WindowsDataRootGuard : DataRootGuard
 
     private void TakeOwnership(string path, string what)
     {
-        TokenPrivileges.TryEnable("SeTakeOwnershipPrivilege", "SeRestorePrivilege");
+        // Enabled only around the owner change and restored afterwards: a process (the service, or a test host) must not
+        // keep SeRestore/SeTakeOwnership switched on, which would let it bypass file permissions from then on.
+        using var privileges = TokenPrivileges.Enable("SeTakeOwnershipPrivilege", "SeRestorePrivilege");
         var directory = new DirectoryInfo(path);
         SecurityIdentifier? owner;
         try
@@ -147,33 +149,63 @@ public sealed class WindowsDataRootGuard : DataRootGuard
         }
     }
 
-    /// <summary>Best-effort enabling of privileges the process token already holds (no-op otherwise).</summary>
-    private static class TokenPrivileges
+    /// <summary>
+    /// Best-effort enabling of privileges the process token already holds (no-op otherwise). Dispose puts back exactly
+    /// the privileges this call changed.
+    /// </summary>
+    private sealed class TokenPrivileges : IDisposable
     {
         private const int TokenAdjustPrivileges = 0x20;
         private const int TokenQuery = 0x8;
         private const int SePrivilegeEnabled = 0x2;
+        private const int ErrorNotAllAssigned = 1300;
 
-        public static void TryEnable(params string[] names)
+        private readonly SafeAccessTokenHandle? _token;
+        private readonly List<TokenPrivilege> _previous = [];
+
+        private TokenPrivileges(SafeAccessTokenHandle? token) => _token = token;
+
+        public static TokenPrivileges Enable(params string[] names)
         {
             if (!OpenProcessToken(GetCurrentProcess(), TokenAdjustPrivileges | TokenQuery, out var token))
+            {
+                token.Dispose();
+                return new TokenPrivileges(null);
+            }
+
+            var result = new TokenPrivileges(token);
+            foreach (var name in names)
+            {
+                if (!LookupPrivilegeValue(null, name, out var luid))
+                {
+                    continue;
+                }
+
+                var wanted = new TokenPrivilege { Count = 1, Luid = luid, Attributes = SePrivilegeEnabled };
+                if (AdjustTokenPrivileges(token, false, ref wanted, Marshal.SizeOf<TokenPrivilege>(), out var previous, out _)
+                    && Marshal.GetLastPInvokeError() != ErrorNotAllAssigned && previous.Count == 1)
+                {
+                    result._previous.Add(previous); // Count 0 = it was already enabled: nothing to undo
+                }
+            }
+
+            return result;
+        }
+
+        public void Dispose()
+        {
+            if (_token is null)
             {
                 return;
             }
 
-            using (token)
+            foreach (var previous in _previous)
             {
-                foreach (var name in names)
-                {
-                    if (!LookupPrivilegeValue(null, name, out var luid))
-                    {
-                        continue;
-                    }
-
-                    var privileges = new TokenPrivilege { Count = 1, Luid = luid, Attributes = SePrivilegeEnabled };
-                    AdjustTokenPrivileges(token, false, ref privileges, 0, IntPtr.Zero, IntPtr.Zero); // fails quietly if not held
-                }
+                var restore = previous;
+                AdjustTokenPrivileges(_token, false, ref restore, 0, IntPtr.Zero, IntPtr.Zero);
             }
+
+            _token.Dispose();
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -199,6 +231,10 @@ public sealed class WindowsDataRootGuard : DataRootGuard
 
         [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         private static extern bool LookupPrivilegeValue(string? system, string name, out Luid luid);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool AdjustTokenPrivileges(SafeAccessTokenHandle token, bool disableAll, ref TokenPrivilege newState, int bufferLength,
+            out TokenPrivilege previousState, out int returnLength);
 
         [DllImport("advapi32.dll", SetLastError = true)]
         private static extern bool AdjustTokenPrivileges(SafeAccessTokenHandle token, bool disableAll, ref TokenPrivilege newState, int bufferLength,

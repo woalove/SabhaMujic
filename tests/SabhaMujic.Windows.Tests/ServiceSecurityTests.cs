@@ -2,6 +2,7 @@ using System.IO.Pipes;
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using SabhaMujic.Client;
 using SabhaMujic.Contracts;
@@ -159,7 +160,13 @@ public sealed class ServiceSecurityTests(ITestOutputHelper output)
         Assert.Equal(WindowsTestSupport.IsElevatedAdministrator(), caller.IsElevatedAdministrator);
     }
 
-    /// <summary>The Windows composition (Media Foundation, WASAPI, ACLs, ACL'd pipe, token identity) starts and answers Hello.</summary>
+    /// <summary>
+    /// The real service entry point (<see cref="ServiceProgram"/>: data-root guard, logging, Windows composition with Media
+    /// Foundation, WASAPI, ACLs, the ACL'd pipe and token identity) run in-process like the installer runs it: first the
+    /// elevated prepare step, then the service. It answers Hello and allows first-run setup to this elevated process. If the
+    /// service exits instead (exit code 2 = data root refused, 1 = start failed), the test fails at once with that code
+    /// and the service's own log in the output, instead of timing out on the client.
+    /// </summary>
     [Fact]
     public async Task Console_hosted_service_answers_over_the_acl_pipe()
     {
@@ -172,14 +179,24 @@ public sealed class ServiceSecurityTests(ITestOutputHelper output)
 
         using var root = WindowsTestSupport.NewProgramDataDir();
         var pipeName = "sm-svc-" + Guid.NewGuid().ToString("N")[..8];
-        var options = WindowsHostComposition.CreateOptions(root.Path, NullLoggerFactory.Instance, pipeName);
-        await using var service = new SabhaServiceHost(options, NullLogger<SabhaServiceHost>.Instance);
-        await service.StartAsync(CancellationToken.None);
+        string[] args = [$"--SabhaMujic:DataRoot={root.Path}", $"--SabhaMujic:PipeName={pipeName}", "--SabhaMujic:Remote:Enabled=false"];
+        void Log(ILoggingBuilder logging) => logging.AddProvider(new TestOutputLoggerProvider(output));
+
+        Assert.Equal(0, await ServiceProgram.RunAsync([.. args, ServiceProgram.PrepareSwitch], logging: Log));
+
+        using var stop = new CancellationTokenSource();
+        var service = Task.Run(() => ServiceProgram.RunAsync(args, stop.Token, Log));
         try
         {
             await using var client = new PipeSabhaClient(new PipeClientOptions { PipeName = pipeName, ConnectTimeout = TimeSpan.FromSeconds(5) });
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            await client.ConnectAsync(timeout.Token);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            var connect = client.ConnectAsync(timeout.Token);
+            if (await Task.WhenAny(connect, service) == service)
+            {
+                Assert.Fail($"The service exited with code {await service} before answering (its log is in the test output).");
+            }
+
+            await connect;
             Assert.Equal(ContractVersion.Current, client.ServerInfo!.ContractVersion);
             Assert.True(await client.Auth.IsSetupRequiredAsync());
 
@@ -188,14 +205,47 @@ public sealed class ServiceSecurityTests(ITestOutputHelper output)
             Assert.Equal(Role.Admin, session.Role);
             Assert.False(await client.Auth.IsSetupRequiredAsync());
 
-            foreach (var folder in new[] { "data", "library", "uploads" })
+            foreach (var folder in new[] { "data", "library", "uploads", "certs", "logs" })
             {
                 Assert.True(new DirectoryInfo(Path.Combine(root.Path, folder)).GetAccessControl().AreAccessRulesProtected, folder);
             }
+
+            Assert.Equal(ServiceSid.Administrators,
+                new DirectoryInfo(root.Path).GetAccessControl(AccessControlSections.Owner).GetOwner(typeof(SecurityIdentifier)));
         }
         finally
         {
-            await service.StopAsync(CancellationToken.None);
+            await stop.CancelAsync();
+            var code = await service.WaitAsync(TimeSpan.FromSeconds(60));
+            Assert.Equal(0, code);
         }
+    }
+
+    /// <summary>A junction in place of a data folder: the real entry point exits with code 2 at once (no host, no hang).</summary>
+    [Fact]
+    public async Task The_service_exits_with_code_2_when_its_data_root_is_refused()
+    {
+        using var root = WindowsTestSupport.NewProgramDataDir();
+        var target = Directory.CreateDirectory(Path.Combine(root.Path, "elsewhere")).FullName;
+        var dataRoot = Path.Combine(root.Path, "SabhaMujic");
+        Directory.CreateDirectory(dataRoot);
+        var start = new System.Diagnostics.ProcessStartInfo("cmd.exe") { UseShellExecute = false, RedirectStandardOutput = true };
+        foreach (var arg in new[] { "/c", "mklink", "/J", Path.Combine(dataRoot, "data"), target })
+        {
+            start.ArgumentList.Add(arg);
+        }
+
+        using (var mklink = System.Diagnostics.Process.Start(start)!)
+        {
+            await mklink.WaitForExitAsync();
+            Assert.Equal(0, mklink.ExitCode);
+        }
+
+        var code = await ServiceProgram.RunAsync(
+                [$"--SabhaMujic:DataRoot={dataRoot}", "--SabhaMujic:PipeName=sm-refused-" + Guid.NewGuid().ToString("N")[..8], "--SabhaMujic:Remote:Enabled=false"],
+                logging: logging => logging.AddProvider(new TestOutputLoggerProvider(output)))
+            .WaitAsync(TimeSpan.FromSeconds(60));
+        Assert.Equal(ServiceProgram.ExitDataRootRefused, code);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(target));
     }
 }

@@ -137,6 +137,10 @@ public sealed class PipeRpcServer : IAsyncDisposable
     /// <summary>Most signed-out connections held at once; beyond it the oldest is closed for the newcomer.</summary>
     public int MaxAnonymousConnections { get; }
 
+    /// <summary>The OS principal of each open connection, oldest first (diagnostics/tests).</summary>
+    public IReadOnlyList<string> ConnectionPrincipals =>
+        _connections.Keys.Where(c => !c.IsClosing).OrderBy(c => c.Sequence).Select(c => c.Principal).ToList();
+
     /// <summary>Open connections that are not signed in (diagnostics/tests).</summary>
     public int AnonymousConnectionCount => _connections.Keys.Count(c => !c.IsAuthenticated && !c.IsClosing);
 
