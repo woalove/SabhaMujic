@@ -59,6 +59,7 @@ public sealed class PlaybackEngine : IDisposable
     private StateCore? _lastCore;
     private PlaybackVoice? _lastPublishedVoice;
     private long _lastQueueRevision = -1;
+    private (Guid QueueItemId, long Frame)? _pendingResume;
 
     // Published snapshots (any thread).
     private volatile Snapshot _snapshot;
@@ -159,7 +160,8 @@ public sealed class PlaybackEngine : IDisposable
             var item = _queue.Current ?? _queue.Snapshot().Items.FirstOrDefault();
             if (item is not null)
             {
-                StartItem(item, crossfade: false, userInitiated: true);
+                long? resumeAt = _pendingResume is { } pending && pending.QueueItemId == item.QueueItemId ? pending.Frame : null;
+                StartItem(item, crossfade: false, userInitiated: true, startFrame: resumeAt);
             }
         }
     }, ct);
@@ -363,6 +365,58 @@ public sealed class PlaybackEngine : IDisposable
         return _queue.Snapshot();
     }, ct);
 
+    /// <summary>
+    /// Re-resolves a track after its analysis or admin loop override changed and applies the result to the live session:
+    /// a scheduled loop seam (or queue advance into another copy of the track) that has not started yet is rebuilt from the
+    /// new analysis; one already crossfading finishes as planned and the following seam uses the new region. Trims of the
+    /// voice that is already playing are not moved.
+    /// </summary>
+    public Task RefreshTrackAsync(Guid trackId, CancellationToken ct = default) => Post(() =>
+    {
+        _analysisCache.Remove(trackId);
+        _analysisFailed.Remove(trackId);
+        bool affected = _current?.TrackId == trackId || _planned?.Session.TrackId == trackId;
+        if (!affected)
+        {
+            return;
+        }
+
+        var resolved = Resolve(trackId);
+        if (resolved?.Analysis is { } analysis && _current is { } current && current.TrackId == trackId)
+        {
+            current.Analysis = analysis;
+        }
+
+        InvalidatePlan();
+    }, ct);
+
+    /// <summary>
+    /// Restores a saved queue at startup: the same queue item ids, <paramref name="currentIndex"/> selected, playback
+    /// stopped. With <paramref name="positionSeconds"/>, the next <see cref="ResumeAsync"/> of the current item continues
+    /// there (with the usual short fade-in) instead of at the start. Conflict while something is playing.
+    /// </summary>
+    public Task<QueueDto> RestoreQueueAsync(IReadOnlyList<QueueItemDto> items, int currentIndex, double? positionSeconds = null,
+        CancellationToken ct = default) => Post(() =>
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        if (IsActive)
+        {
+            throw new SabhaMujicException(ErrorCode.Conflict, "The queue can only be restored while playback is stopped.");
+        }
+
+        if (positionSeconds is { } p && (!double.IsFinite(p) || p < 0))
+        {
+            throw new SabhaMujicException(ErrorCode.InvalidArgument, "The position must be a non-negative number of seconds.");
+        }
+
+        _queue.Restore(items, currentIndex);
+        _pendingResume = positionSeconds is > 0 && _queue.Current is { } current
+            ? (current.QueueItemId, AudioFormat.SecondsToFrames(positionSeconds.Value))
+            : null;
+        OnQueueEdited();
+        return _queue.Snapshot();
+    }, ct);
+
     /// <summary>Completes once every earlier command and every pending render event has been processed.</summary>
     public Task SyncAsync(CancellationToken ct = default) => Post(DrainMixerEvents, ct);
 
@@ -505,8 +559,9 @@ public sealed class PlaybackEngine : IDisposable
 
     // ---------------------------------------------------------------- control thread: playback logic
 
-    private void StartItem(QueueItemDto item, bool crossfade, bool userInitiated)
+    private void StartItem(QueueItemDto item, bool crossfade, bool userInitiated, long? startFrame = null)
     {
+        _pendingResume = null; // a restored position applies only to the very next start
         if (userInitiated)
         {
             _error = null;
@@ -542,7 +597,9 @@ public sealed class PlaybackEngine : IDisposable
             TrackSession session;
             try
             {
-                session = TakePlannedSession(candidate) ?? OpenSession(candidate, startFrame: null);
+                session = attempt == 0 && startFrame is not null
+                    ? OpenSession(candidate, startFrame)
+                    : TakePlannedSession(candidate) ?? OpenSession(candidate, startFrame: null);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -911,7 +968,10 @@ public sealed class PlaybackEngine : IDisposable
         try
         {
             session = new TrackSession(item, resolved, analysis, source.TotalFrames);
-            CreateVoice(session, source, startFrame ?? session.TrimStart, assign: true);
+            long first = startFrame is { } requested
+                ? Math.Clamp(requested, session.TrimStart, Math.Max(session.TrimStart, session.TrimEnd - AudioFormat.SampleRate / 10))
+                : session.TrimStart;
+            CreateVoice(session, source, first, assign: true);
         }
         catch
         {

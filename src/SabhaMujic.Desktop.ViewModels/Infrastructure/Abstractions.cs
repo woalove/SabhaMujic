@@ -67,10 +67,30 @@ public interface ISabhaClientFactory
     ISabhaClient Create();
 }
 
+/// <summary>Outcome of asking Windows to restart the app elevated.</summary>
+public enum RestartResult
+{
+    /// <summary>The elevated copy was started; this instance is shutting down.</summary>
+    Restarting,
+
+    /// <summary>The user declined the UAC prompt; the app stays open.</summary>
+    Cancelled,
+
+    /// <summary>The restart could not be started (e.g. the exe path is unknown); the app stays open.</summary>
+    Failed,
+}
+
+/// <summary>Relaunches the app with administrator rights (UAC prompt) and exits on success. Implemented by the WPF app.</summary>
+public interface IAppRestarter
+{
+    RestartResult RestartAsAdministrator();
+}
+
 /// <summary>The UI services a view model may use. One instance is shared by the whole app.</summary>
 public sealed record UiServices(
     IUiDispatcher Dispatcher,
     IScheduler Scheduler,
     IDialogService Dialogs,
     IFilePicker FilePicker,
-    IFileSystem FileSystem);
+    IFileSystem FileSystem,
+    IAppRestarter? Restarter = null);

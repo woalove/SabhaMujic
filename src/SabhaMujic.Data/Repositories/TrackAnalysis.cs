@@ -8,6 +8,8 @@ namespace SabhaMujic.Data.Repositories;
 /// <summary>
 /// Automatic analysis of one track (all positions in seconds). Loop start/end are both set or both null.
 /// <see cref="LoopCrossfadeSeconds"/> is the short crossfade used at the loop seam.
+/// <see cref="DetailsJson"/> (schema v2) is the engine's complete analysis as JSON (seam correlation, fallback flag, tempo,
+/// exact frames); it is opaque here and must be valid JSON when set.
 /// </summary>
 public sealed record TrackAnalysis(
     Guid TrackId,
@@ -19,7 +21,8 @@ public sealed record TrackAnalysis(
     double? LoopEndSeconds = null,
     double? LoopCrossfadeSeconds = null,
     double? Confidence = null,
-    string? Error = null);
+    string? Error = null,
+    string? DetailsJson = null);
 
 /// <summary>Admin-set loop region; stored separately from <see cref="TrackAnalysis"/> so re-analysis keeps it.</summary>
 public sealed record LoopOverride(double StartSeconds, double EndSeconds, double CrossfadeSeconds);
@@ -50,6 +53,7 @@ public sealed class SqliteTrackAnalysisRepository(SqliteDatabase database) : Sql
 {
     private const int MaxErrorLength = 2000;
     private const double MaxCrossfadeSeconds = 30;
+    private const int MaxDetailsJsonLength = 1024 * 1024;
 
     public async Task UpsertAsync(TrackAnalysis analysis, CancellationToken ct = default)
     {
@@ -62,15 +66,15 @@ public sealed class SqliteTrackAnalysisRepository(SqliteDatabase database) : Sql
             await conn.ExecuteAsync(new CommandDefinition(
                 """
                 INSERT INTO track_analysis (track_id, status, analysis_version, trim_start_seconds, trim_end_seconds,
-                    loop_start_seconds, loop_end_seconds, loop_crossfade_seconds, confidence, error, updated_at)
+                    loop_start_seconds, loop_end_seconds, loop_crossfade_seconds, confidence, error, details_json, updated_at)
                 VALUES (@TrackId, @Status, @AnalysisVersion, @TrimStartSeconds, @TrimEndSeconds,
-                    @LoopStartSeconds, @LoopEndSeconds, @LoopCrossfadeSeconds, @Confidence, @Error, @Now)
+                    @LoopStartSeconds, @LoopEndSeconds, @LoopCrossfadeSeconds, @Confidence, @Error, @DetailsJson, @Now)
                 ON CONFLICT (track_id) DO UPDATE SET
                     status = excluded.status, analysis_version = excluded.analysis_version,
                     trim_start_seconds = excluded.trim_start_seconds, trim_end_seconds = excluded.trim_end_seconds,
                     loop_start_seconds = excluded.loop_start_seconds, loop_end_seconds = excluded.loop_end_seconds,
                     loop_crossfade_seconds = excluded.loop_crossfade_seconds, confidence = excluded.confidence,
-                    error = excluded.error, updated_at = excluded.updated_at;
+                    error = excluded.error, details_json = excluded.details_json, updated_at = excluded.updated_at;
                 """,
                 new
                 {
@@ -84,6 +88,7 @@ public sealed class SqliteTrackAnalysisRepository(SqliteDatabase database) : Sql
                     analysis.LoopCrossfadeSeconds,
                     analysis.Confidence,
                     Error = error,
+                    analysis.DetailsJson,
                     Now = Now(),
                 },
                 cancellationToken: ct)).ConfigureAwait(false);
@@ -102,7 +107,8 @@ public sealed class SqliteTrackAnalysisRepository(SqliteDatabase database) : Sql
             SELECT track_id AS TrackId, status AS Status, analysis_version AS AnalysisVersion,
                    trim_start_seconds AS TrimStartSeconds, trim_end_seconds AS TrimEndSeconds,
                    loop_start_seconds AS LoopStartSeconds, loop_end_seconds AS LoopEndSeconds,
-                   loop_crossfade_seconds AS LoopCrossfadeSeconds, confidence AS Confidence, error AS Error
+                   loop_crossfade_seconds AS LoopCrossfadeSeconds, confidence AS Confidence, error AS Error,
+                   details_json AS DetailsJson
             FROM track_analysis WHERE track_id = @TrackId;
             """,
             new { TrackId = trackId }, cancellationToken: ct)).ConfigureAwait(false);
@@ -213,6 +219,23 @@ public sealed class SqliteTrackAnalysisRepository(SqliteDatabase database) : Sql
             throw DataRules.Invalid("Unknown analysis status.");
         }
 
+        if (a.DetailsJson is { } json)
+        {
+            if (json.Length > MaxDetailsJsonLength)
+            {
+                throw DataRules.Invalid("The analysis details are too large.");
+            }
+
+            try
+            {
+                using var _ = System.Text.Json.JsonDocument.Parse(json);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                throw DataRules.Invalid("The analysis details must be valid JSON.");
+            }
+        }
+
         if (a.AnalysisVersion < 0)
         {
             throw DataRules.Invalid("The analysis version must not be negative.");
@@ -265,8 +288,10 @@ public sealed class SqliteTrackAnalysisRepository(SqliteDatabase database) : Sql
 
         public string? Error { get; set; }
 
+        public string? DetailsJson { get; set; }
+
         public TrackAnalysis ToRecord() => new(TrackId, Status, AnalysisVersion, TrimStartSeconds, TrimEndSeconds,
-            LoopStartSeconds, LoopEndSeconds, LoopCrossfadeSeconds, Confidence, Error);
+            LoopStartSeconds, LoopEndSeconds, LoopCrossfadeSeconds, Confidence, Error, DetailsJson);
     }
 
     private sealed class OverrideRow

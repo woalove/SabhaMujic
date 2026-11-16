@@ -11,6 +11,12 @@
                 <Border Style="{StaticResource ErrorBanner}" Visibility="{Binding HasError, Converter={StaticResource BoolToVisibility}}">
                     <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" />
                 </Border>
+                <Button Content="Restart as administrator" Style="{StaticResource AccentButton}" Margin="0,0,0,12" MinHeight="40"
+                        HorizontalAlignment="Stretch" Command="{Binding RestartAsAdministratorCommand}"
+                        AutomationProperties.HelpText="Restarts SabhaMujic with administrator rights. Windows asks for confirmation."
+                        Visibility="{Binding CanRestartAsAdministrator, Converter={StaticResource BoolToVisibility}}" />
+                <TextBlock Text="Restarting as administrator…" Style="{StaticResource MutedText}" Margin="0,0,0,12"
+                           Visibility="{Binding IsRestarting, Converter={StaticResource BoolToVisibility}}" />
 
                 <TextBlock Text="Administrator name" Style="{StaticResource FieldLabel}" />
                 <TextBox x:Name="AdminNameBox" Text="{Binding AdminName, UpdateSourceTrigger=PropertyChanged}"

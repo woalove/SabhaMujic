@@ -1,3 +1,4 @@
+using System.Text.Json;
 using SabhaMujic.Audio;
 using SabhaMujic.Audio.Analysis;
 using SabhaMujic.Contracts;
@@ -6,15 +7,17 @@ using StoredAnalysis = SabhaMujic.Data.Repositories.TrackAnalysis;
 namespace SabhaMujic.Server.Playback;
 
 /// <summary>
-/// Converts between the engine's frame-based <see cref="TrackAnalysis"/> and the database row (seconds).
+/// Converts between the engine's frame-based <see cref="TrackAnalysis"/> and the database row.
 /// <para>
-/// The database keeps trims, the loop region, its crossfade and confidence. It does not keep the seam correlation, the
-/// fallback flag, gaps or tempo; those survive only in memory (see <see cref="StoreTrackResolver"/>) until the next
-/// service restart, after which a Ready analysis is replayed with seam correlation 0 (plain equal-power seam).
+/// The row's columns (seconds) drive <c>TrackDto</c> and queries; <c>details_json</c> (schema v2) carries the complete
+/// engine analysis (seam correlation, fallback flag, tempo, gaps, exact frames). Reading prefers the details when they
+/// match the row's version, and otherwise rebuilds from the columns (rows written before v2: seam correlation 0).
 /// </para>
 /// </summary>
 public static class AnalysisMapping
 {
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.General);
+
     public static StoredAnalysis ToStored(Guid trackId, TrackAnalysis analysis) => new(
         trackId,
         AnalysisStatus.Ready,
@@ -24,7 +27,8 @@ public static class AnalysisMapping
         AudioFormat.FramesToSeconds(analysis.Loop.StartFrame),
         AudioFormat.FramesToSeconds(analysis.Loop.EndFrame),
         AudioFormat.FramesToSeconds(analysis.Loop.CrossfadeFrames),
-        Math.Clamp(analysis.Loop.Confidence, 0, 1));
+        Math.Clamp(analysis.Loop.Confidence, 0, 1),
+        DetailsJson: JsonSerializer.Serialize(analysis, Json));
 
     /// <summary>
     /// Rebuilds an engine analysis from a Ready row. Returns null when the row is not Ready or incomplete.
@@ -32,8 +36,17 @@ public static class AnalysisMapping
     /// </summary>
     public static TrackAnalysis? FromStored(StoredAnalysis? stored, double durationSeconds)
     {
-        if (stored is not { Status: AnalysisStatus.Ready, TrimStartSeconds: { } trimStart, TrimEndSeconds: { } trimEnd,
-                LoopStartSeconds: { } loopStart, LoopEndSeconds: { } loopEnd })
+        if (stored is not { Status: AnalysisStatus.Ready })
+        {
+            return null;
+        }
+
+        if (stored.DetailsJson is { } details && TryDeserialize(details) is { } full && full.Version == stored.AnalysisVersion)
+        {
+            return full;
+        }
+
+        if (stored is not { TrimStartSeconds: { } trimStart, TrimEndSeconds: { } trimEnd, LoopStartSeconds: { } loopStart, LoopEndSeconds: { } loopEnd })
         {
             return null;
         }
@@ -57,5 +70,17 @@ public static class AnalysisMapping
             TrailingTrimFrame = trailing,
             Loop = new LoopRegion(start, end, (int)fade, stored.Confidence ?? 0),
         };
+    }
+
+    private static TrackAnalysis? TryDeserialize(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<TrackAnalysis>(json, Json);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 }

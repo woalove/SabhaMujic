@@ -62,6 +62,9 @@ public sealed class SabhaHost : IAsyncDisposable
 
     public PipeRpcServer? Pipe { get; private set; }
 
+    /// <summary>The HTTPS remote component when <see cref="SabhaHostOptions.Remote"/> is set (its <c>Host</c> is the running server).</summary>
+    public RemoteComponent? Remote { get; private set; }
+
     public bool IsRunning => !_stopped;
 
     /// <summary>Builds and starts everything. On failure, whatever was started is stopped again and the error is rethrown.</summary>
@@ -108,6 +111,12 @@ public sealed class SabhaHost : IAsyncDisposable
         Analysis = new AnalysisWorker(Decoders, new SqliteTrackRepository(Database), new SqliteTrackAnalysisRepository(Database), Store, Resolver,
             events, loggers.CreateLogger<AnalysisWorker>(), _options.Engine?.Analysis);
         Engine.TrackAnalyzed += (_, e) => Analysis.AcceptEngineResult(e.TrackId, e.Analysis);
+        if (_options.Remote is { } remoteOptions)
+        {
+            Remote = RemoteComponent.Create(remoteOptions, Paths.Certs, _options.StoreAcl, clock, loggers);
+        }
+
+        Analysis.AnalysisStored += trackId => _ = RefreshPlayingTrackAsync(trackId);
 
         App = new ServerApplication(new ServerDependencies
         {
@@ -117,7 +126,7 @@ public sealed class SabhaHost : IAsyncDisposable
             Playback = Playback,
             AudioProbe = new DecoderAudioProbe(Decoders),
             AnalysisQueue = Analysis,
-            RemoteUrls = _options.RemoteUrls ?? new LocalRemoteUrlProvider(),
+            RemoteUrls = _options.RemoteUrls ?? (IRemoteUrlProvider?)Remote?.Urls ?? new LocalRemoteUrlProvider(),
             Options = _options.Server,
             LoggerFactory = loggers,
             Events = events,
@@ -136,7 +145,7 @@ public sealed class SabhaHost : IAsyncDisposable
             Pipe.Start();
         }
 
-        foreach (var component in _options.Components)
+        foreach (var component in Remote is null ? _options.Components : [Remote, .. _options.Components])
         {
             await component.StartAsync(this, ct).ConfigureAwait(false);
             _started.Add(component);
@@ -193,6 +202,7 @@ public sealed class SabhaHost : IAsyncDisposable
 
             await Step("stop engine", () =>
             {
+                Remote?.Dispose();
                 Engine?.Dispose();
                 Output?.Dispose();
                 Analysis?.Dispose();
@@ -212,6 +222,19 @@ public sealed class SabhaHost : IAsyncDisposable
     {
         await StopAsync(CancellationToken.None).ConfigureAwait(false);
         _lifetime.Dispose();
+    }
+
+    /// <summary>New analysis results reach the live voice (off the worker thread; failures only logged).</summary>
+    private async Task RefreshPlayingTrackAsync(Guid trackId)
+    {
+        try
+        {
+            await Playback.OnTrackChangedAsync(trackId, LibraryChangeKind.AnalysisUpdated, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            _logger.LogDebug(ex, "Could not refresh track {TrackId} in the engine.", trackId);
+        }
     }
 
     private async Task FadeOutAsync()

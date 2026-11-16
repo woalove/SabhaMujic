@@ -64,7 +64,14 @@ public sealed record UserDto(Guid Id, string UserName, Role Role, DateTimeOffset
 public sealed record DeviceDto(Guid Id, string Name, Role Role, DateTimeOffset PairedAt, DateTimeOffset? LastSeenAt);
 
 /// <summary>One-time pairing code shown by the desktop as text + QR (<see cref="PairingUrl"/>).</summary>
-public sealed record PairingCodeDto(string Code, string PairingUrl, string BootstrapUrl, Role Role, DateTimeOffset ExpiresAt);
+public sealed record PairingCodeDto(string Code, string PairingUrl, string BootstrapUrl, Role Role, DateTimeOffset ExpiresAt)
+{
+    /// <summary>
+    /// SHA-256 fingerprint of the service's local CA (colon-separated upper-case hex), shown on the PC so it can be compared
+    /// with the one on the phone's setup page. Null when the remote is not running.
+    /// </summary>
+    public string? CaFingerprint { get; init; }
+}
 
 public sealed record ImportMetadata(string Title, string? Artist, Guid? CategoryId);
 

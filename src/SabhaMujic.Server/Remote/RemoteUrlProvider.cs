@@ -31,6 +31,9 @@ public sealed class RemoteUrlProvider : IRemoteUrlProvider
         set => Volatile.Write(ref _bootstrapPort, value);
     }
 
+    /// <summary>The local CA's SHA-256 fingerprint, set by the host once the CA is loaded.</summary>
+    public string? CaFingerprint { get; set; }
+
     public string GetBootstrapUrl() => $"http://{Host()}:{BootstrapPort.ToString(CultureInfo.InvariantCulture)}/";
 
     public string GetPairingUrl(string code) => GetBootstrapUrl() + "#code=" + Uri.EscapeDataString(code ?? "");

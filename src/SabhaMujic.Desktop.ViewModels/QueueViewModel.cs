@@ -104,6 +104,7 @@ public sealed partial class QueueViewModel : ViewModelBase
 
         // Rebuild in order, reusing row view models (keeps resolved titles and avoids flicker).
         var rows = new List<QueueItemViewModel>(queue.Items.Count);
+        var unresolved = new List<QueueItemViewModel>();
         for (var i = 0; i < queue.Items.Count; i++)
         {
             var dto = queue.Items[i];
@@ -120,13 +121,17 @@ public sealed partial class QueueViewModel : ViewModelBase
                 }
                 else
                 {
-                    var newRow = row;
-                    Run(() => FillTrackAsync(newRow));
+                    unresolved.Add(row);
                 }
             }
 
             row.IsCurrent = i == queue.CurrentIndex;
             rows.Add(row);
+        }
+
+        if (unresolved.Count > 0)
+        {
+            Run(() => FillTracksAsync(unresolved));
         }
 
         SyncCollection(rows);
@@ -217,6 +222,16 @@ public sealed partial class QueueViewModel : ViewModelBase
         }
 
         await TryAsync(async () => ApplyQueue(await _client.Playback.ClearQueueAsync().ConfigureAwait(true))).ConfigureAwait(true);
+    }
+
+    /// <summary>One batched lookup for every new row (instead of one request per track).</summary>
+    private async Task FillTracksAsync(IReadOnlyList<QueueItemViewModel> rows)
+    {
+        var tracks = await _tracks.GetManyAsync(rows.Select(r => r.TrackId)).ConfigureAwait(true);
+        foreach (var row in rows)
+        {
+            row.ApplyTrack(tracks.GetValueOrDefault(row.TrackId));
+        }
     }
 
     private async Task FillTrackAsync(QueueItemViewModel row)

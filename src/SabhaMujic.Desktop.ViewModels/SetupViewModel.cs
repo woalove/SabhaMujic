@@ -9,7 +9,8 @@ namespace SabhaMujic.Desktop.ViewModels;
 /// <summary>
 /// First-run setup (decision #24): shown instead of the sign-in form while the service has no accounts.
 /// Creates the first administrator; the service only allows it for this app started with "Run as administrator".
-/// Secrets are cleared after every attempt.
+/// When the service refuses (the app runs unelevated, e.g. launched by the installer), it offers "Restart as
+/// administrator" (decision #30), which relaunches the app through UAC. Secrets are cleared after every attempt.
 /// </summary>
 public sealed partial class SetupViewModel : ViewModelBase
 {
@@ -18,11 +19,23 @@ public sealed partial class SetupViewModel : ViewModelBase
     public const string RunAsAdministratorMessage =
         "Close the app, then right-click SabhaMujic and choose 'Run as administrator' to complete first-time setup.";
 
-    private readonly ISabhaClient _client;
+    public const string ElevationNeededMessage =
+        "Creating the first administrator needs Windows administrator rights. Choose \u2018Restart as administrator\u2019 and confirm the Windows prompt.";
 
-    public SetupViewModel(ISabhaClient client)
+    public const string RestartCancelledMessage =
+        "The Windows prompt was cancelled, so SabhaMujic is still running without administrator rights. " +
+        "Choose \u2018Restart as administrator\u2019 again, or right-click SabhaMujic and choose 'Run as administrator'.";
+
+    public const string RestartFailedMessage =
+        "SabhaMujic could not restart itself. " + RunAsAdministratorMessage;
+
+    private readonly ISabhaClient _client;
+    private readonly IAppRestarter? _restarter;
+
+    public SetupViewModel(ISabhaClient client, IAppRestarter? restarter = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
+        _restarter = restarter;
     }
 
     /// <summary>Raised after the administrator was created; the app is then signed in with this session.</summary>
@@ -54,7 +67,16 @@ public sealed partial class SetupViewModel : ViewModelBase
 
     /// <summary>True when the service refused because the app is not running elevated.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanRestartAsAdministrator))]
+    [NotifyCanExecuteChangedFor(nameof(RestartAsAdministratorCommand))]
     public partial bool NeedsElevation { get; private set; }
+
+    /// <summary>Shows the "Restart as administrator" button.</summary>
+    public bool CanRestartAsAdministrator => NeedsElevation && _restarter is not null;
+
+    /// <summary>True after the elevated copy was started (this window is about to close).</summary>
+    [ObservableProperty]
+    public partial bool IsRestarting { get; private set; }
 
     /// <summary>Inline guidance while typing (null when the form is fine or still empty).</summary>
     public string? ValidationHint =>
@@ -81,7 +103,7 @@ public sealed partial class SetupViewModel : ViewModelBase
         catch (SabhaMujicException ex) when (ex.Code == ErrorCode.Forbidden)
         {
             NeedsElevation = true;
-            ErrorMessage = RunAsAdministratorMessage;
+            ErrorMessage = _restarter is null ? RunAsAdministratorMessage : ElevationNeededMessage;
         }
         catch (SabhaMujicException ex) when (ex.Code == ErrorCode.Conflict)
         {
@@ -99,6 +121,24 @@ public sealed partial class SetupViewModel : ViewModelBase
             SecretsCleared?.Invoke();
             IsBusy = false;
             CompleteSetupCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRestartAsAdministrator))]
+    private void RestartAsAdministrator()
+    {
+        switch (_restarter!.RestartAsAdministrator())
+        {
+            case RestartResult.Restarting:
+                IsRestarting = true;
+                ErrorMessage = null;
+                break;
+            case RestartResult.Cancelled:
+                ErrorMessage = RestartCancelledMessage;
+                break;
+            default:
+                ErrorMessage = RestartFailedMessage;
+                break;
         }
     }
 

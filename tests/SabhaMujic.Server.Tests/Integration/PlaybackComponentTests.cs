@@ -59,7 +59,9 @@ public sealed class AnalysisMappingTests
             TotalFrames = 48_000 * 30,
             LeadingTrimFrame = 24_000,
             TrailingTrimFrame = 48_000 * 29,
-            Loop = new LoopRegion(48_000 * 5, 48_000 * 25, 9_600, 0.8) { SeamCorrelation = 0.6 },
+            Loop = new LoopRegion(48_000 * 5, 48_000 * 25, 9_600, 0.8) { SeamCorrelation = 0.6, IsFallback = true },
+            TempoBpm = 117.5,
+            Gaps = [new SilenceGap(48_000 * 12, 48_000 * 13)],
         };
         var trackId = Guid.NewGuid();
         var stored = AnalysisMapping.ToStored(trackId, analysis);
@@ -70,8 +72,22 @@ public sealed class AnalysisMappingTests
         Assert.Equal(analysis.TrailingTrimFrame, back.TrailingTrimFrame);
         Assert.Equal((analysis.Loop.StartFrame, analysis.Loop.EndFrame, analysis.Loop.CrossfadeFrames, analysis.Loop.Confidence),
             (back.Loop.StartFrame, back.Loop.EndFrame, back.Loop.CrossfadeFrames, back.Loop.Confidence));
-        Assert.Equal(0, back.Loop.SeamCorrelation); // not stored in the database (documented)
         Assert.Equal(analysis.TotalFrames, back.TotalFrames);
+
+        // Schema v2 details keep everything the columns cannot.
+        Assert.Equal(0.6, back.Loop.SeamCorrelation);
+        Assert.True(back.Loop.IsFallback);
+        Assert.Equal(117.5, back.TempoBpm);
+        Assert.Equal(analysis.Gaps, back.Gaps);
+
+        // Rows written before v2 (no details) are rebuilt from the columns with a plain equal-power seam.
+        var legacy = AnalysisMapping.FromStored(stored with { DetailsJson = null }, durationSeconds: 30)!;
+        Assert.Equal(0, legacy.Loop.SeamCorrelation);
+        Assert.Equal(analysis.Loop.StartFrame, legacy.Loop.StartFrame);
+
+        // Details from another analysis version are ignored in favour of the columns.
+        var mismatched = AnalysisMapping.FromStored(stored with { AnalysisVersion = analysis.Version + 1 }, durationSeconds: 30)!;
+        Assert.Equal(0, mismatched.Loop.SeamCorrelation);
     }
 
     [Theory]
@@ -168,8 +184,10 @@ public sealed class PlaybackComponentTests : IAsyncLifetime
         var newer = resolved.Analysis! with { Version = LoopAnalyzer.AnalysisVersion + 1, Loop = resolved.Analysis.Loop with { SeamCorrelation = 0.42 } };
         _h.Host.Analysis.AcceptEngineResult(trackId, newer);
         await AssertEx.Eventually(() => _h.App.Analysis.GetAsync(trackId).GetAwaiter().GetResult()!.AnalysisVersion == newer.Version, "stored");
-        var again = await _h.Host.Resolver.ResolveAsync(trackId);
-        Assert.Equal(0.42, again!.Analysis!.Loop.SeamCorrelation);
+        // The worker stores the row first and then drops the cached entry, so the resolver catches up right after.
+        await AssertEx.Eventually(
+            () => _h.Host.Resolver.ResolveAsync(trackId).GetAwaiter().GetResult()?.Analysis?.Loop.SeamCorrelation == 0.42,
+            "the resolver serves the stored full-fidelity analysis");
     }
 
     [Fact]
@@ -215,7 +233,7 @@ public sealed class PlaybackComponentTests : IAsyncLifetime
         var trackId = await ImportAsync("long.wav", TestWav.Tone(60, 440));
         await _admin.SetVolumeAsync(0.3f);
         await _admin.PlayTrackAsync(trackId);
-        await AssertEx.Eventually(() => _h.Host.Engine.GetState().Status == PlaybackStatus.Playing, "playing");
+        await AssertEx.Eventually(() => _h.Host.Engine.GetState() is { Status: PlaybackStatus.Playing, PositionSeconds: > 2 }, "playing for a while");
 
         var stop = System.Diagnostics.Stopwatch.StartNew();
         await _h.Host.StopAsync();
@@ -225,8 +243,42 @@ public sealed class PlaybackComponentTests : IAsyncLifetime
 
         await _h.StartHostAsync();
         var queue = _h.App.PlaybackState;
-        Assert.Equal([trackId], (await queue.LoadQueueAsync()).Items.Select(i => i.TrackId));
+        var persisted = await queue.LoadQueueAsync();
+        Assert.Equal([trackId], persisted.Items.Select(i => i.TrackId));
         Assert.Equal(0.3f, (await queue.LoadSettingsAsync()).Volume);
+        Assert.True(persisted.PositionSeconds > 0.5, $"saved position {persisted.PositionSeconds}");
+
+        // The restored queue keeps its ids and Resume continues at the saved position.
+        Assert.Equal(persisted.Items, _h.Host.Engine.GetQueue().Items);
+        var admin = _h.App.CreateSession(ClientKind.Desktop, "PC\\owner");
+        await admin.LoginAsync("admin", "admin-pin");
+        await admin.ResumeAsync();
+        await AssertEx.Eventually(() => _h.Host.Engine.GetState().Status == PlaybackStatus.Playing, "resumed");
+        Assert.True(_h.Host.Engine.GetState().PositionSeconds >= persisted.PositionSeconds - 0.05);
+    }
+
+    [Fact]
+    public async Task A_loop_override_reaches_the_voice_that_is_already_playing()
+    {
+        var trackId = await ImportAsync("song.wav", TestWav.Song(introSeconds: 4, patternSeconds: 8, repeats: 6, outroSeconds: 4)); // 56 s
+        await WaitForAnalysisAsync(trackId, AnalysisStatus.Ready);
+        await _admin.SetLoopModeAsync(LoopMode.SmartLoop);
+        await _admin.PlayTrackAsync(trackId);
+        await AssertEx.Eventually(() => _h.Host.Engine.GetState().Status == PlaybackStatus.Playing, "playing");
+
+        // While it plays (well before 30 s), the admin sets a loop of 20..30 s: from the first seam on it must hold.
+        await _admin.SetLoopOverrideAsync(trackId, new LoopRegionDto(20, 30, 0.2, 1, true));
+        Assert.True(_h.Host.Engine.GetState().PositionSeconds < 25, "the override must arrive before its seam for this test");
+
+        var positions = new List<double>();
+        for (var i = 0; i < 60; i++)
+        {
+            positions.Add(_h.Host.Engine.GetState().PositionSeconds);
+            await Task.Delay(100); // 1 s of audio at 10x
+        }
+
+        Assert.All(positions, p => Assert.True(p <= 30.1, $"position {p:F2} passed the overridden loop end"));
+        Assert.Contains(positions.Zip(positions.Skip(1)), p => p.Second < p.First);
     }
 
     [Fact]

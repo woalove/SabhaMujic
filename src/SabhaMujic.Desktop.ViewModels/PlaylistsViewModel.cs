@@ -356,20 +356,31 @@ public sealed partial class PlaylistsViewModel : ViewModelBase
     {
         _selected = dto;
         Tracks.Clear();
+        var rows = new List<PlaylistTrackViewModel>(dto.TrackIds.Count);
         for (var i = 0; i < dto.TrackIds.Count; i++)
         {
             var row = new PlaylistTrackViewModel(this, dto.TrackIds[i], i);
             Tracks.Add(row);
-            Run(() => FillTrackAsync(row));
+            rows.Add(row);
+        }
+
+        if (rows.Count > 0)
+        {
+            Run(() => FillTracksAsync(rows));
         }
     }
 
-    private async Task FillTrackAsync(PlaylistTrackViewModel row)
+    /// <summary>One batched lookup for all rows (instead of one request per track).</summary>
+    private async Task FillTracksAsync(IReadOnlyList<PlaylistTrackViewModel> rows)
     {
-        var track = await _tracks.GetAsync(row.TrackId).ConfigureAwait(true);
-        row.Title = track?.Title ?? "Unknown track (removed)";
-        row.Artist = track?.Artist;
-        row.DurationText = track is null ? "" : Formatting.Time(track.DurationSeconds);
+        var tracks = await _tracks.GetManyAsync(rows.Select(r => r.TrackId)).ConfigureAwait(true);
+        foreach (var row in rows)
+        {
+            var track = tracks.GetValueOrDefault(row.TrackId);
+            row.Title = track?.Title ?? "Unknown track (removed)";
+            row.Artist = track?.Artist;
+            row.DurationText = track is null ? "" : Formatting.Time(track.DurationSeconds);
+        }
     }
 
     private void OnLibraryChanged(LibraryChangedDto change)

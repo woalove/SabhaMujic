@@ -16,9 +16,8 @@ namespace SabhaMujic.Server.Playback;
 /// ~5 s heartbeat while playing (fresh position) is never dropped as stale by clients.</item>
 /// <item>Track ids are resolved into the <see cref="StoreTrackResolver"/> cache before a command is posted, keeping
 /// database reads off the engine thread.</item>
-/// <item>Loop overrides and re-analysis results are picked up the next time a track is opened (play, advance, or a
-/// Smart Loop restart after a missed seam). The engine has no API to swap the analysis of the voice that is already
-/// playing, so the current pass keeps its old seam.</item>
+/// <item>Loop overrides and re-analysis results reach the live voice through <see cref="PlaybackEngine.RefreshTrackAsync"/>:
+/// a seam that has not started yet is rebuilt from the new region.</item>
 /// </list>
 /// </summary>
 public sealed class EnginePlaybackBackend : IPlaybackBackend, IAsyncDisposable
@@ -137,13 +136,16 @@ public sealed class EnginePlaybackBackend : IPlaybackBackend, IAsyncDisposable
     /// <see cref="LibraryChangeKind.TrackRemoved"/>: removes every queue item of the track. If it is playing, the engine
     /// cuts (no crossfade) to the next item so the file is released promptly; this method returns once the file can be
     /// opened exclusively again (or after a timeout), so the caller can delete it.
-    /// Other kinds refresh the cached metadata/analysis for the next time the track is opened.
+    /// Other kinds (metadata, loop override, analysis) reload the track and hand the new analysis to the engine, which applies
+    /// it to the live voice at the next seam that has not started yet.
     /// </summary>
     public async Task OnTrackChangedAsync(Guid trackId, LibraryChangeKind kind, CancellationToken ct)
     {
         if (kind != LibraryChangeKind.TrackRemoved)
         {
             _resolver.Invalidate(trackId);
+            await _resolver.WarmAsync([trackId], ct).ConfigureAwait(false);
+            await _engine.RefreshTrackAsync(trackId, ct).ConfigureAwait(false);
             return;
         }
 

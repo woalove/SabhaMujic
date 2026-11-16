@@ -27,8 +27,8 @@ public sealed class StoreTrackResolver : ITrackResolver
     private readonly ILogger _logger;
     private readonly ConcurrentDictionary<Guid, ResolvedTrack> _cache = new();
 
-    // Full-fidelity analyses produced in this process (seam correlation etc. are not stored in the database).
-    private readonly ConcurrentDictionary<Guid, AudioAnalysis> _fresh = new();
+    // Bumped by every invalidation, so a load that read the database before a change cannot cache stale data after it.
+    private readonly ConcurrentDictionary<Guid, long> _generations = new();
 
     public StoreTrackResolver(ITrackRepository tracks, ITrackAnalysisRepository analysis, ProtectedStore store, ILogger<StoreTrackResolver> logger)
     {
@@ -47,8 +47,9 @@ public sealed class StoreTrackResolver : ITrackResolver
             return cached;
         }
 
+        var generation = _generations.GetValueOrDefault(trackId);
         var resolved = await LoadAsync(trackId, ct).ConfigureAwait(false);
-        if (resolved is not null)
+        if (resolved is not null && _generations.GetValueOrDefault(trackId) == generation)
         {
             _cache[trackId] = resolved;
         }
@@ -69,21 +70,14 @@ public sealed class StoreTrackResolver : ITrackResolver
     public string? TryGetCachedPath(Guid trackId) => _cache.TryGetValue(trackId, out var cached) ? cached.Path : null;
 
     /// <summary>Drops the cached entry so the next resolve re-reads metadata, analysis and override.</summary>
-    public void Invalidate(Guid trackId) => _cache.TryRemove(trackId, out _);
+    public void Invalidate(Guid trackId)
+    {
+        _generations.AddOrUpdate(trackId, 1, (_, generation) => generation + 1);
+        _cache.TryRemove(trackId, out _);
+    }
 
     /// <summary>Forgets everything about a deleted track.</summary>
-    public void Forget(Guid trackId)
-    {
-        _cache.TryRemove(trackId, out _);
-        _fresh.TryRemove(trackId, out _);
-    }
-
-    /// <summary>Remembers a freshly computed analysis (it is stored in the database by the caller) and refreshes the entry.</summary>
-    public void StoreAnalysis(Guid trackId, AudioAnalysis analysis)
-    {
-        _fresh[trackId] = analysis;
-        Invalidate(trackId);
-    }
+    public void Forget(Guid trackId) => Invalidate(trackId);
 
     private async Task<ResolvedTrack?> LoadAsync(Guid trackId, CancellationToken ct)
     {
@@ -101,9 +95,7 @@ public sealed class StoreTrackResolver : ITrackResolver
         AudioAnalysis? analysis = null;
         if (stored is { Status: AnalysisStatus.Ready })
         {
-            analysis = _fresh.TryGetValue(trackId, out var fresh) && fresh.Version == stored.AnalysisVersion
-                ? fresh
-                : AnalysisMapping.FromStored(stored, duration);
+            analysis = AnalysisMapping.FromStored(stored, duration);
         }
 
         if (loopOverride is not null)

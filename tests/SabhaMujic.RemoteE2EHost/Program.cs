@@ -1,7 +1,7 @@
 // E2E host for the SabhaMujic web remote. Starts the real application layer and RemoteHost (HTTPS + bootstrap) on
 // loopback with a temp database/store and a scripted playback backend, then speaks a line protocol:
 //   stdout (JSON lines): {"event":"ready",…}, {"event":"code",…}, {"event":"restarted"}, {"event":"state",…}
-//   stdin:  "code Admin" | "code Volunteer" | "restart" | "state" | "quit"
+//   stdin:  "code Admin" | "code Volunteer" | "restart" | "state" | "devices" | "quit"
 // Usage: dotnet SabhaMujic.RemoteE2EHost.dll [--https-port 0] [--bootstrap-port 0]
 using System.Collections.Concurrent;
 using System.Net;
@@ -55,6 +55,7 @@ await Seed(app, durations);
 var certDir = Path.Combine(root, "certs");
 using var ca = LocalCertificateAuthority.LoadOrCreate(certDir, UnprotectedSecretProtector.Instance, "E2E-HOST");
 using var certificates = new ServerCertificateManager(ca, network, UnprotectedSecretProtector.Instance, certDir);
+urls.CaFingerprint = ca.Sha256Fingerprint;
 var remote = new RemoteHost(app, certificates, new RemoteHostOptions
 {
     HttpsPort = httpsPort,
@@ -84,7 +85,7 @@ while ((line = await Console.In.ReadLineAsync()) is not null)
             case "code":
                 var role = parts.Length > 1 && Enum.TryParse<Role>(parts[1], true, out var r) ? r : Role.Volunteer;
                 var pairing = await admin.CreatePairingCodeAsync(role);
-                Emit(new { @event = "code", role, pairing.Code, pairing.PairingUrl, pairing.BootstrapUrl });
+                Emit(new { @event = "code", role, pairing.Code, pairing.PairingUrl, pairing.BootstrapUrl, pairing.CaFingerprint });
                 break;
             case "restart":
                 await remote.StopAsync();
@@ -95,6 +96,10 @@ while ((line = await Console.In.ReadLineAsync()) is not null)
             case "state":
                 var state = backend.GetState();
                 Emit(new { @event = "state", state.Status, state.CurrentTrackId, queueCount = backend.GetQueue().Items.Count, connections = remote.ConnectionCount });
+                break;
+            case "devices":
+                var devices = await admin.GetDevicesAsync();
+                Emit(new { @event = "devices", names = devices.Select(d => d.Name).ToArray() });
                 break;
             case "quit":
                 goto done;

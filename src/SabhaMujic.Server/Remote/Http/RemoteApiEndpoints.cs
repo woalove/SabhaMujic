@@ -26,7 +26,8 @@ public sealed record CompleteUploadRequest(string? Title, string? Artist, Guid? 
 /// <list type="bullet">
 /// <item><c>POST /api/pair</c> → <see cref="ApiSession.PairAsync"/>; sets the device cookie.</item>
 /// <item><c>GET /api/me</c> → <see cref="ApiSession.ResumeSessionAsync"/>; refreshes the cookie.</item>
-/// <item><c>POST /api/logout</c> → clears the cookie only (the device stays paired until an admin revokes it).</item>
+/// <item><c>POST /api/logout</c> → <see cref="ApiSession.LogoutAsync"/> when a valid token is presented: the device unpairs itself
+/// (device record and sessions revoked). Always clears the cookie and answers 204, also for unknown or expired tokens.</item>
 /// <item><c>POST /api/uploads</c> → <see cref="ApiSession.BeginImportAsync"/>.</item>
 /// <item><c>PUT /api/uploads/{id}?offset=N</c> (raw body ≤ <see cref="AdminLimits.MaxChunkBytes"/>) → <see cref="ApiSession.UploadChunkAsync"/>.</item>
 /// <item><c>POST /api/uploads/{id}/complete</c> → <see cref="ApiSession.CompleteImportAsync"/>.</item>
@@ -72,12 +73,24 @@ public static class RemoteApiEndpoints
             await RemoteJson.WriteAsync(context, new MeResponse(resumed.UserName, resumed.Role)).ConfigureAwait(false);
         }));
 
-        endpoints.MapPost("/api/logout", context =>
+        endpoints.MapPost("/api/logout", async context =>
         {
+            context.Response.Headers.CacheControl = "no-store";
+            if (RemoteAuth.GetToken(context) is not null)
+            {
+                try
+                {
+                    var session = await RemoteAuth.OpenSessionAsync(app, context).ConfigureAwait(false);
+                    await session.LogoutAsync(context.RequestAborted).ConfigureAwait(false);
+                }
+                catch (SabhaMujicException ex) when (ex.Code is ErrorCode.Unauthenticated)
+                {
+                    // Already revoked or expired: signing out is still a success for the phone.
+                }
+            }
+
             RemoteAuth.ClearCookie(context);
             context.Response.StatusCode = StatusCodes.Status204NoContent;
-            context.Response.Headers.CacheControl = "no-store";
-            return Task.CompletedTask;
         });
 
         endpoints.MapPost("/api/uploads", context => Handle(context, app, authenticate: true, async session =>

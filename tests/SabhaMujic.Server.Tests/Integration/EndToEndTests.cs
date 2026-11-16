@@ -79,13 +79,15 @@ public sealed class EndToEndTests
         Assert.Equal((PlaybackStatus.Playing, song.TrackId, LoopMode.SmartLoop, 0.5f), (live.Status, live.CurrentTrackId, live.LoopMode, live.Volume));
         Assert.Equal(h.App.ServerEpoch, live.ServerEpoch);
 
-        // 8. Restart on the same data root: queue (with current item) and settings come back; playback starts stopped.
+        // 8. Restart on the same data root: queue (same item ids, current item) and settings come back; playback starts stopped.
+        var queueBeforeRestart = await observer.Playback.GetQueueAsync();
         var epoch = h.App.ServerEpoch;
         await h.RestartAsync();
         Assert.NotEqual(epoch, h.App.ServerEpoch);
         admin = await h.ConnectAsync("admin", AdminPin);
         var restoredQueue = await admin.Playback.GetQueueAsync();
         Assert.Equal([tone.TrackId, song.TrackId], restoredQueue.Items.Select(i => i.TrackId));
+        Assert.Equal(queueBeforeRestart.Items, restoredQueue.Items);
         Assert.Equal(1, restoredQueue.CurrentIndex);
         var restored = await admin.Playback.GetStateAsync();
         Assert.Equal((LoopMode.SmartLoop, 0.5f, 6.0), (restored.LoopMode, restored.Volume, restored.CrossfadeSeconds)); // persisted defaults win over engine options

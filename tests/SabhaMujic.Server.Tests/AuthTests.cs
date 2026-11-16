@@ -143,9 +143,12 @@ public sealed class AuthTests : IAsyncLifetime
         await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => volunteer.Auth.LoginAsync(TestServer.VolunteerName, TestServer.VolunteerSecret));
         await volunteer.Auth.LoginAsync(TestServer.VolunteerName, "new-secret");
 
-        // Changing your own secret keeps your session.
+        // Changing your own secret keeps this session but signs out your other sessions.
+        var adminElsewhere = await _server.ConnectAdminAsync();
         await admin.Admin.SetUserSecretAsync(_server.AdminId, "admin-new");
         await admin.Playback.GetStateAsync();
+        await AssertEx.Eventually(() => adminElsewhere.Session is null, "the other admin session receives SessionEnded");
+        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => adminElsewhere.Playback.GetStateAsync());
         await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => admin.Admin.SetUserSecretAsync(_server.AdminId, "123"));
     }
 

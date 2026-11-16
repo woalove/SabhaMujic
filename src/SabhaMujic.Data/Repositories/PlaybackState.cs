@@ -13,8 +13,11 @@ public sealed record PlaybackSettings(float Volume, bool Muted, LoopMode LoopMod
     public static PlaybackSettings Default { get; } = new(0.8f, false, LoopMode.Off, 6.0);
 }
 
-/// <summary>Persisted queue. <see cref="CurrentIndex"/> is -1 when nothing is selected.</summary>
-public sealed record PersistedQueue(IReadOnlyList<QueueItemDto> Items, int CurrentIndex);
+/// <summary>
+/// Persisted queue. <see cref="CurrentIndex"/> is -1 when nothing is selected. <see cref="PositionSeconds"/> is the
+/// saved position inside the current item (0 when unknown or when the current item could not be kept).
+/// </summary>
+public sealed record PersistedQueue(IReadOnlyList<QueueItemDto> Items, int CurrentIndex, double PositionSeconds = 0);
 
 public interface IPlaybackStateRepository
 {
@@ -25,6 +28,9 @@ public interface IPlaybackStateRepository
     Task SaveQueueAsync(IReadOnlyList<QueueItemDto> items, int currentIndex, CancellationToken ct = default);
 
     Task<PersistedQueue> LoadQueueAsync(CancellationToken ct = default);
+
+    /// <summary>Saves the position inside the current queue item (seconds, ≥ 0).</summary>
+    Task SavePositionAsync(double positionSeconds, CancellationToken ct = default);
 
     Task SaveSettingsAsync(PlaybackSettings settings, CancellationToken ct = default);
 
@@ -93,7 +99,7 @@ public sealed class SqlitePlaybackStateRepository(SqliteDatabase database) : Sql
             transaction: tx, cancellationToken: ct)).ConfigureAwait(false))
             .Select(r => new QueueItemDto(r.QueueItemId, r.TrackId)).ToArray();
         var state = await conn.QuerySingleAsync<CurrentRow>(new CommandDefinition(
-            "SELECT current_index AS CurrentIndex, current_queue_item_id AS CurrentQueueItemId FROM playback_state WHERE id = 1;",
+            "SELECT current_index AS CurrentIndex, current_queue_item_id AS CurrentQueueItemId, position_seconds AS PositionSeconds FROM playback_state WHERE id = 1;",
             transaction: tx, cancellationToken: ct)).ConfigureAwait(false);
         tx.Commit();
 
@@ -108,7 +114,17 @@ public sealed class SqlitePlaybackStateRepository(SqliteDatabase database) : Sql
             }
         }
 
-        return new PersistedQueue(items, index);
+        var keptCurrent = state.CurrentQueueItemId is { } kept && index >= 0 && items[index].QueueItemId == kept;
+        return new PersistedQueue(items, index, keptCurrent ? state.PositionSeconds : 0);
+    }
+
+    public async Task SavePositionAsync(double positionSeconds, CancellationToken ct = default)
+    {
+        DataRules.RequireFinite(positionSeconds, "Position", 0, double.MaxValue);
+        await using var conn = await OpenAsync(ct).ConfigureAwait(false);
+        await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE playback_state SET position_seconds = @Position, updated_at = @Now WHERE id = 1;",
+            new { Position = positionSeconds, Now = Now() }, cancellationToken: ct)).ConfigureAwait(false);
     }
 
     public async Task SaveSettingsAsync(PlaybackSettings settings, CancellationToken ct = default)
@@ -155,6 +171,8 @@ public sealed class SqlitePlaybackStateRepository(SqliteDatabase database) : Sql
         public int CurrentIndex { get; set; }
 
         public Guid? CurrentQueueItemId { get; set; }
+
+        public double PositionSeconds { get; set; }
     }
 
     private sealed class SettingsRow
