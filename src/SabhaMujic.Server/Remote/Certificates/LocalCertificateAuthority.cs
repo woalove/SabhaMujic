@@ -175,9 +175,14 @@ public sealed class LocalCertificateAuthority : IDisposable
         return LoadPfx(withKey.Export(X509ContentType.Pfx));
     }
 
+    // Windows: a real key container (SChannel can't use ephemeral keys) that stays exportable, because the leaf is
+    // re-exported as PFX to persist it (without Exportable, Export throws "Key not valid for use in specified state").
+    // The key isn't persisted in the store (no PersistKeySet), so it's removed when the certificate is disposed.
     internal static X509Certificate2 LoadPfx(byte[] pfx) =>
         X509CertificateLoader.LoadPkcs12(pfx, null,
-            OperatingSystem.IsWindows() ? X509KeyStorageFlags.UserKeySet : X509KeyStorageFlags.EphemeralKeySet);
+            OperatingSystem.IsWindows()
+                ? X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.Exportable
+                : X509KeyStorageFlags.EphemeralKeySet);
 
     public void Dispose()
     {
