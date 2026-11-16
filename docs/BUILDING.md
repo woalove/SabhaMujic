@@ -35,7 +35,7 @@ dotnet test tests/SabhaMujic.Audio.Tests --filter "Category=Performance"   # wal
   ```
 
   Options: `--pipe <name>`, `--speed <factor>`, `--verbose`. `--seed-admin` is for development only; real installs create the first administrator from the desktop app. On Windows, stop the installed service first, or use another `--pipe` name; the desktop app always connects to the pipe `SabhaMujic.v1`.
-- **The Windows service as a console app** (diagnostics): `SabhaMujic.Service.exe [--SabhaMujic:DataRoot=<dir>] [--SabhaMujic:PipeName=<name>]`. Stop the installed service first if you keep the default pipe name. The default data root is `%ProgramData%\SabhaMujic`; use your own `DataRoot` to avoid touching real data.
+- **The Windows service as a console app** (diagnostics): `SabhaMujic.Service.exe [--SabhaMujic:DataRoot=<dir>] [--SabhaMujic:PipeName=<name>] [--SabhaMujic:Remote:Enabled=false]`. All settings are in `src/SabhaMujic.Service/ServiceSettings.cs` and [ADMIN_GUIDE.md](ADMIN_GUIDE.md#service-settings). Stop the installed service first if you keep the default pipe name or ports. The default data root is `%ProgramData%\SabhaMujic`; use your own `DataRoot` to avoid touching real data.
 - **Audio spike** (Windows, audible checks): `dotnet run --project tools/SabhaMujic.AudioSpike -c Release -- <file1> <file2> [--crossfade 6] [--smartloop] [--repeat]`.
 
 ## iPhone web remote
@@ -88,7 +88,7 @@ pwsh installer/smoke-test.ps1 -Msi artifacts/SabhaMujic-0.1.0-x64.msi -Version 0
 
 The test runs these steps in order:
 
-1. Silent install. The test checks the service account, start mode and failure actions, that the service reaches Running and stays running, and that the pipe `\\.\pipe\SabhaMujic.v1` exists. It checks that the `data`, `library` and `uploads` folders grant exactly SYSTEM, Administrators and the service, and checks the Event Log source, the firewall rules, the shortcuts and the Programs and Features entry. It then prints the service log.
+1. Silent install. The test checks the service account, start mode and failure actions, that the service reaches Running and stays running, and that the pipe `\\.\pipe\SabhaMujic.v1` exists. It checks that the remote setup site answers `/health`, that the `data`, `library`, `uploads` and `certs` folders grant exactly SYSTEM, Administrators and the service, and checks the Event Log source, the firewall rules, the shortcuts and the Programs and Features entry. It then prints the service log.
 2. Uninstall. Everything is removed except `%ProgramData%\SabhaMujic`.
 3. Reinstall over the kept data.
 4. Upgrade to the higher version.
