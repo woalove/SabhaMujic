@@ -19,7 +19,8 @@
     <InstallerPlatform>x64</InstallerPlatform>
     <OutputName>SabhaMujic-$(SabhaMujicVersion)-x64</OutputName>
     <OutputPath>bin\$(Configuration)\</OutputPath>
-    <DefineConstants>$(DefineConstants);ProductVersion=$(SabhaMujicVersion)</DefineConstants>
+    <SabhaMujicIcon>$(SabhaMujicRepoRoot)src\SabhaMujic.Desktop\Assets\SabhaMujic.ico</SabhaMujicIcon>
+    <DefineConstants>$(DefineConstants);ProductVersion=$(SabhaMujicVersion);SabhaMujicIcon=$(SabhaMujicIcon)</DefineConstants>
     <!-- WIX1149: MsiServiceConfig "may not work as expected". It is used only for delayed auto-start and the
          failure-actions flag, which util:ServiceConfig can't set; the CI install smoke test checks the result. -->
     <SuppressSpecificWarnings>$(SuppressSpecificWarnings);1149</SuppressSpecificWarnings>
@@ -48,6 +49,7 @@
            Text="Service publish output not found in '$(ServicePublishDir)'. Run installer/build.ps1, or dotnet publish src/SabhaMujic.Service -c Release -o artifacts/service." />
     <Error Condition="!Exists('$(ServicePublishDir)\System.Diagnostics.EventLog.Messages.dll')"
            Text="'$(ServicePublishDir)' has no System.Diagnostics.EventLog.Messages.dll (used as the Event Log message file)." />
+    <Error Condition="!Exists('$(SabhaMujicIcon)')" Text="Icon '$(SabhaMujicIcon)' not found." />
     <Error Condition="!Exists('$(DesktopPublishDir)\SabhaMujic.Desktop.exe')"
            Text="Desktop publish output not found in '$(DesktopPublishDir)'. Run installer/build.ps1, or dotnet publish src/SabhaMujic.Desktop -c Release -o artifacts/desktop." />
   </Target>

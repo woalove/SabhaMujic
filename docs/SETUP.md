@@ -33,7 +33,7 @@ The installer adds:
 
 The service starts straight away and is set to **Automatic (Delayed Start)**. After a reboot, Windows starts it a minute or two after the other automatic services. If it fails, Windows restarts it after 5 seconds.
 
-On its first start the service creates `C:\ProgramData\SabhaMujic` (data, library, uploads, logs). It locks `data`, `library` and `uploads` so that only the service, SYSTEM and Windows administrators can open them. Volunteers using a standard Windows account can't browse or copy the music files.
+Before starting the service, the installer prepares `C:\ProgramData\SabhaMujic` and its folders `data`, `library`, `uploads`, `certs` and `logs`. Windows administrators own them, even if someone created the folder earlier. Only the service, SYSTEM and Windows administrators can open `data`, `library`, `uploads` and `certs`, and other users can only read `logs`. Volunteers using a standard Windows account can't browse or copy the music files. The service checks all this again every time it starts. If setup stops with an error at this step, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#setup-stops-or-the-service-wont-start-because-of-the-data-folder).
 
 ## First run: create the administrator
 
@@ -46,7 +46,7 @@ There are no default accounts or passwords. The first SabhaMujic administrator i
    - Fallback: close the app, then in the Start menu right-click **SabhaMujic** → **More** → **Run as administrator**.
 4. You're signed in as the administrator. Close the app and open it normally from now on. Running it as administrator is only needed for this one step.
 
-Create a **second administrator account** straight away (next section). If the only administrator forgets their PIN, there is no reset yet; see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#forgotten-administrator-pin).
+It's still a good idea to create a **second administrator account** (next section). If an administrator PIN is forgotten, a Windows administrator can reset it on this PC; see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#forgotten-administrator-pin).
 
 ## Create volunteer accounts
 

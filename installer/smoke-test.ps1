@@ -3,12 +3,18 @@
     Silent install / uninstall / reinstall / upgrade smoke test for the SabhaMujic MSI.
 
 .DESCRIPTION
-    Run elevated on a disposable Windows machine (GitHub Actions windows-latest, or a test VM): it installs and removes
-    SabhaMujic and leaves %ProgramData%\SabhaMujic behind.
+    Run elevated on a disposable Windows machine (GitHub Actions windows-latest, or a test VM) that has no
+    %ProgramData%\SabhaMujic yet: it creates and deletes a temporary local user, installs and removes SabhaMujic, and
+    leaves %ProgramData%\SabhaMujic behind.
 
+    0. A temporary standard user "pre-creates" %ProgramData%\SabhaMujic and its library folder and owns them
+       (the attack from decision #34).
     1. Installs -Msi silently, then checks the service (account, start mode, failure actions, Running, still running
-       15 s later), the desktop pipe, the remote setup site, the protected folder ACLs, the Event Log source, the firewall rules, shortcuts and
-       the Programs and Features entry, and prints the service log.
+       15 s later), the desktop pipe, the remote setup site, the owner and exact DACLs of the data root and its folders
+       (taken over by the installer), the Event Log source, the firewall rules, shortcuts and the Programs and Features
+       entry, and prints the service log.
+       1b. With library replaced by a junction, the service must refuse to start and log a critical entry; the folder
+       and the service are then restored.
     2. Uninstalls: the service, firewall rules and program files are gone; %ProgramData%\SabhaMujic is kept.
     3. Reinstalls -Msi over the kept data, then upgrades to -UpgradeMsi (a higher version): checks run again and the
        data is still there.
@@ -157,6 +163,172 @@ function Test-PipeExists {
     [System.IO.Directory]::GetFiles('\\.\pipe\') | Where-Object { $_ -ieq "\\.\pipe\$PipeName" } | Select-Object -First 1
 }
 
+# Enables a privilege the elevated token holds but has disabled (SeRestorePrivilege: set another account as owner).
+Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+public static class SmokeTestPrivilege
+{
+    [StructLayout(LayoutKind.Sequential)] private struct Luid { public uint Low; public int High; }
+    [StructLayout(LayoutKind.Sequential)] private struct TokenPrivilege { public int Count; public Luid Luid; public int Attributes; }
+
+    [DllImport("kernel32.dll")] private static extern IntPtr GetCurrentProcess();
+    [DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr handle);
+    [DllImport("advapi32.dll", SetLastError = true)] private static extern bool OpenProcessToken(IntPtr process, int access, out IntPtr token);
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)] private static extern bool LookupPrivilegeValue(string system, string name, out Luid luid);
+    [DllImport("advapi32.dll", SetLastError = true)] private static extern bool AdjustTokenPrivileges(IntPtr token, bool disableAll, ref TokenPrivilege state, int length, IntPtr previous, IntPtr returned);
+
+    public static void Enable(string name)
+    {
+        IntPtr token;
+        if (!OpenProcessToken(GetCurrentProcess(), 0x20 | 0x8, out token)) throw new Win32Exception();
+        try
+        {
+            Luid luid;
+            if (!LookupPrivilegeValue(null, name, out luid)) throw new Win32Exception();
+            var state = new TokenPrivilege { Count = 1, Luid = luid, Attributes = 2 };
+            if (!AdjustTokenPrivileges(token, false, ref state, 0, IntPtr.Zero, IntPtr.Zero)) throw new Win32Exception();
+            var error = Marshal.GetLastWin32Error();
+            if (error != 0) throw new Win32Exception(error, "Privilege " + name + " is not held.");
+        }
+        finally
+        {
+            CloseHandle(token);
+        }
+    }
+}
+'@
+
+$SidSystem = 'S-1-5-18'
+$SidAdministrators = 'S-1-5-32-544'
+$SidUsers = 'S-1-5-32-545'
+# Write-type rights a read-only Users entry must not have: WriteData, AppendData, WriteExtendedAttributes,
+# DeleteSubdirectoriesAndFiles, WriteAttributes, Delete, ChangePermissions, TakeOwnership.
+$WriteRights = 0x2 -bor 0x4 -bor 0x10 -bor 0x40 -bor 0x100 -bor 0x10000 -bor 0x40000 -bor 0x80000
+$ReadAndExecute = [int] [System.Security.AccessControl.FileSystemRights]::ReadAndExecute
+$FullControl = [int] [System.Security.AccessControl.FileSystemRights]::FullControl
+
+# Decision #34: owner Administrators; protected DACLs; SYSTEM, Administrators and the service full control everywhere;
+# Users read & execute on the root folder itself and read-only on logs; nobody else.
+function Assert-FolderSecurity([string] $Path, [string] $Label, [string] $ServiceSid, [bool] $UsersRead) {
+    if (-not (Wait-Until { Test-Path -LiteralPath $Path } 30)) {
+        Test-Check $false "$Label exists ($Path)"
+        return
+    }
+    Test-Check (-not (Test-ReparsePoint $Path)) "$Label is a real folder, not a junction or link"
+    $acl = Get-Acl -LiteralPath $Path
+    $owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+    Test-Check ($owner -eq $SidAdministrators) "$Label is owned by Administrators (owner: $owner)"
+    Test-Check $acl.AreAccessRulesProtected "$Label does not inherit permissions"
+
+    $rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+    $expected = @($SidSystem, $SidAdministrators, $ServiceSid) + $(if ($UsersRead) { @($SidUsers) } else { @() })
+    $sids = @($rules | ForEach-Object { $_.IdentityReference.Value } | Sort-Object -Unique)
+    Test-Check ((($sids | Sort-Object) -join ',') -eq (($expected | Sort-Object) -join ',')) "$Label grants exactly $(if ($UsersRead) { 'SYSTEM, Administrators, the service and Users (read)' } else { 'SYSTEM, Administrators and the service' }) (has: $($sids -join ', '))"
+    foreach ($sid in $SidSystem, $SidAdministrators, $ServiceSid) {
+        $rights = Get-AllowedRights $rules $sid
+        Test-Check (($rights -band $FullControl) -eq $FullControl) "$Label gives $sid full control"
+    }
+    if ($UsersRead) {
+        $rights = Get-AllowedRights $rules $SidUsers
+        Test-Check ((($rights -band $ReadAndExecute) -eq $ReadAndExecute) -and (($rights -band $WriteRights) -eq 0)) "$Label gives Users read & execute only (rights: 0x$('{0:X}' -f $rights))"
+    }
+    $denies = @($rules | Where-Object { $_.AccessControlType -ne 'Allow' })
+    Test-Check ($denies.Count -eq 0) "$Label has no deny entries"
+}
+
+function Test-ReparsePoint([string] $Path) {
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    return [bool] ($item -and ([int] ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) -ne 0)
+}
+
+function Get-AllowedRights($Rules, [string] $Sid) {
+    $rights = 0
+    foreach ($rule in $Rules) {
+        if ($rule.IdentityReference.Value -eq $Sid -and $rule.AccessControlType -eq 'Allow') {
+            $rights = $rights -bor [int] $rule.FileSystemRights
+        }
+    }
+    return $rights
+}
+
+function Assert-DataRootSecurity {
+    $serviceSid = ([System.Security.Principal.NTAccount] $ServiceAccount).Translate([System.Security.Principal.SecurityIdentifier]).Value
+    Assert-FolderSecurity $DataRoot 'data root' $serviceSid $true
+    foreach ($name in 'data', 'library', 'uploads', 'certs') {
+        Assert-FolderSecurity (Join-Path $DataRoot $name) $name $serviceSid $false
+    }
+    Assert-FolderSecurity (Join-Path $DataRoot 'logs') 'logs' $serviceSid $true
+}
+
+# Simulates the attack from decision #34: a standard user creates the data root and library before SabhaMujic is
+# installed, owns them and gives themselves full control. The installer's prepare step must take both over.
+function New-SquattedDataRoot {
+    $script:TempUser = 'smtest' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+    $password = 'Sm!' + [guid]::NewGuid().ToString('N') + 'a1Z'
+    & net.exe user $script:TempUser $password /add /comment:"SabhaMujic smoke test (temporary)" | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "Could not create the temporary user $script:TempUser (net user exit code $LASTEXITCODE)." }
+    $userSid = ([System.Security.Principal.NTAccount] $script:TempUser).Translate([System.Security.Principal.SecurityIdentifier])
+    [SmokeTestPrivilege]::Enable('SeRestorePrivilege')
+    foreach ($dir in $DataRoot, (Join-Path $DataRoot 'library')) {
+        New-Item -ItemType Directory -Path $dir | Out-Null
+        $acl = Get-Acl -LiteralPath $dir
+        $acl.SetOwner($userSid)
+        $acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($userSid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+        Set-Acl -LiteralPath $dir -AclObject $acl
+        $owner = (Get-Acl -LiteralPath $dir).GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+        if ($owner -ne $userSid.Value) { throw "Could not make $script:TempUser the owner of $dir (owner: $owner)." }
+        Write-Host "  prepared $dir owned by $script:TempUser ($owner) with full control for that user"
+    }
+}
+
+function Remove-TempUser {
+    if ($script:TempUser) {
+        & net.exe user $script:TempUser /delete | Out-Host
+        $script:TempUser = $null
+    }
+}
+
+# Decision #34: with library replaced by a junction, the service must refuse to start and log a critical (Event Log
+# level Error) entry. Restores the folder and the service afterwards. Start type is set to Disabled while restoring, so
+# failure-action restarts can't race with the swap back.
+function Test-JunctionRefused {
+    $library = Join-Path $DataRoot 'library'
+    $real = Join-Path $DataRoot 'library-smoke-real'
+    Stop-Service -Name $ServiceName -Force
+    if (-not (Wait-Until { (Get-ServiceState) -eq 'Stopped' } 60)) { throw "Service did not stop (state: $(Get-ServiceState))." }
+    Rename-Item -LiteralPath $library -NewName (Split-Path $real -Leaf)
+    try {
+        New-Item -ItemType Junction -Path $library -Target $real | Out-Null
+        $since = Get-Date
+        try { Start-Service -Name $ServiceName -ErrorAction Stop } catch { Write-Host "  Start-Service failed as expected: $($_.Exception.Message)" }
+        $logged = Wait-Until {
+            [bool] (Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = $EventSource; StartTime = $since } -ErrorAction SilentlyContinue |
+                Where-Object { $_.Level -le 2 -and $_.Message -like '*junction*' } | Select-Object -First 1)
+        } 60
+        Test-Check $logged "with library as a junction, '$EventSource' logs a critical entry about the junction"
+        Test-Check ((Get-ServiceState) -ne 'Running') "with library as a junction, the service does not run (state: $(Get-ServiceState))"
+    }
+    finally {
+        Set-Service -Name $ServiceName -StartupType Disabled
+        Wait-Until { (Get-ServiceState) -eq 'Stopped' } 60 | Out-Null
+        if (Test-ReparsePoint $library) {
+            [System.IO.Directory]::Delete($library)   # removes the junction only, never its target
+        }
+        if (-not (Test-Path -LiteralPath $library)) {
+            Rename-Item -LiteralPath $real -NewName 'library'
+        }
+        Set-Service -Name $ServiceName -StartupType AutomaticDelayedStart
+        Start-Service -Name $ServiceName
+    }
+    $running = Wait-Until { (Get-ServiceState) -eq 'Running' } 60
+    $pipe = Wait-Until { [bool](Test-PipeExists) } 60
+    if (-not ($running -and $pipe)) { throw "Service did not come back after the junction test (state: $(Get-ServiceState))." }
+    Write-Host '  ok   library restored; the service runs again'
+}
+
 # --------------------------------------------------------------------------------------------- installed-state checks
 
 function Assert-Installed([string] $ExpectedVersion) {
@@ -201,24 +373,7 @@ function Assert-Installed([string] $ExpectedVersion) {
     $healthText = $script:HealthText
     Test-Check $healthy "remote setup site http://localhost:8080/health answers OK ($healthText)"
 
-    # Protected folders: exactly SYSTEM, Administrators and the service SID, inheritance off (WindowsStoreAcl).
-    $serviceSid = ([System.Security.Principal.NTAccount] $ServiceAccount).Translate([System.Security.Principal.SecurityIdentifier]).Value
-    $expectedSids = @('S-1-5-18', 'S-1-5-32-544', $serviceSid) | Sort-Object
-    $forbidden = @{ 'S-1-1-0' = 'Everyone'; 'S-1-5-11' = 'Authenticated Users'; 'S-1-5-32-545' = 'BUILTIN\Users' }
-    foreach ($name in 'data', 'library', 'uploads', 'certs') {
-        $path = Join-Path $DataRoot $name
-        if (-not (Wait-Until { Test-Path -LiteralPath $path } 30)) {
-            Test-Check $false "$path exists"
-            continue
-        }
-        $acl = Get-Acl -LiteralPath $path
-        $rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
-        $sids = @($rules | ForEach-Object { $_.IdentityReference.Value } | Sort-Object -Unique)
-        $found = @($sids | Where-Object { $forbidden.ContainsKey($_) } | ForEach-Object { $forbidden[$_] })
-        Test-Check ($found.Count -eq 0) "$name has no Users / Authenticated Users / Everyone entries (found: $($found -join ', '))"
-        Test-Check $acl.AreAccessRulesProtected "$name does not inherit permissions"
-        Test-Check (($sids -join ',') -eq ($expectedSids -join ',')) "$name grants exactly SYSTEM, Administrators and $ServiceAccount (has: $($sids -join ', '))"
-    }
+    Assert-DataRootSecurity
 
     $eventKey = "HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\$EventSource"
     Test-Check (Test-Path -LiteralPath $eventKey) "Event Log source '$EventSource' is registered"
@@ -309,6 +464,10 @@ if (-not $identity.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Admi
 if (Get-SabhaMujicService) {
     throw "Service '$ServiceName' already exists. Run the smoke test on a machine without SabhaMujic."
 }
+if (Test-Path -LiteralPath $DataRoot) {
+    throw "$DataRoot already exists. The smoke test creates it itself (as a squatting standard user); remove it first."
+}
+$script:TempUser = $null
 
 $version = $Version
 $upgradeVersion = $UpgradeVersion
@@ -318,9 +477,17 @@ if ([version] $upgradeVersion -le [version] $version) {
 }
 
 try {
+    Write-Step '0. A standard user pre-creates the data root and library (decision #34 attack)'
+    New-SquattedDataRoot
+
     Write-Step "1. Install $version"
     Assert-MsiSucceeded (Invoke-Msiexec '/i' $Msi '1-install') 'Install'
     Assert-Installed $version
+
+    Write-Step '1b. A junction in place of library must stop the service'
+    Test-JunctionRefused
+    Assert-DataRootSecurity
+
     Set-Content -LiteralPath $Marker -Value "Written by installer/smoke-test.ps1 at $(Get-Date -Format o)"
 
     Write-Step "2. Uninstall $version"
@@ -354,8 +521,10 @@ catch {
     if ($script:Failures.Count -gt 0) {
         Write-Host "Failed checks before that:`n  - $($script:Failures -join "`n  - ")" -ForegroundColor Red
     }
+    Remove-TempUser
     exit 1
 }
+Remove-TempUser
 
 if ($script:Failures.Count -gt 0) {
     Show-Diagnostics
