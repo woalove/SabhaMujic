@@ -8,6 +8,11 @@ namespace SabhaMujic.Server.Tests.Reliability;
 /// workload over real pipe and SignalR clients, a host restart halfway, continuous invariant checks and leak thresholds.
 /// The 8-hour run and its numbers are in docs/QA_REPORT.md.
 /// </summary>
+/// <summary>
+/// Leak thresholds use process-wide counters (open handles, threads, working set), so this test must not share the
+/// process with other tests running in parallel: the non-parallel collection runs it on its own.
+/// </summary>
+[Collection(ProcessWideMeasurementCollection.Name)]
 public sealed class MiniSoakTests(ITestOutputHelper output)
 {
     [Fact]

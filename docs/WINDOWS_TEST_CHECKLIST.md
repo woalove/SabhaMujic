@@ -88,3 +88,14 @@ The silent install, uninstall, upgrade and refused downgrade are covered by `ins
 - [ ] Windows Defender Firewall → Inbound rules: "SabhaMujic Remote (HTTPS)" and "SabhaMujic Remote setup (HTTP)", Private profile only. No Windows Firewall prompt appears when the service starts listening.
 - [ ] Running the newer MSI interactively over an installed older one upgrades in place (data kept). Running an older MSI over a newer one shows the downgrade message.
 - [ ] Uninstall from Settings → Apps: no leftover program folder, shortcuts or firewall rules; `C:\ProgramData\SabhaMujic` is kept. The "Remove everything" steps in `docs/SETUP.md` then work as written.
+
+## M6d additions
+- [ ] After install, `%ProgramData%\SabhaMujic` and its subfolders are owned by Administrators with the exact DACLs in ARCHITECTURE #34.
+- [ ] Pre-create the root as a standard user, then install: the installer's `--prepare-data-root` step takes it over (or the service fails with a clear Event Log entry until it's run).
+- [ ] A junction in place of `library` stops the service with a clear error.
+- [ ] A standard user can read `logs` but can't write there.
+- [ ] Event Log entries appear under source `SabhaMujic.Service` in the Application log.
+- [ ] "Forgot admin PIN?" unelevated shows the elevation message; "Restart as administrator" reopens the recovery screen; the reset signs in and the old PIN stops working.
+- [ ] The icon shows in the exe, taskbar, title bar and mini player.
+- [ ] Leave the sign-in screen open for more than 2 minutes: no "Reconnecting" banner.
+- [ ] Interrupt storage mid-session: commands keep working, and the queue is saved once storage recovers.

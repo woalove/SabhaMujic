@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-11-15 (M0–M5 and M6a merged; M6b installer/docs and M6c QA in progress)_
+_Last updated: 2026-11-15 (all milestones merged; installer CI verification and final docs pass in progress)_
 
 ## Current milestone: M0 Foundations
 | Task | Status | Evidence |
@@ -56,6 +56,11 @@ _Last updated: 2026-11-15 (M0–M5 and M6a merged; M6b installer/docs and M6c QA
 ## M6c QA: merged
 - Soak harness (`tests/SabhaMujic.Soak`), reliability, fault, stress and authorization-stress tests, performance figures, and an independent review (`docs/QA_REPORT.md`).
 - Open bugs: BUG-01 (failed state save never retried), BUG-02 (an unplayable track stops current music), BUG-03 (idle unauthenticated pipe connections can exhaust the 32-connection cap). Plus review items R-4..R-16. Routed to the backend agent in M6d.
+
+## M6d Hardening + QA fixes: merged
+- Data-root ownership/ACL and reparse refusal, admin PIN recovery, pinned Event Log source, app icon, BUG-01..03, R-4..R-13 fixed with tests, graceful stop saves after the fade.
+- The Windows mini-soak failure (run 20) was a harness artifact at 120× (the restore was compared with a snapshot taken before the stop). Fixed, and the deterministic graceful-stop tests prove a real stop never starts the next track. The lead also isolated the mini-soak in a non-parallel collection: its process-wide handle count was inflated by parallel tests.
+- Evidence (Linux): 852 .NET tests green across 4 full-suite runs; e2e 8/8.
 
 ## Next
 - M1 Audio engine (Agent 1) and M2 Data/storage (Agent 3), in parallel worktrees, once Windows CI is green.

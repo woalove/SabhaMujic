@@ -16,6 +16,7 @@
 | 2026-11-15 | GitHub Actions run 7 (M3a) | Linux + Windows success: pipe/server tests pass over real Windows named pipes |
 | 2026-11-15 | Linux cloud env (after M5 merge) | .NET: Core 76 + Audio 46 + Desktop 144 + Data 111 + Server 384 = 761 passed, 0 failed. Remote web: `tsc` clean; Playwright e2e 7/7 (Chromium, iPhone 13 emulation) |
 | 2026-11-15 | GitHub Actions run 8 (M1) | Windows: 2 MediaFoundation tests failed (seek accuracy bug, wrong crossfade timing in a test); fixed in e5cbb7a |
+| 2026-11-16 | Linux cloud env (after M6d merge) | .NET 852 passed, 0 skipped (Core 80, Desktop 171, Audio 55, Data 116, Server 430), 4 consecutive full-suite runs. Remote web e2e 8/8 |
 | 2026-11-16 | Linux cloud env (after M6c merge) | .NET 803 passed, 3 skipped (bug repros BUG-01..03 pending fixes) |
 | 2026-11-16 | GitHub Actions run 17 | Windows: all tests passed, incl. the remote suite (Exportable fix), DPAPI and the SChannel handshake. MSI build failed ICE60 (fixed in f1e2549) |
 | 2026-11-16 | Linux cloud env (after M6a merge) | .NET 794 passed (Core 78, Audio 52, Desktop 162, Data 116, Server 386). Remote web: typecheck clean, e2e 8/8 |
