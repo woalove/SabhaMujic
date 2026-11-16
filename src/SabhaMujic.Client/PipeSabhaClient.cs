@@ -177,7 +177,14 @@ public sealed class PipeSabhaClient : ISabhaClient
                 Volatile.Write(ref _rpc, rpc);
                 SetState(ConnectionState.Connected);
                 _firstConnected.TrySetResult();
-                await rpc.Completion.ConfigureAwait(false);
+
+                // DisposeAsync cancels and then disposes the *published* connection. If it ran between OpenAsync returning
+                // and the Volatile.Write above, it saw no connection, and nothing would ever complete this await (the
+                // Completion task ignores cancellation). Tie cancellation to disposing this connection so it always ends.
+                using (ct.UnsafeRegister(static state => ((JsonRpc)state!).Dispose(), rpc))
+                {
+                    await rpc.Completion.ConfigureAwait(false);
+                }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {

@@ -129,6 +129,31 @@ public sealed class TransportTests : IAsyncLifetime
 
     public async Task DisposeAsync() => await _server.DisposeAsync();
 
+    /// <summary>
+    /// Regression (CI run 21 hang): disposing a client while its loop was between connecting and publishing the connection
+    /// left the loop awaiting a connection nobody would ever close. Dispose at many different moments of the connect.
+    /// </summary>
+    [Fact]
+    public async Task Disposing_a_client_at_any_moment_of_connecting_never_hangs()
+    {
+        for (var i = 0; i < 150; i++)
+        {
+            var client = _server.NewClient();
+            var connecting = client.ConnectAsync();
+            if (i % 3 != 0)
+            {
+                await Task.Delay(TimeSpan.FromTicks(Random.Shared.Next(0, 30_000))); // 0–3 ms into the handshake
+            }
+
+            var dispose = client.DisposeAsync().AsTask();
+            var finished = await Task.WhenAny(dispose, Task.Delay(TimeSpan.FromSeconds(5)));
+            Assert.True(finished == dispose, $"DisposeAsync hung on iteration {i}");
+            await dispose;
+            await Task.WhenAny(connecting, Task.Delay(TimeSpan.FromSeconds(5))); // ConnectAsync may fault or cancel; it must end
+            Assert.True(connecting.IsCompleted, $"ConnectAsync never completed on iteration {i}");
+        }
+    }
+
     [Fact]
     public async Task Events_fan_out_to_every_signed_in_client()
     {

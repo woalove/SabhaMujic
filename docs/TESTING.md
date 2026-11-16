@@ -16,6 +16,8 @@
 | 2026-11-15 | GitHub Actions run 7 (M3a) | Linux + Windows success: pipe/server tests pass over real Windows named pipes |
 | 2026-11-15 | Linux cloud env (after M5 merge) | .NET: Core 76 + Audio 46 + Desktop 144 + Data 111 + Server 384 = 761 passed, 0 failed. Remote web: `tsc` clean; Playwright e2e 7/7 (Chromium, iPhone 13 emulation) |
 | 2026-11-15 | GitHub Actions run 8 (M1) | Windows: 2 MediaFoundation tests failed (seek accuracy bug, wrong crossfade timing in a test); fixed in e5cbb7a |
+| 2026-11-16 | GitHub Actions run 21 | **Windows installer job passed**: MSI build (WiX 5.0.2), silent install (service as `NT SERVICE\\SabhaMujic`, delayed auto-start, failure actions, pipe, protected folders, firewall Private rules, Event Log source, shortcuts, ARP), uninstall keeps data, reinstall, upgrade, downgrade refused. The test jobs hung in Server.Tests → a dispose/connect race in `PipeSabhaClient`, fixed (ARCHITECTURE #37) |
+| 2026-11-16 | Linux, pinned to 2 cores (CI-like) | Server.Tests 431 passed in 5/5 runs after the race fix (previously about 1 in 3 hung) |
 | 2026-11-16 | Linux cloud env (after M6d merge) | .NET 852 passed, 0 skipped (Core 80, Desktop 171, Audio 55, Data 116, Server 430), 4 consecutive full-suite runs. Remote web e2e 8/8 |
 | 2026-11-16 | Linux cloud env (after M6c merge) | .NET 803 passed, 3 skipped (bug repros BUG-01..03 pending fixes) |
 | 2026-11-16 | GitHub Actions run 17 | Windows: all tests passed, incl. the remote suite (Exportable fix), DPAPI and the SChannel handshake. MSI build failed ICE60 (fixed in f1e2549) |
@@ -36,7 +38,7 @@
 | Playback continues when remote disconnects | Tested: pipe clients against the real engine (integration test), and remote hub connections + `RemoteHost` stop against a fake backend. Windows: pending CI |
 | Normal resizable window | Implemented (min 760×480, mini-player); **unverified** on Windows |
 | Performance/stability tested | **Linux, accelerated:** an 8-simulated-hour soak (40×, real `SabhaHost` + pipe and SignalR clients, a restart at 4 h) with 0 invariant violations; heap +0.45 MB/h with no trend, FDs/threads flat; 20-client stress, fault injection (corrupt/missing files, device loss, DB locked, stop mid-import, disk full on tmpfs). Pipe command p95 about 1.2 ms. Details in `docs/QA_REPORT.md`. **Not done:** a 24 h real-time soak on Windows hardware |
-| Installer + setup docs | Not started |
+| Installer + setup docs | **Verified on Windows CI** (run 21 installer job: install, service running under its virtual account, ACLs, firewall, uninstall/reinstall/upgrade/downgrade). Setup/Admin/Troubleshooting/Building docs written. Interactive dialogs, SmartScreen and icons: manual checklist |
 
 ## Known limitations
 - Playwright WebKit isn't available in the cloud environment. Remote e2e tests use Chromium with iPhone emulation, so real Safari needs a manual check. Run with `cd src/SabhaMujic.Remote.Web && npm install && npm test`.
