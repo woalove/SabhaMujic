@@ -112,3 +112,6 @@ Verbose `msiexec` logs go to `artifacts/install-logs`. The script prints the fai
   - the `0.1.<run number>` MSI and the install logs, uploaded as `windows-msi`.
 
 Artifact uploads are best-effort (`continue-on-error`), because the account's artifact storage quota is sometimes full. Windows CI is the only automated Windows verification. Record its results in [TESTING.md](TESTING.md).
+
+## CI artifacts
+GitHub Actions artifact storage is a shared account quota. CI uploads test results only when a job fails, and the MSI only on manual runs (**Actions → CI → Run workflow**), all kept for 3 days. To download an installer, start a manual run on this branch and download `windows-msi` from that run's page.
