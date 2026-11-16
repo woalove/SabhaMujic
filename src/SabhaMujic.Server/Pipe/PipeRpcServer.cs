@@ -92,6 +92,12 @@ public sealed class PipeServerOptions
     /// <summary>A connection still signed out this long after Hello (or after signing out) is closed. Null disables it.</summary>
     public TimeSpan? AuthenticationTimeout { get; init; } = TimeSpan.FromSeconds(60);
 
+    /// <summary>
+    /// Longest wait for the OS to identify a client (token lookup). On expiry the connection goes on as an unidentified
+    /// standard user, so a slow or stuck lookup can never hold up the connection, let alone the listener.
+    /// </summary>
+    public TimeSpan IdentifyTimeout { get; init; } = TimeSpan.FromSeconds(5);
+
     /// <summary>Largest accepted JSON-RPC frame body. Upload chunks (1 MiB, base64) must fit.</summary>
     public int MaxMessageBytes { get; init; } = 4 * 1024 * 1024;
 }
@@ -148,6 +154,7 @@ public sealed class PipeRpcServer : IAsyncDisposable
     public void Start()
     {
         var first = _pipes.CreateServerStream(_options.PipeName);
+        _logger.LogInformation("Listening on pipe {Pipe}.", _options.PipeName);
         _acceptLoop = Task.Run(() => AcceptLoopAsync(first, _stop.Token));
     }
 
@@ -166,13 +173,23 @@ public sealed class PipeRpcServer : IAsyncDisposable
         _stop.Dispose();
     }
 
+    /// <summary>
+    /// The listener: wait for a client, hand the connection to its own task, and immediately listen again. Nothing that
+    /// talks to the client or the OS about it (identification, admission, RPC) runs here, and nothing that fails for one
+    /// connection can stop new instances from being created.
+    /// </summary>
     private async Task AcceptLoopAsync(NamedPipeServerStream? pipe, CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
             try
             {
-                pipe ??= _pipes.CreateServerStream(_options.PipeName);
+                if (pipe is null)
+                {
+                    pipe = _pipes.CreateServerStream(_options.PipeName);
+                    _logger.LogDebug("Created a pipe instance for {Pipe}.", _options.PipeName);
+                }
+
                 await pipe.WaitForConnectionAsync(ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -203,30 +220,9 @@ public sealed class PipeRpcServer : IAsyncDisposable
 
             var accepted = pipe;
             pipe = null;
-            var info = Identify(accepted);
-            var connection = new PipeConnection(this, accepted, info, Interlocked.Increment(ref _sequence));
-            if (!Admit(connection, out var evicted))
-            {
-                await accepted.DisposeAsync().ConfigureAwait(false);
-                continue;
-            }
-
-            foreach (var victim in evicted)
-            {
-                _ = victim.CloseAsync();
-            }
-
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await connection.RunAsync().ConfigureAwait(false);
-                }
-                finally
-                {
-                    _connections.TryRemove(connection, out _);
-                }
-            }, CancellationToken.None);
+            var sequence = Interlocked.Increment(ref _sequence);
+            _logger.LogDebug("Accepted pipe connection #{Sequence}.", sequence);
+            _ = Task.Run(() => ServeAsync(accepted, sequence), CancellationToken.None);
         }
 
         if (pipe is not null)
@@ -235,17 +231,76 @@ public sealed class PipeRpcServer : IAsyncDisposable
         }
     }
 
-    private PipeCallerInfo Identify(NamedPipeServerStream pipe)
+    /// <summary>One connection, off the accept path: identify (bounded), admit, serve. Any fault ends this connection only.</summary>
+    private async Task ServeAsync(NamedPipeServerStream accepted, long sequence)
     {
+        PipeConnection? connection = null;
         try
         {
-            return _identity.Describe(pipe);
+            var info = await IdentifyAsync(accepted, sequence).ConfigureAwait(false);
+            connection = new PipeConnection(this, accepted, info, sequence);
+            if (!Admit(connection, out var evicted))
+            {
+                connection = null;
+                await accepted.DisposeAsync().ConfigureAwait(false);
+                return;
+            }
+
+            foreach (var victim in evicted)
+            {
+                _ = victim.CloseAsync();
+            }
+
+            _logger.LogInformation("Pipe connection #{Sequence} from {Principal} (elevated administrator: {Elevated}) admitted; {Count} open.",
+                sequence, info.Principal, info.IsElevatedAdministrator, _connections.Count);
+            await connection.RunAsync().ConfigureAwait(false);
+            _logger.LogDebug("Pipe connection #{Sequence} from {Principal} closed.", sequence, info.Principal);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Could not identify a pipe client; treating it as a standard user.");
-            return new PipeCallerInfo("pipe-client", false);
+            _logger.LogWarning(ex, "Pipe connection #{Sequence} faulted; closing it.", sequence);
+            try
+            {
+                await accepted.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception disposeError) when (disposeError is IOException or ObjectDisposedException)
+            {
+            }
         }
+        finally
+        {
+            if (connection is not null)
+            {
+                _connections.TryRemove(connection, out _);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Asks the OS who the client is, on a pool thread and bounded by <see cref="PipeServerOptions.IdentifyTimeout"/>: a
+    /// failure or a stuck lookup makes it an unidentified standard user (never elevated), never a stuck connection.
+    /// </summary>
+    private async Task<PipeCallerInfo> IdentifyAsync(NamedPipeServerStream pipe, long sequence)
+    {
+        var lookup = Task.Run(() => _identity.Describe(pipe));
+        try
+        {
+            var info = await lookup.WaitAsync(_options.IdentifyTimeout).ConfigureAwait(false);
+            _logger.LogDebug("Pipe connection #{Sequence} identified as {Principal}.", sequence, info.Principal);
+            return info;
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogWarning("Identifying pipe connection #{Sequence} took longer than {Seconds} s; treating it as a standard user.",
+                sequence, _options.IdentifyTimeout.TotalSeconds);
+            _ = lookup.ContinueWith(t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not identify pipe connection #{Sequence}; treating it as a standard user.", sequence);
+        }
+
+        return new PipeCallerInfo("pipe-client", false);
     }
 
     /// <summary>
