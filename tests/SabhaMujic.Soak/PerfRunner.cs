@@ -30,6 +30,9 @@ public sealed class PerfOptions
 
     public string? WorkDirectory { get; init; }
 
+    /// <summary>Only the large-library start-up (run in a fresh process to include JIT/cold-start costs).</summary>
+    public bool StartupOnly { get; init; }
+
     public Action<string>? Log { get; init; }
 }
 
@@ -85,6 +88,24 @@ public sealed class PerfRunner(PerfOptions options)
         Directory.CreateDirectory(_root);
         try
         {
+            if (options.StartupOnly)
+            {
+                return new PerfReport
+                {
+                    At = DateTimeOffset.UtcNow,
+                    Machine = $"{Environment.OSVersion}, {Environment.ProcessorCount} cores, .NET {Environment.Version}",
+                    GetStateLatency = Latency([]),
+                    SetVolumeLatency = Latency([]),
+                    ConcurrentGetStateLatency = Latency([]),
+                    FanOutToTenClients = Latency([]),
+                    FanOutSlowestOfTen = Latency([]),
+                    Analysis = [],
+                    Cpu = [],
+                    Voice = new VoiceMemory(0, 0, 0, 0),
+                    Startup = [await MeasureStartupAsync(analysesReady: true), await MeasureStartupAsync(analysesReady: false)],
+                };
+            }
+
             var analysis = MeasureAnalysis();
             var voice = MeasureVoiceMemory();
             var (getState, setVolume, concurrent, fanOut, slowest) = await MeasureLatencyAsync();
@@ -285,12 +306,7 @@ public sealed class PerfRunner(PerfOptions options)
         await WaitAsync(() => host.Analysis.PendingCount == 0, 120);
         await admin.Playback.EnqueueAsync([loop, other], false);
 
-        // Idle: the engine is stopped but the null output keeps pulling silence (as WASAPI would).
-        var idleSeconds = Math.Min(20, options.CpuSeconds);
-        var cpu0 = ProcessMetrics.CpuTime();
-        await Task.Delay(TimeSpan.FromSeconds(idleSeconds));
-        var idleCpu = (ProcessMetrics.CpuTime() - cpu0).TotalSeconds;
-
+        var playing = new List<(string Scenario, double Wall, double Cpu)>();
         foreach (var (scenario, mode, crossfade) in new[] { ("Smart Loop on a 3 min track", LoopMode.SmartLoop, 6.0), ("Repeat queue, 40 s + 3 min tracks, 12 s crossfades", LoopMode.RepeatQueue, 12.0) })
         {
             await admin.Playback.SetLoopModeAsync(mode);
@@ -298,17 +314,26 @@ public sealed class PerfRunner(PerfOptions options)
             var first = (await admin.Playback.GetQueueAsync()).Items[mode == LoopMode.SmartLoop ? 0 : 1].QueueItemId;
             await admin.Playback.PlayQueueItemAsync(first);
             await Task.Delay(1000);
-            cpu0 = ProcessMetrics.CpuTime();
+            var cpu0 = ProcessMetrics.CpuTime();
             var sw = Stopwatch.StartNew();
             await Task.Delay(TimeSpan.FromSeconds(options.CpuSeconds));
-            var cpu = (ProcessMetrics.CpuTime() - cpu0).TotalSeconds;
-            var wall = sw.Elapsed.TotalSeconds;
-            var idlePerSecond = idleCpu / idleSeconds;
-            results.Add(new CpuMeasurement(Stats.Round(wall, 1), Stats.Round(idleCpu / idleSeconds * wall), Stats.Round(cpu),
+            playing.Add((scenario, sw.Elapsed.TotalSeconds, (ProcessMetrics.CpuTime() - cpu0).TotalSeconds));
+            await admin.Playback.StopAsync();
+        }
+
+        // Idle baseline, measured last (JIT tiering and start-up work are over): the engine is stopped but the null
+        // output keeps pulling silence, as WASAPI would.
+        await Task.Delay(5000);
+        var idleSeconds = Math.Min(20, options.CpuSeconds);
+        var idle0 = ProcessMetrics.CpuTime();
+        await Task.Delay(TimeSpan.FromSeconds(idleSeconds));
+        var idlePerSecond = (ProcessMetrics.CpuTime() - idle0).TotalSeconds / idleSeconds;
+        foreach (var (scenario, wall, cpu) in playing)
+        {
+            results.Add(new CpuMeasurement(Stats.Round(wall, 1), Stats.Round(idlePerSecond * wall), Stats.Round(cpu),
                 Stats.Round(100 * idlePerSecond), Stats.Round(100 * cpu / wall), Stats.Round(100 * cpu / wall / Environment.ProcessorCount),
                 Stats.Round(100 * (cpu / wall - idlePerSecond)), scenario));
             Say($"CPU ({scenario}): {100 * cpu / wall:F2} % of one core ({100 * cpu / wall / Environment.ProcessorCount:F2} % of the machine); idle {100 * idlePerSecond:F2} %");
-            await admin.Playback.StopAsync();
         }
 
         return results;

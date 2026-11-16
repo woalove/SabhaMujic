@@ -5,7 +5,7 @@ using SabhaMujic.Soak;
 // SabhaMujic soak and performance harness.
 //
 //   dotnet run -c Release --project tests/SabhaMujic.Soak -- soak --hours 8 --speed 50 --seed 1 --report artifacts/soak.json
-//   dotnet run -c Release --project tests/SabhaMujic.Soak -- perf --report artifacts/perf.json [--cpu-seconds 60] [--tracks 1000]
+//   dotnet run -c Release --project tests/SabhaMujic.Soak -- perf --report artifacts/perf.json [--cpu-seconds 60] [--tracks 1000] [--startup-only]
 //
 // soak options: --hours <simulated hours> --speed <null-output speed factor> --seed <n> --report <json path>
 //               [--tracks 30] [--min-track 20] [--max-track 240] [--clients 4] [--phones 2] [--restart-at 0.5]
@@ -69,6 +69,7 @@ switch (command)
             CpuSeconds = Number(options, "cpu-seconds", 60),
             LibraryTracks = (int)Number(options, "tracks", 1000),
             WorkDirectory = options.GetValueOrDefault("work-dir"),
+            StartupOnly = options.ContainsKey("startup-only"),
             Log = Log,
         });
         var result = await perf.RunAsync();

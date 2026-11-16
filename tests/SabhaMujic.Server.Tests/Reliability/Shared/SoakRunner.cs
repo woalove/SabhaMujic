@@ -46,6 +46,7 @@ public sealed class SoakRunner : IAsyncDisposable
     private readonly ConcurrentDictionary<string, int> _events = new();
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, int>> _actions = new();
     private readonly ConcurrentQueue<double> _windowLag = new();
+    private readonly ConcurrentQueue<string> _recent = new();
     private readonly List<double> _allLag = [];
     private readonly Lock _lagGate = new();
     private readonly List<SoakSample> _samples = [];
@@ -1105,6 +1106,12 @@ public sealed class SoakRunner : IAsyncDisposable
             _ => ex.GetType().Name,
         };
         _actions.GetOrAdd(action, _ => new ConcurrentDictionary<string, int>()).AddOrUpdate(outcome, 1, (_, n) => n + 1);
+        _recent.Enqueue($"{SimSeconds:F0}s {action}:{outcome}");
+        while (_recent.Count > 8)
+        {
+            _recent.TryDequeue(out _);
+        }
+
         if (ex is SabhaMujicException { Code: ErrorCode.Internal } || (ex is HubException hub && HubErrors.CodeOf(hub) == ErrorCode.Internal))
         {
             Violation("InternalError", $"{action} failed with Internal: {ex.Message}");
@@ -1160,6 +1167,9 @@ public sealed class SoakRunner : IAsyncDisposable
         var lastProgress = WallSeconds;
         var notPlayingSince = double.NaN;
         long stopEpoch = -1;
+        var stopExhausted = false;
+        var stopAllBad = false;
+        var stopDetail = string.Empty;
         var flaggedEpisode = false;
         var stuck = _o.StuckThreshold.TotalSeconds;
         var crossfadeLimit = stuck + 12 / _o.Speed;
@@ -1257,31 +1267,33 @@ public sealed class SoakRunner : IAsyncDisposable
             {
                 if (double.IsNaN(notPlayingSince))
                 {
+                    // Classify when the stop is first seen: later commands (an Enqueue a moment after the queue ran out)
+                    // must not turn a legitimate end of queue into a violation.
                     notPlayingSince = now;
                     stopEpoch = epoch;
+                    stopExhausted = state.LoopMode == LoopMode.Off
+                                    && (queue.Items.Count == 0 || queue.Items.Skip(Math.Max(0, queue.CurrentIndex + 1)).All(i => IsBad(i.TrackId)));
+                    stopAllBad = queue.Items.Count > 0 && queue.Items.All(i => IsBad(i.TrackId));
+                    stopDetail = $"{state.Status} with nobody pausing/stopping it: item {queue.CurrentIndex + 1}/{queue.Items.Count}, loop {state.LoopMode}, error '{state.ErrorMessage}'";
                 }
                 else if (now - notPlayingSince > 1.0 && !_needsPlaybackRepair)
                 {
-                    var exhausted = state.LoopMode == LoopMode.Off
-                                    && (queue.Items.Count == 0 || queue.Items.Skip(Math.Max(0, queue.CurrentIndex + 1)).All(i => IsBad(i.TrackId)));
-                    var allBad = queue.Items.Count > 0 && queue.Items.All(i => IsBad(i.TrackId));
                     if (stopEpoch != _lastPlayingEpoch || (stopEpoch & 1) == 1)
                     {
                         // A command ran since playback was last seen (Next past the end, removing/deleting the last item…).
                         Count("StoppedByCommand");
                     }
-                    else if (exhausted)
+                    else if (stopExhausted)
                     {
                         Count("QueueRanOut");
                     }
-                    else if (allBad || (state.Status == PlaybackStatus.Error && queue.Items.Count(i => !IsBad(i.TrackId)) == 0))
+                    else if (stopAllBad)
                     {
                         Count("NothingPlayableQueued");
                     }
                     else
                     {
-                        Violation("UnexpectedStop",
-                            $"{state.Status} with nobody pausing/stopping it: item {queue.CurrentIndex + 1}/{queue.Items.Count}, loop {state.LoopMode}, error '{state.ErrorMessage}'");
+                        Violation("UnexpectedStop", stopDetail);
                     }
 
                     _needsPlaybackRepair = true;
@@ -1505,11 +1517,11 @@ public sealed class SoakRunner : IAsyncDisposable
 
     private void Violation(string kind, string detail)
     {
-        var violation = new SoakViolation(kind, Stats.Round(SimSeconds, 1), detail);
+        var violation = new SoakViolation(kind, Stats.Round(SimSeconds, 1), $"{detail} [recent actions: {string.Join(", ", _recent)}]");
         _violations.Enqueue(violation);
         if (_violations.Count <= 50)
         {
-            Say($"  VIOLATION {kind} at sim {violation.SimSeconds:F0} s: {detail}");
+            Say($"  VIOLATION {kind} at sim {violation.SimSeconds:F0} s: {violation.Detail}");
         }
     }
 
