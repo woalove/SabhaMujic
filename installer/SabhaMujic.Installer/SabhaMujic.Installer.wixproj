@@ -1,0 +1,51 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <!--
+    SabhaMujic MSI. WiX 5.0.2 only (docs/ARCHITECTURE.md #29); builds on Windows only. Use installer/build.ps1
+    (docs/BUILDING.md). Deliberately not in SabhaMujic.slnx, so the Linux build never loads it.
+
+    Properties:
+      SabhaMujicVersion   MSI ProductVersion, major.minor.build (default: $(Version) from Directory.Build.props).
+      ServicePublishDir   self-contained win-x64 publish of src/SabhaMujic.Service (default: <repo>/artifacts/service).
+      DesktopPublishDir   self-contained win-x64 publish of src/SabhaMujic.Desktop (default: <repo>/artifacts/desktop).
+    Output: bin/<Configuration>/SabhaMujic-<version>-x64.msi
+  -->
+  <PropertyGroup>
+    <SabhaMujicVersion Condition="'$(SabhaMujicVersion)' == ''">$(Version)</SabhaMujicVersion>
+    <SabhaMujicVersion Condition="'$(SabhaMujicVersion)' == ''">0.1.0</SabhaMujicVersion>
+    <SabhaMujicRepoRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', '..'))</SabhaMujicRepoRoot>
+    <ServicePublishDir Condition="'$(ServicePublishDir)' == ''">$(SabhaMujicRepoRoot)artifacts\service</ServicePublishDir>
+    <DesktopPublishDir Condition="'$(DesktopPublishDir)' == ''">$(SabhaMujicRepoRoot)artifacts\desktop</DesktopPublishDir>
+
+    <InstallerPlatform>x64</InstallerPlatform>
+    <OutputName>SabhaMujic-$(SabhaMujicVersion)-x64</OutputName>
+    <OutputPath>bin\$(Configuration)\</OutputPath>
+    <DefineConstants>$(DefineConstants);ProductVersion=$(SabhaMujicVersion)</DefineConstants>
+    <!-- WIX1149: MsiServiceConfig "may not work as expected". It is used only for delayed auto-start and the
+         failure-actions flag, which util:ServiceConfig can't set; the CI install smoke test checks the result. -->
+    <SuppressSpecificWarnings>$(SuppressSpecificWarnings);1149</SuppressSpecificWarnings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Bind paths without a trailing separator, so the harvest include and exclude patterns resolve identically. -->
+    <BindPath Include="$(ServicePublishDir.TrimEnd('\').TrimEnd('/'))" BindName="Service" />
+    <BindPath Include="$(DesktopPublishDir.TrimEnd('\').TrimEnd('/'))" BindName="App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Versions are pinned in Directory.Packages.props. -->
+    <PackageReference Include="WixToolset.Util.wixext" />
+    <PackageReference Include="WixToolset.Firewall.wixext" />
+    <PackageReference Include="WixToolset.UI.wixext" />
+  </ItemGroup>
+
+  <Target Name="SabhaMujicCheckInputs" BeforeTargets="BeforeBuild">
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(SabhaMujicVersion)', '^\d{1,3}\.\d{1,3}\.\d{1,5}$'))"
+           Text="SabhaMujicVersion '$(SabhaMujicVersion)' is not a valid MSI version (major.minor.build, e.g. 0.1.0)." />
+    <Error Condition="!Exists('$(ServicePublishDir)\SabhaMujic.Service.exe')"
+           Text="Service publish output not found in '$(ServicePublishDir)'. Run installer/build.ps1, or dotnet publish src/SabhaMujic.Service -c Release -o artifacts/service." />
+    <Error Condition="!Exists('$(ServicePublishDir)\System.Diagnostics.EventLog.Messages.dll')"
+           Text="'$(ServicePublishDir)' has no System.Diagnostics.EventLog.Messages.dll (used as the Event Log message file)." />
+    <Error Condition="!Exists('$(DesktopPublishDir)\SabhaMujic.Desktop.exe')"
+           Text="Desktop publish output not found in '$(DesktopPublishDir)'. Run installer/build.ps1, or dotnet publish src/SabhaMujic.Desktop -c Release -o artifacts/desktop." />
+  </Target>
+</Project>
