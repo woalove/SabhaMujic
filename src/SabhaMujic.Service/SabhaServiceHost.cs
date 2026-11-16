@@ -26,6 +26,7 @@ public static class WindowsHostComposition
         PipeName = pipeName ?? Endpoints.PipeName,
         Decoders = new MediaFoundationDecoderFactory(),
         OutputFactory = () => new WasapiOutput(),
+        RootGuard = new WindowsDataRootGuard(),
         StoreAcl = new WindowsStoreAcl(),
         PipeStreams = new WindowsPipeStreamFactory(),
         CallerIdentity = new WindowsCallerIdentity(),

@@ -88,10 +88,8 @@ public sealed class SabhaHost : IAsyncDisposable
     {
         var loggers = _options.LoggerFactory;
         var clock = _options.Clock ?? TimeProvider.System;
-        foreach (var dir in new[] { Paths.Root, Paths.Data, Paths.Library, Paths.Uploads, Paths.Logs })
-        {
-            Directory.CreateDirectory(dir);
-        }
+        // Before anything is written: real folders only (no junctions/symlinks), owned and locked down.
+        _options.RootGuard.Prepare(Paths);
 
         // The database holds secret and token hashes: protect its folder before creating the file.
         _options.StoreAcl.Secure(Paths.Data);

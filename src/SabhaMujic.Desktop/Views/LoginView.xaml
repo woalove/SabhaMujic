@@ -23,6 +23,14 @@
                 <Button Content="Sign in" Style="{StaticResource AccentButton}" IsDefault="True" Margin="0,18,0,0"
                         HorizontalAlignment="Stretch" MinHeight="44" FontSize="16" Command="{Binding LoginCommand}" />
 
+                <TextBlock HorizontalAlignment="Center" Margin="0,14,0,0" FontSize="14">
+                    <Hyperlink Command="{Binding ForgotAdminPinCommand}" Foreground="{StaticResource AccentBrush}"
+                               AutomationProperties.Name="Forgot admin PIN?"
+                               AutomationProperties.HelpText="Reset an administrator PIN on this PC. Needs Windows administrator rights.">
+                        <Run Text="Forgot admin PIN?" />
+                    </Hyperlink>
+                </TextBlock>
+
                 <TextBlock Text="Waiting for the SabhaMujic service…" Style="{StaticResource MutedText}" Margin="0,12,0,0"
                            Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}" />
             </StackPanel>

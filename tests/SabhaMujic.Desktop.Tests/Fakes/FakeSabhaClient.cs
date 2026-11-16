@@ -127,6 +127,16 @@ public sealed class FakeAuth(FakeSabhaClient c) : IAuthApi
         return Invoke(() => OnCompleteSetup(adminUserName, secret));
     }
 
+    /// <summary>What ResetAdministratorAsync does (default: signs in as that admin, like an elevated service would).</summary>
+    public Func<string, string, SessionDto> OnResetAdministrator { get; set; } =
+        (user, _) => FakeSabhaClient.MakeSession(Role.Admin, user);
+
+    public Task<SessionDto> ResetAdministratorAsync(string adminUserName, string newSecret, CancellationToken ct = default)
+    {
+        c.Record(nameof(ResetAdministratorAsync), adminUserName, newSecret);
+        return Invoke(() => OnResetAdministrator(adminUserName, newSecret));
+    }
+
     internal static Task<T> Invoke<T>(Func<T> f)
     {
         try

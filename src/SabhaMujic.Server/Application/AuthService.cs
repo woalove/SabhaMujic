@@ -29,6 +29,7 @@ public sealed class AuthService
     private readonly FailureRateLimiter _loginGlobal;
     private readonly FailureRateLimiter _pairingPerCaller;
     private readonly FailureRateLimiter _pairingGlobal;
+    private readonly FailureRateLimiter _recoveryPerCaller;
     private readonly Lazy<string> _dummyHash;
     private readonly SemaphoreSlim _bootstrapGate = new(1, 1);
 
@@ -47,6 +48,7 @@ public sealed class AuthService
         _loginGlobal = new FailureRateLimiter(options.LoginMaxFailuresGlobal, options.LoginFailureWindow, clock);
         _pairingPerCaller = new FailureRateLimiter(options.PairingMaxFailuresPerCaller, options.PairingFailureWindow, clock);
         _pairingGlobal = new FailureRateLimiter(options.PairingMaxFailuresGlobal, options.PairingFailureWindow, clock);
+        _recoveryPerCaller = new FailureRateLimiter(options.LoginMaxFailuresPerUser, options.LoginFailureWindow, clock);
         // Verified against when the user does not exist, so unknown and known names take about the same time.
         _dummyHash = new Lazy<string>(() => SecretHasher.Hash(Tokens.NewToken(), options.SecretHashIterations));
     }
@@ -137,6 +139,91 @@ public sealed class AuthService
         _events.PublishLibraryChanged(new LibraryChangedDto(LibraryChangeKind.UsersChanged, user.Id));
         return result;
     }
+
+    /// <summary>
+    /// Admin PIN recovery from the desktop app. Same gate as <see cref="CompleteInitialSetupAsync"/> (desktop pipe AND an
+    /// elevated local Administrator, never the remote). Sets a new PIN for the named administrator and signs out all of
+    /// its sessions, or creates a new administrator when no account has that name; then signs in as it.
+    /// <para>Rate-limited like sign-in, per Windows account (transport principal): every gated attempt counts, granted or
+    /// denied, because recovery checks no secret. Remote callers are refused before the limiter so they cannot use up a
+    /// local account's attempts.</para>
+    /// </summary>
+    public async Task<AuthResult> ResetAdministratorAsync(CallerContext caller, bool isElevatedAdministrator, string userName, string newSecret,
+        CancellationToken ct)
+    {
+        if (caller.Client != ClientKind.Desktop)
+        {
+            await _audit.WriteAsync(caller, "recovery.denied").ConfigureAwait(false);
+            throw RecoveryForbidden();
+        }
+
+        var callerKey = "recovery:" + caller.Principal;
+        if (_recoveryPerCaller.IsLimited(callerKey))
+        {
+            await _audit.WriteAsync(caller, "recovery.rate_limited").ConfigureAwait(false);
+            throw new SabhaMujicException(ErrorCode.RateLimited, "Too many recovery attempts. Wait a few minutes and try again.");
+        }
+
+        _recoveryPerCaller.RecordFailure(callerKey);
+        if (!isElevatedAdministrator)
+        {
+            await _audit.WriteAsync(caller, "recovery.denied").ConfigureAwait(false);
+            throw RecoveryForbidden();
+        }
+
+        var name = (userName ?? "").Trim();
+        if (name.Length == 0)
+        {
+            throw new SabhaMujicException(ErrorCode.InvalidArgument, "Enter the administrator's user name.");
+        }
+
+        var hash = HashSecret(newSecret); // validates the PIN before anything changes
+        UserRecord user;
+        bool created;
+        await _bootstrapGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var existing = await _users.GetByNameAsync(name, ct).ConfigureAwait(false);
+            if (existing is null)
+            {
+                user = await _users.CreateAsync(name, Role.Admin, hash, ct).ConfigureAwait(false);
+                created = true;
+            }
+            else if (existing.Role != Role.Admin)
+            {
+                throw new SabhaMujicException(ErrorCode.Conflict,
+                    $"'{existing.UserName}' is not an administrator. Enter an administrator's name, or a new name to create an administrator.");
+            }
+            else
+            {
+                if (!await _users.UpdateSecretHashAsync(existing.Id, hash, ct).ConfigureAwait(false))
+                {
+                    throw new SabhaMujicException(ErrorCode.NotFound, "That account was just removed. Try again.");
+                }
+
+                user = existing;
+                created = false;
+            }
+
+            // Every existing session of the account ends (a new account has none): whoever knew the old PIN is out.
+            await _sessions.RevokeAllForUserAsync(user.Id, CancellationToken.None).ConfigureAwait(false);
+        }
+        finally
+        {
+            _bootstrapGate.Release();
+        }
+
+        var userId = user.Id;
+        _events.EndSessions(c => c.UserId == userId, "This account's PIN was reset on the SabhaMujic PC. Please sign in again.");
+        var result = await CreateUserSessionAsync(caller, user, CancellationToken.None).ConfigureAwait(false);
+        await _audit.WriteAsync(result.Caller, created ? "recovery.admin_created" : "recovery.admin_reset", "user:" + user.UserName)
+            .ConfigureAwait(false);
+        _events.PublishLibraryChanged(new LibraryChangedDto(LibraryChangeKind.UsersChanged, user.Id));
+        return result;
+    }
+
+    private static SabhaMujicException RecoveryForbidden() => new(ErrorCode.Forbidden,
+        "Resetting an administrator PIN must be done in the SabhaMujic app started with 'Run as administrator' on this PC.");
 
     private async Task<AuthResult> CreateUserSessionAsync(CallerContext caller, UserRecord user, CancellationToken ct)
     {

@@ -87,10 +87,10 @@ public sealed class AuthorizationMatrixTests(ServerFixture fixture) : IClassFixt
             await Task.Delay(20);
             Assert.Equal(before, await server.SnapshotAsync());
         }
-        else if (methodName == nameof(IAuthApi.CompleteInitialSetupAsync))
+        else if (methodName is nameof(IAuthApi.CompleteInitialSetupAsync) or nameof(IAuthApi.ResetAdministratorAsync))
         {
-            // Anonymous in the matrix, but the service adds its own gate (elevated desktop admin + empty user table);
-            // this fixture's pipe identity is never elevated and accounts exist.
+            // Anonymous in the matrix, but the service adds its own gate (elevated desktop admin; setup also needs an empty
+            // user table); this fixture's pipe identity is never elevated.
             Assert.NotNull(error);
             Assert.Equal(ErrorCode.Forbidden, error.Code);
             await Task.Delay(20);
@@ -108,7 +108,7 @@ public sealed class AuthorizationMatrixTests(ServerFixture fixture) : IClassFixt
         }
     }
 
-    /// <summary>The denial itself is audited ("setup.denied"); everything else must be unchanged.</summary>
+    /// <summary>The denial itself is audited ("setup.denied" / "recovery.denied"); everything else must be unchanged.</summary>
     private static string StripAudit(string snapshot) =>
         string.Join('\n', snapshot.Split('\n').Where(line => !line.StartsWith("audit_log:", StringComparison.Ordinal)));
 

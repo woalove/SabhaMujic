@@ -44,6 +44,11 @@ public partial class App : Application
         var window = new MainWindow(_shell, UiSettingsStore.ForCurrentUser(), demo is null ? null : demo.SimulateConnectionLoss);
         MainWindow = window;
         window.Show();
+        if (e.Args.Any(a => string.Equals(a, RecoveryViewModel.StartupArgument, StringComparison.OrdinalIgnoreCase)))
+        {
+            _shell.OpenRecovery(); // restarted elevated from "Forgot admin PIN?"
+        }
+
         _shell.Start();
     }
 

@@ -19,6 +19,19 @@ public sealed partial class LoginViewModel : ViewModelBase
     /// <summary>Raised after a successful sign-in with the new session.</summary>
     public event Action<SessionDto>? LoggedIn;
 
+    /// <summary>Raised by the "Forgot admin PIN?" link.</summary>
+    public event Action? RecoveryRequested;
+
+    /// <summary>"Forgot admin PIN?": opens the administrator PIN recovery screen.</summary>
+    [RelayCommand]
+    private void ForgotAdminPin()
+    {
+        ErrorMessage = null;
+        Secret = "";
+        SecretCleared?.Invoke();
+        RecoveryRequested?.Invoke();
+    }
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(LoginCommand))]
     public partial string UserName { get; set; } = "";

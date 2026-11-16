@@ -94,6 +94,13 @@ public sealed class ApiSession : IAuthApi, ILibraryApi, IPlaybackApi, IPlaylistA
     public Task<SessionDto> CompleteInitialSetupAsync(string adminUserName, string secret, CancellationToken ct = default) => Run(Auth, async _ =>
         Bind(await _app.Auth.CompleteInitialSetupAsync(_anonymous, _isElevatedAdministrator, adminUserName, secret, ct).ConfigureAwait(false)), ct);
 
+    /// <summary>
+    /// Admin PIN recovery. Like setup, <see cref="AuthService.ResetAdministratorAsync"/> requires the desktop pipe and an
+    /// elevated local Administrator as reported by the transport; the connection is then signed in as that administrator.
+    /// </summary>
+    public Task<SessionDto> ResetAdministratorAsync(string adminUserName, string newSecret, CancellationToken ct = default) => Run(Auth, async _ =>
+        Bind(await _app.Auth.ResetAdministratorAsync(_anonymous, _isElevatedAdministrator, adminUserName, newSecret, ct).ConfigureAwait(false)), ct);
+
     public Task LogoutAsync(CancellationToken ct = default) => Run(Auth, async caller =>
     {
         await _app.Auth.LogoutAsync(caller, ct).ConfigureAwait(false);

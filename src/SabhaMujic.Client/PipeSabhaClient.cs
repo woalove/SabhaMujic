@@ -334,6 +334,13 @@ public sealed class PipeSabhaClient : ISabhaClient
             return session;
         }
 
+        public async Task<SessionDto> ResetAdministratorAsync(string adminUserName, string newSecret, CancellationToken ct = default)
+        {
+            var session = await inner.ResetAdministratorAsync(adminUserName, newSecret, ct).ConfigureAwait(false);
+            owner.SetSession(session);
+            return session;
+        }
+
         public async Task LogoutAsync(CancellationToken ct = default)
         {
             try

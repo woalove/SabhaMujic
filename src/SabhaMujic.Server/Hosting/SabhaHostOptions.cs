@@ -55,6 +55,12 @@ public sealed class SabhaHostOptions
     /// <summary>Creates the audio output (WASAPI on Windows). Default: a real-time <see cref="NullRealtimeOutput"/>.</summary>
     public Func<IAudioOutput>? OutputFactory { get; init; }
 
+    /// <summary>
+    /// Runs first: creates the data root and its folders, refuses junctions/symlinks, and (Windows service) takes ownership
+    /// and applies the folder DACLs. Default: the cross-platform checks only.
+    /// </summary>
+    public DataRootGuard RootGuard { get; init; } = new();
+
     /// <summary>Applied to the data, library and uploads folders. Default: no-op (development only).</summary>
     public IStoreAcl StoreAcl { get; init; } = NoOpStoreAcl.Instance;
 

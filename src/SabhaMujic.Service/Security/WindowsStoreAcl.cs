@@ -27,6 +27,8 @@ public sealed class WindowsStoreAcl(string serviceName = ServiceSid.ServiceName)
             directory.Create();
         }
 
+        // Never apply an ACL through a junction/symlink: that would change the link's target instead.
+        SabhaMujic.Server.Hosting.DataRootGuard.EnsureNotReparsePoint(directory.FullName, "folder");
         directory.SetAccessControl(BuildSecurity());
     }
 

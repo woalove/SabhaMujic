@@ -4,6 +4,8 @@
     <OutputType>Exe</OutputType>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
+    <!-- Same icon as the desktop app (shown in Explorer and Task Manager). -->
+    <ApplicationIcon>..\SabhaMujic.Desktop\Assets\SabhaMujic.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../SabhaMujic.Server/SabhaMujic.Server.csproj" />

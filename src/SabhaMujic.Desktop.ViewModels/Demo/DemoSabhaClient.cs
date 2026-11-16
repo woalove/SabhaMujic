@@ -514,6 +514,40 @@ public sealed class DemoSabhaClient : ISabhaClient
             s.SetSession(session);
             return session;
         }, authenticated: false);
+
+        /// <summary>
+        /// The demo is always "elevated": resets the named admin's PIN, or adds a new admin with that name. A volunteer's name
+        /// reports Conflict, like the service.
+        /// </summary>
+        public Task<SessionDto> ResetAdministratorAsync(string adminUserName, string newSecret, CancellationToken ct = default) => s.Run(() =>
+        {
+            var name = adminUserName?.Trim() ?? "";
+            if (name.Length == 0 || (newSecret?.Length ?? 0) < 4)
+            {
+                throw new SabhaMujicException(ErrorCode.InvalidArgument, "A name and a PIN of at least 4 characters are required.");
+            }
+
+            var now = s._time.GetUtcNow();
+            var index = s._users.FindIndex(u => string.Equals(u.UserName, name, StringComparison.OrdinalIgnoreCase));
+            if (index < 0)
+            {
+                s._users.Add(new DemoUser(Guid.NewGuid(), name, Role.Admin, newSecret!, now));
+            }
+            else if (s._users[index].Role != Role.Admin)
+            {
+                throw new SabhaMujicException(ErrorCode.Conflict, $"'{s._users[index].UserName}' is not an administrator.");
+            }
+            else
+            {
+                name = s._users[index].UserName;
+                s._users[index] = s._users[index] with { Secret = newSecret! };
+            }
+
+            s._failedLogins = 0;
+            var session = new SessionDto(Convert.ToHexString(RandomNumberGenerator.GetBytes(16)), name, Role.Admin, now.AddHours(12));
+            s.SetSession(session);
+            return session;
+        }, authenticated: false);
     }
 
     private sealed class LibraryApi(DemoSabhaClient s) : ILibraryApi
