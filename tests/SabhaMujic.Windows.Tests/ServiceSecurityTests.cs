@@ -161,11 +161,90 @@ public sealed class ServiceSecurityTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// The real service entry point (<see cref="ServiceProgram"/>: data-root guard, logging, Windows composition with Media
-    /// Foundation, WASAPI, ACLs, the ACL'd pipe and token identity) run in-process like the installer runs it: first the
-    /// elevated prepare step, then the service. It answers Hello and allows first-run setup to this elevated process. If the
-    /// service exits instead (exit code 2 = data root refused, 1 = start failed), the test fails at once with that code
-    /// and the service's own log in the output, instead of timing out on the client.
+    /// The real service entry point (<see cref="ServiceProgram"/>) run in-process like the installer runs it: the elevated
+    /// prepare step, then the service with the Windows composition (Media Foundation, WASAPI, ACLs, the ACL'd pipe, token
+    /// identity). The service's log, including every pipe instance, accept, identification and rejection at Debug level, goes
+    /// to the test output.
+    /// </summary>
+    private sealed class ConsoleService : IAsyncDisposable
+    {
+        private readonly CancellationTokenSource _stop = new();
+
+        private ConsoleService(ITestOutputHelper output, string root)
+        {
+            Output = output;
+            PipeName = "sm-svc-" + Guid.NewGuid().ToString("N")[..8];
+            Args = [$"--SabhaMujic:DataRoot={root}", $"--SabhaMujic:PipeName={PipeName}", "--SabhaMujic:Remote:Enabled=false"];
+        }
+
+        public ITestOutputHelper Output { get; }
+
+        public string PipeName { get; }
+
+        public string[] Args { get; }
+
+        public Task<int> Run { get; private set; } = Task.FromResult(-1);
+
+        public void Log(ILoggingBuilder logging)
+        {
+            logging.AddFilter("SabhaMujic.Server.Pipe", LogLevel.Debug);
+            logging.AddProvider(new TestOutputLoggerProvider(Output, LogLevel.Debug));
+        }
+
+        public static async Task<ConsoleService> StartAsync(ITestOutputHelper output, string root)
+        {
+            var service = new ConsoleService(output, root);
+            Assert.Equal(0, await ServiceProgram.RunAsync([.. service.Args, ServiceProgram.PrepareSwitch], logging: service.Log));
+            service.Run = Task.Run(() => ServiceProgram.RunAsync(service.Args, service._stop.Token, service.Log));
+            return service;
+        }
+
+        public PipeSabhaClient NewClient() => new(new PipeClientOptions
+        {
+            PipeName = PipeName,
+            ConnectTimeout = TimeSpan.FromSeconds(5),
+            HandshakeTimeout = TimeSpan.FromSeconds(10),
+            InitialBackoff = TimeSpan.FromMilliseconds(100),
+            MaxBackoff = TimeSpan.FromSeconds(1),
+        });
+
+        /// <summary>
+        /// Connects (Hello included) within <paramref name="timeout"/>. Fails at once if the service exits, and otherwise
+        /// with the client's attempts and last connect error, so a CI failure explains itself.
+        /// </summary>
+        public async Task ConnectAsync(PipeSabhaClient client, TimeSpan timeout, string what)
+        {
+            using var cts = new CancellationTokenSource(timeout);
+            var connect = client.ConnectAsync(cts.Token);
+            if (await Task.WhenAny(connect, Run) == Run)
+            {
+                Assert.Fail($"{what}: the service exited with code {await Run} before answering (its log is in the test output).");
+            }
+
+            try
+            {
+                await connect;
+            }
+            catch (OperationCanceledException)
+            {
+                Assert.Fail($"{what}: no connection within {timeout.TotalSeconds:F0} s after {client.ConnectAttempts} attempts; " +
+                    $"state {client.State}; last connect error: {client.LastConnectError?.ToString() ?? "none"}");
+            }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await _stop.CancelAsync();
+            var code = await Run.WaitAsync(TimeSpan.FromSeconds(60));
+            _stop.Dispose();
+            Assert.Equal(0, code);
+        }
+    }
+
+    /// <summary>
+    /// The service answers Hello over the ACL'd pipe and allows first-run setup to this elevated process. 60 s covers the
+    /// service's own start (host, Media Foundation, WASAPI) on a busy 2-core runner plus a few client retries: the client
+    /// now gives up on a handshake after 10 s and tries again, so one stuck connection no longer uses up the whole budget.
     /// </summary>
     [Fact]
     public async Task Console_hosted_service_answers_over_the_acl_pipe()
@@ -178,47 +257,82 @@ public sealed class ServiceSecurityTests(ITestOutputHelper output)
         }
 
         using var root = WindowsTestSupport.NewProgramDataDir();
-        var pipeName = "sm-svc-" + Guid.NewGuid().ToString("N")[..8];
-        string[] args = [$"--SabhaMujic:DataRoot={root.Path}", $"--SabhaMujic:PipeName={pipeName}", "--SabhaMujic:Remote:Enabled=false"];
-        void Log(ILoggingBuilder logging) => logging.AddProvider(new TestOutputLoggerProvider(output));
+        await using var service = await ConsoleService.StartAsync(output, root.Path);
+        await using var client = service.NewClient();
+        await service.ConnectAsync(client, TimeSpan.FromSeconds(60), "first connection");
+        Assert.Equal(ContractVersion.Current, client.ServerInfo!.ContractVersion);
+        Assert.True(await client.Auth.IsSetupRequiredAsync());
 
-        Assert.Equal(0, await ServiceProgram.RunAsync([.. args, ServiceProgram.PrepareSwitch], logging: Log));
+        // This process is an elevated administrator, so first-run setup is allowed over the real token check.
+        var session = await client.Auth.CompleteInitialSetupAsync("ci-admin", "ci-pin-1234");
+        Assert.Equal(Role.Admin, session.Role);
+        Assert.False(await client.Auth.IsSetupRequiredAsync());
 
-        using var stop = new CancellationTokenSource();
-        var service = Task.Run(() => ServiceProgram.RunAsync(args, stop.Token, Log));
-        try
+        foreach (var folder in new[] { "data", "library", "uploads", "certs", "logs" })
         {
-            await using var client = new PipeSabhaClient(new PipeClientOptions { PipeName = pipeName, ConnectTimeout = TimeSpan.FromSeconds(5) });
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-            var connect = client.ConnectAsync(timeout.Token);
-            if (await Task.WhenAny(connect, service) == service)
-            {
-                Assert.Fail($"The service exited with code {await service} before answering (its log is in the test output).");
-            }
-
-            await connect;
-            Assert.Equal(ContractVersion.Current, client.ServerInfo!.ContractVersion);
-            Assert.True(await client.Auth.IsSetupRequiredAsync());
-
-            // This process is an elevated administrator, so first-run setup is allowed over the real token check.
-            var session = await client.Auth.CompleteInitialSetupAsync("ci-admin", "ci-pin-1234");
-            Assert.Equal(Role.Admin, session.Role);
-            Assert.False(await client.Auth.IsSetupRequiredAsync());
-
-            foreach (var folder in new[] { "data", "library", "uploads", "certs", "logs" })
-            {
-                Assert.True(new DirectoryInfo(Path.Combine(root.Path, folder)).GetAccessControl().AreAccessRulesProtected, folder);
-            }
-
-            Assert.Equal(ServiceSid.Administrators,
-                new DirectoryInfo(root.Path).GetAccessControl(AccessControlSections.Owner).GetOwner(typeof(SecurityIdentifier)));
+            Assert.True(new DirectoryInfo(Path.Combine(root.Path, folder)).GetAccessControl().AreAccessRulesProtected, folder);
         }
-        finally
+
+        Assert.Equal(ServiceSid.Administrators,
+            new DirectoryInfo(root.Path).GetAccessControl(AccessControlSections.Owner).GetOwner(typeof(SecurityIdentifier)));
+    }
+
+    /// <summary>
+    /// Stress on the ACL'd pipe: 50 sequential connect + Hello + dispose cycles, then 10 at once, each with its own
+    /// timeout. Every failure is reported with the client's last connect error; the service log shows each pipe instance,
+    /// accept and identification.
+    /// </summary>
+    [Fact]
+    public async Task The_acl_pipe_accepts_50_sequential_and_10_concurrent_connections()
+    {
+        if (!WindowsTestSupport.IsElevatedAdministrator())
         {
-            await stop.CancelAsync();
-            var code = await service.WaitAsync(TimeSpan.FromSeconds(60));
-            Assert.Equal(0, code);
+            output.WriteLine("SKIPPED: needs an elevated administrator (the service's folders are ACL-protected).");
+            return;
         }
+
+        using var root = WindowsTestSupport.NewProgramDataDir();
+        await using var service = await ConsoleService.StartAsync(output, root.Path);
+        await using (var first = service.NewClient())
+        {
+            await service.ConnectAsync(first, TimeSpan.FromSeconds(60), "warm-up"); // the service's own start is not timed below
+        }
+
+        var failures = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        // Concurrent cycles make no call after Hello: 10 signed-out connections from one Windows account exceed the
+        // per-account cap (8), so the oldest may be closed to make room once it has said Hello (by design).
+        async Task CycleAsync(string name, bool call)
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            await using var client = service.NewClient();
+            try
+            {
+                await service.ConnectAsync(client, TimeSpan.FromSeconds(20), name);
+                Assert.Equal(ContractVersion.Current, client.ServerInfo!.ContractVersion);
+                if (call)
+                {
+                    Assert.True(await client.Auth.IsSetupRequiredAsync()); // one real call after Hello
+                }
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                failures.Enqueue($"{name} after {watch.Elapsed.TotalSeconds:F1} s: {ex.Message}");
+            }
+        }
+
+        for (var i = 0; i < 50; i++)
+        {
+            await CycleAsync($"sequential #{i + 1}", call: true);
+        }
+
+        await Task.WhenAll(Enumerable.Range(1, 10).Select(i => Task.Run(() => CycleAsync($"concurrent #{i}", call: false))));
+
+        foreach (var failure in failures)
+        {
+            output.WriteLine("FAILED " + failure);
+        }
+
+        Assert.True(failures.IsEmpty, $"{failures.Count} of 60 connections failed: {string.Join(" | ", failures)}");
     }
 
     /// <summary>A junction in place of a data folder: the real entry point exits with code 2 at once (no host, no hang).</summary>

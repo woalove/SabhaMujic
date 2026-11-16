@@ -15,6 +15,12 @@ public sealed class PipeClientOptions
 
     public TimeSpan ConnectTimeout { get; init; } = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// Longest wait for the service to answer the handshake (Hello, and resuming the session) on a connected pipe. On
+    /// expiry the connection is dropped and retried, so a stuck service connection can never leave the app "Connecting".
+    /// </summary>
+    public TimeSpan HandshakeTimeout { get; init; } = TimeSpan.FromSeconds(15);
+
     public TimeSpan InitialBackoff { get; init; } = TimeSpan.FromMilliseconds(250);
 
     public TimeSpan MaxBackoff { get; init; } = TimeSpan.FromSeconds(10);
@@ -54,6 +60,8 @@ public sealed class PipeSabhaClient : ISabhaClient
     private SessionDto? _session;
     private Task _loop = Task.CompletedTask;
     private bool _started;
+    private Exception? _lastConnectError;
+    private int _connectAttempts;
 
     public PipeSabhaClient(PipeClientOptions? options = null)
     {
@@ -93,6 +101,12 @@ public sealed class PipeSabhaClient : ISabhaClient
 
     /// <summary>Server information from the last successful handshake.</summary>
     public HelloResponse? ServerInfo { get; private set; }
+
+    /// <summary>Why the most recent connection attempt failed (null after a success). Diagnostics.</summary>
+    public Exception? LastConnectError => Volatile.Read(ref _lastConnectError);
+
+    /// <summary>Connection attempts so far (successful or not). Diagnostics.</summary>
+    public int ConnectAttempts => Volatile.Read(ref _connectAttempts);
 
     public IAuthApi Auth { get; }
 
@@ -168,7 +182,9 @@ public sealed class PipeSabhaClient : ISabhaClient
             long connectedAt = 0;
             try
             {
+                Interlocked.Increment(ref _connectAttempts);
                 rpc = await OpenAsync(ct).ConfigureAwait(false);
+                Volatile.Write(ref _lastConnectError, null);
                 everConnected = true;
                 connected = true;
                 connectedAt = Environment.TickCount64;
@@ -192,12 +208,17 @@ public sealed class PipeSabhaClient : ISabhaClient
             }
             catch (SabhaMujicException ex) when (ex.Code == ErrorCode.IncompatibleClient)
             {
+                Volatile.Write(ref _lastConnectError, ex);
                 _firstConnected.TrySetException(ex);
                 break;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 // Connection failed or dropped: retry below.
+                if (!connected)
+                {
+                    Volatile.Write(ref _lastConnectError, ex);
+                }
             }
             finally
             {
@@ -245,21 +266,35 @@ public sealed class PipeSabhaClient : ISabhaClient
             rpc.AddLocalRpcTarget<IClientEvents>(new EventTarget(this), null);
             rpc.StartListening();
 
-            ServerInfo = await CallAsync<HelloResponse>(rpc, nameof(IAuthApi.HelloAsync), [ContractVersion.Current], [typeof(int)], ct)
-                .ConfigureAwait(false);
-
-            if (Session is { } session)
+            using var handshake = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            handshake.CancelAfter(_options.HandshakeTimeout);
+            // Cancelling a JSON-RPC request only asks the server to stop; the call itself waits for its answer. A server that
+            // never answers would therefore hold this await forever (and DisposeAsync with it, since this connection is not
+            // published yet). Dropping the connection is what actually ends the wait.
+            using var dropOnTimeout = handshake.Token.UnsafeRegister(static state => ((JsonRpc)state!).Dispose(), rpc);
+            try
             {
-                try
+                ServerInfo = await CallAsync<HelloResponse>(rpc, nameof(IAuthApi.HelloAsync), [ContractVersion.Current], [typeof(int)], handshake.Token)
+                    .ConfigureAwait(false);
+
+                if (Session is { } session)
                 {
-                    var resumed = await CallAsync<SessionDto>(rpc, nameof(IAuthApi.ResumeSessionAsync), [session.Token], [typeof(string)], ct)
-                        .ConfigureAwait(false);
-                    SetSession(resumed);
+                    try
+                    {
+                        var resumed = await CallAsync<SessionDto>(rpc, nameof(IAuthApi.ResumeSessionAsync), [session.Token], [typeof(string)],
+                            handshake.Token).ConfigureAwait(false);
+                        SetSession(resumed);
+                    }
+                    catch (SabhaMujicException ex) when (ex.Code == ErrorCode.Unauthenticated)
+                    {
+                        SetSession(null);
+                    }
                 }
-                catch (SabhaMujicException ex) when (ex.Code == ErrorCode.Unauthenticated)
-                {
-                    SetSession(null);
-                }
+            }
+            catch (Exception) when (handshake.IsCancellationRequested && !ct.IsCancellationRequested)
+            {
+                throw new TimeoutException(
+                    $"The SabhaMujic service accepted the connection but did not complete the handshake within {_options.HandshakeTimeout.TotalSeconds:F0} s.");
             }
 
             return rpc;
