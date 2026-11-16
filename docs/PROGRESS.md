@@ -53,6 +53,10 @@ _Last updated: 2026-11-15 (M0–M5 and M6a merged; M6b installer/docs and M6c QA
 - Evidence (Linux): 794 .NET tests and 8 e2e tests green. A real host + engine + remote + SignalR phone test shows playback continuing after every hub connection is cut. A test race (hub registration lagging the client handshake) was found and fixed by the lead: 0/10 failures after the fix.
 - Windows: the DPAPI round-trip, the SChannel handshake with DPAPI-loaded certificates, and the service with the remote enabled are pending the CI run.
 
+## M6c QA: merged
+- Soak harness (`tests/SabhaMujic.Soak`), reliability, fault, stress and authorization-stress tests, performance figures, and an independent review (`docs/QA_REPORT.md`).
+- Open bugs: BUG-01 (failed state save never retried), BUG-02 (an unplayable track stops current music), BUG-03 (idle unauthenticated pipe connections can exhaust the 32-connection cap). Plus review items R-4..R-16. Routed to the backend agent in M6d.
+
 ## Next
 - M1 Audio engine (Agent 1) and M2 Data/storage (Agent 3), in parallel worktrees, once Windows CI is green.
 - M4a WPF shell against a fake client (Agent 2) can start alongside.
