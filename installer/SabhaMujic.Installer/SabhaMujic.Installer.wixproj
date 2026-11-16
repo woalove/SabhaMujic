@@ -23,6 +23,9 @@
     <!-- WIX1149: MsiServiceConfig "may not work as expected". It is used only for delayed auto-start and the
          failure-actions flag, which util:ServiceConfig can't set; the CI install smoke test checks the result. -->
     <SuppressSpecificWarnings>$(SuppressSpecificWarnings);1149</SuppressSpecificWarnings>
+    <!-- ICE60: versioned, language-neutral .NET runtime/resource files in the self-contained payload have no
+         Language; this is expected for .NET binaries and harmless for installation. -->
+    <SuppressIces>$(SuppressIces);ICE60</SuppressIces>
   </PropertyGroup>
 
   <ItemGroup>

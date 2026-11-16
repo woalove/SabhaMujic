@@ -218,10 +218,11 @@ public sealed class PlaybackComponentTests : IAsyncLifetime
         await AssertEx.Eventually(() => _h.Host.Engine.GetState().Status == PlaybackStatus.Playing, "playing");
         states.Clear();
 
-        await Task.Delay(1_200); // no commands: only heartbeats (every 300 ms in this harness)
+        // No commands from here on: only heartbeats (every 300 ms in this harness). Wait for them instead of sleeping a
+        // fixed time, so a slow CI runner can't make the count fall short.
+        await AssertEx.Eventually(() => states.Count >= 3, "at least three heartbeats");
 
         var beats = states.ToArray();
-        Assert.True(beats.Length >= 3, $"expected heartbeats, got {beats.Length}");
         Assert.All(beats.Zip(beats.Skip(1)), p => Assert.True(p.Second.Revision > p.First.Revision));
         Assert.True(beats[^1].PositionSeconds > beats[0].PositionSeconds);
         Assert.Equal(_h.App.ServerEpoch, (await _admin.GetStateAsync()).ServerEpoch);
