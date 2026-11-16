@@ -5,8 +5,9 @@
     $(var.ProductVersion)   MSI ProductVersion (major.minor.build).
     !(bindpath.Service)     self-contained publish of src/SabhaMujic.Service.
     !(bindpath.App)         self-contained publish of src/SabhaMujic.Desktop.
-  The installer creates no data folders and sets no ACLs: the service creates %ProgramData%\SabhaMujic and locks down
-  data\, library\ and uploads\ itself at startup (WindowsStoreAcl). Uninstall leaves %ProgramData%\SabhaMujic in place.
+  %ProgramData%\SabhaMujic is created and locked down by the service exe itself: the PrepareDataRoot custom action runs
+  the service exe with its prepare-data-root switch as SYSTEM (owner Administrators, exact DACLs, decision #34), and the
+  service re-checks it at every start. Uninstall leaves %ProgramData%\SabhaMujic in place.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall"
@@ -25,6 +26,10 @@
 
     <MediaTemplate EmbedCab="yes" />
 
+    <!-- The app icon (also embedded in both exes) for the shortcuts and Programs and Features. -->
+    <Icon Id="SabhaMujic.ico" SourceFile="$(var.SabhaMujicIcon)" />
+    <Property Id="ARPPRODUCTICON" Value="SabhaMujic.ico" />
+
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="SabhaMujic">
         <Directory Id="ServiceFolder" Name="Service" />
@@ -40,14 +45,14 @@
            not [#file], so no formatted string crosses components (ICE69). -->
       <Component Id="StartMenuShortcutComponent" Directory="ProgramMenuFolder">
         <Shortcut Id="StartMenuShortcut" Name="SabhaMujic" Description="Play music for the sabha"
-                  Target="[AppFolder]SabhaMujic.Desktop.exe" WorkingDirectory="AppFolder" />
+                  Target="[AppFolder]SabhaMujic.Desktop.exe" WorkingDirectory="AppFolder" Icon="SabhaMujic.ico" />
         <RegistryValue Root="HKCU" Key="Software\SabhaMujic\Installer" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
 
       <Feature Id="DesktopShortcut" Title="Desktop shortcut" Description="A SabhaMujic shortcut on the desktop of every user." Level="1" AllowAdvertise="no">
         <Component Id="DesktopShortcutComponent" Directory="DesktopFolder">
           <Shortcut Id="DesktopShortcut" Name="SabhaMujic" Description="Play music for the sabha"
-                    Target="[AppFolder]SabhaMujic.Desktop.exe" WorkingDirectory="AppFolder" />
+                    Target="[AppFolder]SabhaMujic.Desktop.exe" WorkingDirectory="AppFolder" Icon="SabhaMujic.ico" />
           <RegistryValue Root="HKCU" Key="Software\SabhaMujic\Installer" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
         </Component>
       </Feature>
@@ -62,6 +67,19 @@
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
     <!-- WixShellExec formats this value and runs it from the (normally unelevated) UI process, decision #30. -->
     <Property Id="WixShellExecTarget" Value="[#DesktopExe]" />
+
+    <!-- Decision #34: take ownership of %ProgramData%\SabhaMujic and apply its exact DACLs, as SYSTEM, before the
+         service starts (its virtual account can't take ownership from a user who pre-created the folder). Runs on install,
+         repair, change and upgrade, never on uninstall. WixQuietExec64 logs the tool's output to the MSI log and fails the
+         installation (rolling back) on any non-zero exit code: 2 = the folder is a junction/symlink/file or can't be taken
+         over; the reason is also written to the Application event log (source SabhaMujic.Service). -->
+    <SetProperty Id="PrepareDataRoot" Value="&quot;[#ServiceExe]&quot; --prepare-data-root" Before="PrepareDataRoot" Sequence="execute"
+                 Condition="NOT REMOVE~=&quot;ALL&quot;" />
+    <CustomAction Id="PrepareDataRoot" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec64" Execute="deferred" Impersonate="no" Return="check" />
+    <InstallExecuteSequence>
+      <Custom Action="PrepareDataRoot" Before="StartServices" Condition="NOT REMOVE~=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
+
     <UI>
       <ui:WixUI Id="WixUI_FeatureTree" />
       <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="Wix4ShellExec_X64" Order="1"

@@ -22,7 +22,7 @@ The role comes from the SabhaMujic account (or, for an iPhone, from the role cho
 
 1. Click **Add files…** and choose audio files. Supported formats: **MP3, WAV, M4A, AAC, FLAC and WMA**, up to **1 GB per file**. Other file types are refused.
 2. For each file, adjust the **Title** (the file name by default) and **Artist** (optional). Choose a category per file, or set **Category for new files** before adding them.
-3. Click **Start import**. Each file is uploaded to the service, which first checks that it really decodes as audio (a renamed non-audio file is rejected). It then stores the file in the protected library and starts the Smart Loop analysis. The status column follows these stages: uploading, validating, storing, analyzing, done. **Cancel** stops the uploads still in progress.
+3. Click **Start import**. Each file is uploaded to the service, which first checks that it really decodes as audio (a renamed non-audio file is rejected). It then stores the file in the protected library and starts the Smart Loop analysis. The status column follows these stages: uploading, validating, storing, analyzing, done. **Cancel** stops the uploads still in progress. Signing out (or revoking the iPhone that uploads) also cancels that session's unfinished uploads.
 
 Notes:
 
@@ -89,9 +89,9 @@ Playback runs in the service. Closing the app, signing out or locking an iPhone 
 - **Reset PIN…**: sets a new PIN (enter it twice) and signs that user out everywhere. If you change your own PIN, only the session you are using stays signed in.
 - **Delete**: removes the account and signs it out. You can't delete your own account, and the last administrator can't be deleted.
 
-After 5 wrong PINs for the same user name within 5 minutes, sign-in for that name is paused for a few minutes ("Too many failed sign-in attempts").
+After 5 wrong PINs for the same user name within 5 minutes, sign-in for that name is paused for a few minutes (the app says "Too many sign-in attempts. Please wait a minute and try again.").
 
-Keep at least **two administrator accounts**. There is no way yet to reset the PIN of the only administrator (see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#forgotten-administrator-pin)).
+Keep at least **two administrator accounts**. If no administrator can sign in, a Windows administrator can reset an administrator PIN on the PC with **Forgot admin PIN?** on the sign-in screen (see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#forgotten-administrator-pin)).
 
 ## Remote devices (iPhones)
 
@@ -141,7 +141,7 @@ The things worth backing up are in `C:\ProgramData\SabhaMujic`:
 
 The backup holds the music as plain audio files. Keep it where volunteers can't copy it.
 
-**Restore** (with SabhaMujic installed): stop the service, copy the folders back into `C:\ProgramData\SabhaMujic` with the same `robocopy` commands (source and destination swapped), then start the service. The service locks the folders again when it starts.
+**Restore** (with SabhaMujic installed): stop the service, copy the folders back into `C:\ProgramData\SabhaMujic` with the same `robocopy` commands (source and destination swapped), then start the service. The service locks the folders again when it starts. Copy real folders: if a folder ends up as a junction or link, or owned by another account, the service refuses to start (see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#setup-stops-or-the-service-wont-start-because-of-the-data-folder)).
 
 **Certificates on a new PC**: the keys in `certs` are encrypted with Windows DPAPI for the PC (the Windows installation) they were made on, so `certs` can't be moved to another PC; restore only `data` and `library` there. If `certs` is missing or can't be decrypted, the service creates a new certificate authority, and every iPhone must remove the old profile, install and trust the new one, and pair again.
 
@@ -177,7 +177,7 @@ To turn it back on, delete the file (or set `true`) and restart the service. The
 | What | Where |
 |---|---|
 | Program files | `C:\Program Files\SabhaMujic\Service` and `C:\Program Files\SabhaMujic\App` |
-| Data root | `C:\ProgramData\SabhaMujic` (`data`, `library`, `uploads`, `certs`: locked to the service and administrators; `logs`: readable by all users) |
+| Data root | `C:\ProgramData\SabhaMujic`, owned by Administrators. `data`, `library`, `uploads`, `certs`: only the service, SYSTEM and administrators. `logs`: standard users can read the logs; only the service (and administrators) can write there |
 | Service settings (optional) | `C:\Program Files\SabhaMujic\Service\appsettings.json` (see [Service settings](#service-settings)) |
 | Service logs | `C:\ProgramData\SabhaMujic\logs\sabhamujic-YYYYMMDD.log` (a new file each day or every 10 MB; the newest 14 files are kept) |
 | Windows Event Log | **Event Viewer → Windows Logs → Application**, source **SabhaMujic.Service** (warnings and errors only) |

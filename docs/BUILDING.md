@@ -69,7 +69,8 @@ The installer project:
 
 - `Package.wxs` is the whole package: per-machine x64, a stable `UpgradeCode` (**never change it**), and a major upgrade that refuses downgrades. It installs the service (`NT SERVICE\SabhaMujic`, delayed auto-start, restart on failure), the firewall rules (TCP 8443/8080, Private profile, service exe only), the Event Log source `SabhaMujic.Service`, the shortcuts and the `WixUI_FeatureTree` dialogs. The two exes are authored explicitly; everything else in the publish folders is harvested with `<Files>`.
 - `AboutThisSoftware.rtf` is the notice page in the setup wizard (what is installed, third-party components). Update it when a shipped dependency or its license changes.
-- The installer sets no folder permissions and creates no data folders. The service does that at startup, and uninstall keeps `%ProgramData%\SabhaMujic`.
+- The installer doesn't author data folders or permissions. Its `PrepareDataRoot` custom action (deferred, as SYSTEM, before `StartServices`, on install, repair and upgrade but not uninstall) runs `SabhaMujic.Service.exe --prepare-data-root` through WiX's `WixQuietExec64`. That takes ownership of `%ProgramData%\SabhaMujic` and its folders for Administrators and applies the exact permissions (ARCHITECTURE.md #34). A non-zero exit code (2 = a junction, link or file in the way, or a folder that can't be taken over) fails and rolls back the installation; the tool's output is in the verbose MSI log. WixQuietExec stops waiting after 60 seconds. Uninstall keeps `%ProgramData%\SabhaMujic`.
+- The shortcuts and Programs and Features use `src/SabhaMujic.Desktop/Assets/SabhaMujic.ico`.
 - The project isn't in `SabhaMujic.slnx`, so Linux builds never load it. WiX can't build MSIs on Linux; CI builds it on `windows-latest`.
 - **WiX 5.0.2 only.** WiX 6 and later ship under the Open Source Maintenance Fee EULA ([ARCHITECTURE.md](ARCHITECTURE.md) #29). The SDK version is in the project's `Sdk` attribute, and the extension versions are in `Directory.Packages.props`.
 
@@ -88,7 +89,9 @@ pwsh installer/smoke-test.ps1 -Msi artifacts/SabhaMujic-0.1.0-x64.msi -Version 0
 
 The test runs these steps in order:
 
-1. Silent install. The test checks the service account, start mode and failure actions, that the service reaches Running and stays running, and that the pipe `\\.\pipe\SabhaMujic.v1` exists. It checks that the remote setup site answers `/health`, that the `data`, `library`, `uploads` and `certs` folders grant exactly SYSTEM, Administrators and the service, and checks the Event Log source, the firewall rules, the shortcuts and the Programs and Features entry. It then prints the service log.
+0. A temporary standard user "pre-creates" `%ProgramData%\SabhaMujic` and `library`, owns them and gives itself full control (the #34 attack). The machine must not have that folder yet.
+1. Silent install. The test checks the service account, start mode and failure actions, that the service reaches Running and stays running, and that the pipe `\\.\pipe\SabhaMujic.v1` exists. It checks that the remote setup site answers `/health`. It checks that the root and every folder are owned by Administrators, with the exact #34 permissions: SYSTEM, Administrators and the service everywhere, plus Users read & execute on the root and read-only on `logs`, and nothing else. It also checks the Event Log source, the firewall rules, the shortcuts and the Programs and Features entry. It then prints the service log.
+1b. With the service stopped, `library` is replaced by a junction: the service must refuse to start and log a critical entry from `SabhaMujic.Service`. The test then restores the folder and the service.
 2. Uninstall. Everything is removed except `%ProgramData%\SabhaMujic`.
 3. Reinstall over the kept data.
 4. Upgrade to the higher version.

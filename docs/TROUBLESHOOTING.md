@@ -21,6 +21,31 @@ The app can't reach the service. It keeps retrying by itself, so as soon as the 
 4. **"Connection to the SabhaMujic service was lost. Reconnecting…"** The service was restarted or stopped. Playback, if the service is still running, continues; the banner clears when the connection is back.
 5. **"This version of the app does not match the SabhaMujic service."** The app and the service come from different versions. Run the installer of the version you want again; it always installs both.
 
+## Setup stops, or the service won't start, because of the data folder
+
+To keep the music library private, SabhaMujic refuses to use `C:\ProgramData\SabhaMujic` (or its `data`, `library`, `uploads`, `certs` or `logs` folders) if one of them is a **junction or symbolic link**, a **file**, or a folder **owned by an account** other than SYSTEM, Administrators or the service. Such a folder may have been planted by someone before SabhaMujic was installed, to redirect or read the protected files. Symptoms:
+
+- **During installation**: setup ends with an error just before the service starts, and the installation is rolled back. The verbose log (`msiexec /i … /l*v install.log`) shows the `PrepareDataRoot` step and the reason.
+- **At service start**: the service doesn't start. **Event Viewer → Windows Logs → Application** has an **Error** entry (logged as critical) from source **SabhaMujic.Service** containing "SabhaMujic cannot use its data folder and will not start:", followed by the folder and the problem.
+
+To fix it, in **PowerShell (admin)**:
+
+1. If the message says **junction or symbolic link**, remove the link only (not the folder it points to), then put the real folder back, for example from a backup:
+
+   ```powershell
+   cmd /c rmdir "C:\ProgramData\SabhaMujic\library"    # removes a junction/link itself, never its target's contents
+   ```
+
+   Look at where the link pointed: data may have been redirected there. If the message says it is **a file**, move the file away.
+2. If the message says the folder is **owned by** another account, let SabhaMujic take it over:
+
+   ```powershell
+   & "C:\Program Files\SabhaMujic\Service\SabhaMujic.Service.exe" --prepare-data-root
+   ```
+
+   It sets Administrators as owner and resets the permissions, then exits (exit code 0 on success, 2 if it still can't use the folder; the reason is printed). Running **Repair** of SabhaMujic in **Settings → Apps** does the same.
+3. Start the service: `Start-Service SabhaMujic`.
+
 ## The service doesn't start or keeps stopping
 
 If the service fails, Windows restarts it after 5 seconds. A service that keeps stopping has a problem that a restart doesn't fix:
@@ -28,6 +53,7 @@ If the service fails, Windows restarts it after 5 seconds. A service that keeps 
 1. Read the newest log in `C:\ProgramData\SabhaMujic\logs` and the Application log in Event Viewer (see [Reading logs](#reading-logs-and-event-viewer)). The last lines before it stopped usually name the cause.
 2. Common causes:
    - **Another program holds the pipe name.** For safety the service refuses to start if something else already created its connection point (`\\.\pipe\SabhaMujic.v1`). Restart the PC; if it happens again, find out which program uses that name.
+   - **The data folder is refused** (a junction, link or file, or the wrong owner): see [the section above](#setup-stops-or-the-service-wont-start-because-of-the-data-folder).
    - **The data folder isn't usable**: a full disk, or `C:\ProgramData\SabhaMujic` damaged or restored without its contents. Free some space or restore from a backup ([ADMIN_GUIDE.md](ADMIN_GUIDE.md#backups)).
    - **Invalid settings**: a value in `C:\Program Files\SabhaMujic\Service\appsettings.json` (or a `SabhaMujic__…` environment variable) that the service can't use, such as a port outside 1–65535, the same port for HTTPS and the setup page, or a flag that isn't `true`/`false`. The service stops at startup before its own log starts; Event Viewer's Application log (source **.NET Runtime**) has the message naming the setting. See [Service settings](ADMIN_GUIDE.md#service-settings).
    - **A port is already in use**: another program listens on TCP 8443 or 8080, and the remote can't start (the service log says so). Stop that program, or move the remote to other ports ([Service settings](ADMIN_GUIDE.md#service-settings)) and allow them in the firewall.
@@ -56,24 +82,30 @@ If the form says "SabhaMujic is already set up", an administrator already exists
 ## Forgotten administrator PIN
 
 - **Another administrator account exists**: sign in with it, open **Admin → Users**, select the account and use **Reset PIN…**.
-- **It was the only administrator**: this version has **no supported way to reset it**. The PIN is stored only as a one-way hash, and first-time setup is only offered while no accounts exist at all. This is a known gap. Until a recovery option exists, keep a second administrator account.
+- **No administrator can sign in**: reset the PIN on the SabhaMujic PC. This needs someone with Windows administrator rights on that PC. It never works from an iPhone.
+  1. On the sign-in screen, click **Forgot admin PIN?** The screen **Reset an administrator PIN** opens.
+  2. If the app isn't running as administrator, it says "Resetting an administrator PIN needs Windows administrator rights. Choose 'Restart as administrator' and confirm the Windows prompt." Click **Restart as administrator** and confirm. The app reopens on the same screen.
+  3. Enter the **Administrator name**, then the **New PIN or password (at least 4 characters)** and **Repeat new PIN or password**, and click **Reset PIN and sign in**. If no account has that name, a new administrator with that name is created instead. A volunteer's name is refused ("That account is not an administrator…").
+  4. You're signed in as that administrator. Anywhere else the account was signed in, it is signed out with "This account's PIN was reset on the SabhaMujic PC. Please sign in again."
 
-  Last resort, which **loses all accounts, categories, track titles, playlists, loop points and paired iPhones**: start the database from scratch. The audio files stay on disk, but the library list is lost, so you must import your original files again. Re-importing a file whose content is unchanged reuses the copy that is already stored.
+  **Back to sign in** returns to the sign-in screen. After 5 attempts within 5 minutes from the same Windows account, further attempts are refused for a while (the app says "Too many attempts. Please wait a minute and try again."). If the Windows prompt was cancelled, click **Restart as administrator** again. If the app can't restart itself, close it and start it with right-click **SabhaMujic** → **More** → **Run as administrator**, then click **Forgot admin PIN?** again.
 
-  1. Make a backup first ([ADMIN_GUIDE.md](ADMIN_GUIDE.md#backups)).
-  2. In **PowerShell (admin)**:
+## "The SabhaMujic service could not save data (storage busy or full)"
 
-     ```powershell
-     Stop-Service SabhaMujic
-     Rename-Item "$env:ProgramData\SabhaMujic\data" "data-old-$(Get-Date -Format yyyyMMdd)"
-     Start-Service SabhaMujic
-     ```
+The full message is "The SabhaMujic service could not save data (storage busy or full). Try again shortly." The service couldn't write to its database: the disk is full, or the database was briefly locked (for example by a backup or antivirus program reading `C:\ProgramData\SabhaMujic\data`). Nothing was changed, and playback carries on. The service also retries saving the playback state and analysis results by itself.
 
-  3. Open SabhaMujic as administrator and complete first-time setup again. Then recreate the accounts, re-import the music and pair the iPhones again.
+1. Try the action again after a few seconds.
+2. If it keeps happening, check free space on drive C: and free some up.
+3. Exclude `C:\ProgramData\SabhaMujic\data` from antivirus scanning or file-level backup while the service runs; back it up with the service stopped ([ADMIN_GUIDE.md](ADMIN_GUIDE.md#backups)).
+4. The service log names the operation that failed.
 
-## "Too many failed sign-in attempts"
+## The sign-in screen briefly reconnects
 
-After 5 wrong PINs for one user name within 5 minutes, sign-in for that name pauses for a few minutes. Wait and try again, or ask an administrator to reset the PIN.
+If the desktop app sits on the sign-in (or setup) screen without anyone signing in, the service closes its connection after 60 seconds, to keep connections free for real use. The app reconnects by itself straight away. This isn't an error, and nothing needs to be done.
+
+## "Too many sign-in attempts"
+
+The app says "Too many sign-in attempts. Please wait a minute and try again." After 5 wrong PINs for one user name within 5 minutes, sign-in for that name pauses for a few minutes. Wait and try again, or ask an administrator to reset the PIN.
 
 ## The iPhone can't reach the PC
 
