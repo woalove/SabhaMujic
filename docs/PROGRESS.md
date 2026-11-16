@@ -1,7 +1,30 @@
 # Progress
 
-_Last updated: 2026-11-15 (all milestones merged; installer CI verification and final docs pass in progress)_
+_Last updated: 2026-11-16. All planned milestones (M0–M6) are implemented, merged and pushed. Automated verification is green on Linux and on Windows CI; what remains needs a real PC, speakers and an iPhone (`docs/WINDOWS_TEST_CHECKLIST.md`)._
 
+## Completion summary (Step 8 criteria)
+See `docs/TESTING.md` → "Verification status of completion criteria" for evidence per item.
+
+| Criterion | State |
+|---|---|
+| Windows desktop app runs | Built, published and installed on Windows CI; **first launch is a manual check** |
+| Volunteers browse/play categorized tracks | Done; service path verified on Windows CI; UI manual |
+| Smart Loop + crossfade with real audio | Done; DSP + MediaFoundation decoding verified; **listening test manual** |
+| Playlists and queues | Done; verified |
+| Volunteers can't access protected files | Done; **verified on Windows CI** (real standard user denied; DACLs; takeover; junction refusal) |
+| Admin-only uploads | Done; verified (pipe + HTTPS, under stress) |
+| iPhone remote controls playback over the LAN | Done; verified in Chromium iPhone emulation + Windows TLS; **real iPhone manual** |
+| Playback continues when the remote disconnects | Done; verified |
+| Normal resizable window | Done; **manual check** |
+| Performance and stability tested | Done (8 simulated h soak, stress, faults); 24 h real-time Windows soak not done |
+| Installer + setup docs | Done; **verified on Windows CI** (install/takeover/ACL/firewall/uninstall/upgrade/downgrade) |
+
+## Recommended next steps
+1. Run `docs/WINDOWS_TEST_CHECKLIST.md` on the sabha PC with real speakers and an iPhone; record results in `docs/TESTING.md`.
+2. Tune Smart Loop confidence on a few real dhun/kirtan recordings if seams aren't satisfying.
+3. Optional: code-signing certificate for the MSI (SmartScreen), and a 24 h real-time soak on the target PC.
+
+## Milestone log
 ## Current milestone: M0 Foundations
 | Task | Status | Evidence |
 |---|---|---|

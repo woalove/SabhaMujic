@@ -86,7 +86,9 @@ public class RenderPathTests(ITestOutputHelper log)
         using var engine = new PlaybackEngine(output, new Decoding.WaveFileDecoderFactory(), resolver, new PlaybackEngineOptions { AnalyzeMissingTracks = false });
         await engine.SetLoopModeAsync(LoopMode.RepeatQueue); // keeps playing however late the samples are taken
         await engine.PlayTrackAsync(track);
-        Assert.Equal(PlaybackStatus.Playing, engine.GetState().Status);
+        // At 20x a 30 s track reaches its default 6 s crossfade (into its own repeat) 1.2 s after starting, so a slow
+        // runner can legitimately observe Crossfading here (CI run 29).
+        Assert.Contains(engine.GetState().Status, new[] { PlaybackStatus.Playing, PlaybackStatus.Crossfading });
 
         // Wait (generously) for the first rendered audio, then time from there.
         var wait = Stopwatch.StartNew();
@@ -103,7 +105,8 @@ public class RenderPathTests(ITestOutputHelper log)
         double elapsed = sw.Elapsed.TotalSeconds;
         double rate = (frames1 - frames0) / (double)AudioFormat.SampleRate / elapsed;
         log.WriteLine($"{rate:F1}x over {elapsed:F2} s (first audio after {wait.Elapsed.TotalSeconds:F2} s)");
-        Assert.InRange(rate, 20 * 0.6, 20 * 1.2);
+        // Upper bound allows the output catching up on a backlog from before the window (it renders to its clock).
+        Assert.InRange(rate, 20 * 0.6, 20 * 1.6);
         Assert.True(engine.GetState().Status is PlaybackStatus.Playing or PlaybackStatus.Crossfading); // RepeatQueue may be fading into itself
         engine.Dispose();
         output.Dispose();
