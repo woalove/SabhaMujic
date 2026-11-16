@@ -113,12 +113,18 @@ function Show-Diagnostics {
     }
 
     Write-Host "--- Application log, source $EventSource"
-    Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = $EventSource } -MaxEvents 30 -ErrorAction SilentlyContinue |
-        ForEach-Object { "{0:u} {1} {2}" -f $_.TimeCreated, $_.LevelDisplayName, $_.Message } | Write-Host
+    # Get-WinEvent throws "The parameter is incorrect" (ignoring -ErrorAction) when the provider isn't registered yet,
+    # e.g. before the first install: diagnostics must never be what fails the run.
+    try {
+        Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = $EventSource } -MaxEvents 30 -ErrorAction SilentlyContinue |
+            ForEach-Object { "{0:u} {1} {2}" -f $_.TimeCreated, $_.LevelDisplayName, $_.Message } | Write-Host
+    } catch { Write-Host "(no events from ${EventSource}: $($_.Exception.Message))" }
     Write-Host '--- System log, Service Control Manager, mentioning SabhaMujic'
-    Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Service Control Manager'; StartTime = $script:StartedAt } -ErrorAction SilentlyContinue |
-        Where-Object { $_.Message -like '*SabhaMujic*' } |
-        ForEach-Object { "{0:u} {1} {2}" -f $_.TimeCreated, $_.LevelDisplayName, $_.Message } | Write-Host
+    try {
+        Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Service Control Manager'; StartTime = $script:StartedAt } -ErrorAction SilentlyContinue |
+            Where-Object { $_.Message -like '*SabhaMujic*' } |
+            ForEach-Object { "{0:u} {1} {2}" -f $_.TimeCreated, $_.LevelDisplayName, $_.Message } | Write-Host
+    } catch { Write-Host "(no Service Control Manager events: $($_.Exception.Message))" }
     Write-Host '--- sc.exe queryex / qc'
     & sc.exe queryex $ServiceName | Write-Host
     & sc.exe qc $ServiceName | Write-Host
@@ -268,7 +274,8 @@ function Assert-DataRootSecurity {
 function New-SquattedDataRoot {
     $script:TempUser = 'smtest' + [guid]::NewGuid().ToString('N').Substring(0, 8)
     $password = 'Sm!' + [guid]::NewGuid().ToString('N') + 'a1Z'
-    & net.exe user $script:TempUser $password /add /comment:"SabhaMujic smoke test (temporary)" | Out-Host
+    # /y answers net.exe's interactive "password longer than 14 characters, continue?" prompt (CI run 26 hung on it).
+    & net.exe user $script:TempUser $password /add /y /comment:"SabhaMujic smoke test (temporary)" | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "Could not create the temporary user $script:TempUser (net user exit code $LASTEXITCODE)." }
     $userSid = ([System.Security.Principal.NTAccount] $script:TempUser).Translate([System.Security.Principal.SecurityIdentifier])
     [SmokeTestPrivilege]::Enable('SeRestorePrivilege')
@@ -305,8 +312,10 @@ function Test-JunctionRefused {
         $since = Get-Date
         try { Start-Service -Name $ServiceName -ErrorAction Stop } catch { Write-Host "  Start-Service failed as expected: $($_.Exception.Message)" }
         $logged = Wait-Until {
-            [bool] (Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = $EventSource; StartTime = $since } -ErrorAction SilentlyContinue |
-                Where-Object { $_.Level -le 2 -and $_.Message -like '*junction*' } | Select-Object -First 1)
+            try {
+                [bool] (Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = $EventSource; StartTime = $since } -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Level -le 2 -and $_.Message -like '*junction*' } | Select-Object -First 1)
+            } catch { $false }
         } 60
         Test-Check $logged "with library as a junction, '$EventSource' logs a critical entry about the junction"
         Test-Check ((Get-ServiceState) -ne 'Running') "with library as a junction, the service does not run (state: $(Get-ServiceState))"
