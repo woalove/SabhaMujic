@@ -16,6 +16,8 @@
 | 2026-11-15 | GitHub Actions run 7 (M3a) | Linux + Windows success: pipe/server tests pass over real Windows named pipes |
 | 2026-11-15 | Linux cloud env (after M5 merge) | .NET: Core 76 + Audio 46 + Desktop 144 + Data 111 + Server 384 = 761 passed, 0 failed. Remote web: `tsc` clean; Playwright e2e 7/7 (Chromium, iPhone 13 emulation) |
 | 2026-11-15 | GitHub Actions run 8 (M1) | Windows: 2 MediaFoundation tests failed (seek accuracy bug, wrong crossfade timing in a test); fixed in e5cbb7a |
+| 2026-11-16 | GitHub Actions run 26 (77cfb49) | Linux and Windows test jobs **fully green** (Windows: Core 80, Audio 61+53, Data 116, Desktop 171, Windows.Tests 19, Server 431) |
+| 2026-11-16 | GitHub Actions run 27 (43db648) | **Installer job green incl. the `--prepare-data-root` takeover of a standard-user-owned root and junction refusal.** Linux green. Windows: one intermittent failure, `Console_hosted_service_answers_over_the_acl_pipe` (passed in run 26), under investigation as a possible intermittent pipe-connect defect |
 | 2026-11-16 | GitHub Actions run 21 | **Windows installer job passed**: MSI build (WiX 5.0.2), silent install (service as `NT SERVICE\\SabhaMujic`, delayed auto-start, failure actions, pipe, protected folders, firewall Private rules, Event Log source, shortcuts, ARP), uninstall keeps data, reinstall, upgrade, downgrade refused. The test jobs hung in Server.Tests → a dispose/connect race in `PipeSabhaClient`, fixed (ARCHITECTURE #37) |
 | 2026-11-16 | Linux, pinned to 2 cores (CI-like) | Server.Tests 431 passed in 5/5 runs after the race fix (previously about 1 in 3 hung) |
 | 2026-11-16 | Linux cloud env (after M6d merge) | .NET 852 passed, 0 skipped (Core 80, Desktop 171, Audio 55, Data 116, Server 430), 4 consecutive full-suite runs. Remote web e2e 8/8 |
@@ -25,20 +27,22 @@
 | 2026-11-15 | GitHub Actions run 11 (M3b + seek fix), **Windows** | Windows.Tests 8/8 passed: exact store DACL; **a temporary standard user is denied the protected folders**, can connect to the pipe and can't create a pipe instance (anti-squatting); elevation detection; console-hosted service completes first-run setup over the ACL'd pipe. Audio (net10.0-windows) 53 passed / 1 skipped (sox): MediaFoundation MP3/AAC/WMA/FLAC/WAV decoding, exact seeks, engine crossfade. Server 229 passed over real named pipes. One failure: the wall-clock analysis perf test (5.006 s vs a 5 s budget, under parallel load), now run in its own CI step |
 | 2026-11-15 | GitHub Actions run 3 (Linux + Windows) | Build, tests (incl. Windows smoke test), self-contained publish: success |
 
-## Verification status of completion criteria
-| Criterion | Status |
-|---|---|
-| Windows desktop app runs | **Unverified.** Builds and publishes on Windows CI; not launched yet (manual checklist). |
-| Volunteers browse/play categorized tracks | Full stack tested on Linux (real engine, null output, pipe clients). Desktop UI **unverified** on Windows |
-| Smart Loop + crossfade with real audio | Engine + DSP tested on synthetic WAV signals (Linux). **Unverified** with real recordings and real audio output |
-| Playlists and queues | Unit, server and integration tests (Linux) |
-| Volunteers cannot access protected files | **Verified on Windows CI**: a standard user is denied listing and reading the protected folders (real `LogonUser` impersonation), and the exact DACL is checked. App level: exhaustive authorization tests over the pipe and the remote. Still to check manually: the installed service under `NT SERVICE\SabhaMujic` |
-| Admin-only uploads | Implemented end to end over the pipe (fake audio probe); volunteer uploads denied with no side effects |
-| iPhone remote controls playback | Automated: Chromium with iPhone emulation, against a scripted backend. Real iPhone Safari: **unverified** (manual checklist) |
-| Playback continues when remote disconnects | Tested: pipe clients against the real engine (integration test), and remote hub connections + `RemoteHost` stop against a fake backend. Windows: pending CI |
-| Normal resizable window | Implemented (min 760×480, mini-player); **unverified** on Windows |
-| Performance/stability tested | **Linux, accelerated:** an 8-simulated-hour soak (40×, real `SabhaHost` + pipe and SignalR clients, a restart at 4 h) with 0 invariant violations; heap +0.45 MB/h with no trend, FDs/threads flat; 20-client stress, fault injection (corrupt/missing files, device loss, DB locked, stop mid-import, disk full on tmpfs). Pipe command p95 about 1.2 ms. Details in `docs/QA_REPORT.md`. **Not done:** a 24 h real-time soak on Windows hardware |
-| Installer + setup docs | **Verified on Windows CI** (run 21 installer job: install, service running under its virtual account, ACLs, firewall, uninstall/reinstall/upgrade/downgrade). Setup/Admin/Troubleshooting/Building docs written. Interactive dialogs, SmartScreen and icons: manual checklist |
+## Verification status of completion criteria (Step 8)
+Legend: **Verified (CI)** = automated evidence on real Windows (GitHub Actions `windows-latest`); **Verified (Linux)** = automated evidence on Linux only; **Unverified** = needs `docs/WINDOWS_TEST_CHECKLIST.md` on a real PC.
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Windows desktop app runs | **Unverified** | Builds, publishes and installs on Windows CI; installer shortcuts verified. No CI runner can show a WPF window, so the first launch is a manual checklist item. View models: 171 tests (Linux + Windows). |
+| Volunteers browse and play categorized tracks | Verified (Linux + CI service tests); UI **unverified** | Full-stack integration over real pipes on Linux and Windows CI. The WPF screens need the manual checklist. |
+| Smart Loop and crossfade with real audio | Partly verified | DSP and engine on synthetic signals (planted loop found exactly, ±0.5 dB equal-power crossfade, zero render allocations). MediaFoundation MP3/AAC/WMA/FLAC decoding **Verified (CI)**. Audible quality on real devotional recordings and WASAPI output: **unverified**. |
+| Playlists and queues | Verified (Linux + CI) | Unit, server, integration and soak tests; restore of queue and position after restart. |
+| Volunteers can't access protected files | **Verified (CI)** | A real standard user (`LogonUser`) is denied listing and reading the protected folders. The exact DACLs, the takeover of a pre-created root and junction refusal are checked by the installer smoke test. Authorization matrix: zero side effects over the pipe and the remote. |
+| Admin-only uploads | Verified (Linux + CI) | Pipe and HTTPS upload paths; volunteer and anonymous attempts denied with nothing staged (incl. under stress). |
+| iPhone remote controls playback over the LAN | Verified (Chromium iPhone emulation); real iPhone **unverified** | 8 Playwright e2e tests, 155+ remote .NET tests; SChannel TLS with DPAPI-loaded certificates **Verified (CI)**. Safari profile install/trust: manual checklist. |
+| Playback continues when the remote disconnects | Verified (Linux + CI) | Real engine + `RemoteHost` + SignalR phone: position keeps advancing after every hub connection is cut; same for pipe clients; soak windows with zero clients. |
+| Normal resizable window | **Unverified** | Implemented (min 760×480, mini-player); manual checklist. |
+| Performance and stability tested | Verified (Linux, accelerated) | 8-simulated-hour soak, 0 invariant violations, no leak trend; 20-client stress; fault injection. A 24 h real-time Windows soak is **not done**. |
+| Installer and setup documentation | **Verified (CI)** | MSI build; silent install with the service under `NT SERVICE\SabhaMujic`; data-root takeover; ACLs; firewall; Event Log source; uninstall keeps data; reinstall; upgrade; downgrade refused. Docs: SETUP, ADMIN_GUIDE, TROUBLESHOOTING, BUILDING. Dialogs, SmartScreen and icons: manual checklist. |
 
 ## Known limitations
 - Playwright WebKit isn't available in the cloud environment. Remote e2e tests use Chromium with iPhone emulation, so real Safari needs a manual check. Run with `cd src/SabhaMujic.Remote.Web && npm install && npm test`.
