@@ -43,8 +43,7 @@ jobs:
   windows:
     name: Windows build + tests
     runs-on: windows-latest
-    # Includes two MSI builds and the install smoke test.
-    timeout-minutes: 50
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
@@ -55,11 +54,6 @@ jobs:
       - run: dotnet test SabhaMujic.slnx --no-build -c Release --filter "Category!=Performance" --logger "trx" --logger "console;verbosity=minimal" --results-directory TestResults
       # Wall-clock performance budgets run alone, after the main suite, so parallel test load can't skew them.
       - run: dotnet test tests/SabhaMujic.Audio.Tests --no-build -c Release --filter "Category=Performance" --logger "console;verbosity=normal"
-      - name: Publish desktop + service (self-contained win-x64)
-        shell: pwsh
-        run: |
-          dotnet publish src/SabhaMujic.Desktop -c Release -o artifacts/desktop
-          dotnet publish src/SabhaMujic.Service -c Release -o artifacts/service
       # Uploads are best-effort: the account's artifact storage quota may be exhausted.
       - uses: actions/upload-artifact@v4
         if: always()
@@ -67,12 +61,23 @@ jobs:
         with:
           name: windows-test-results
           path: TestResults
-      - uses: actions/upload-artifact@v4
-        continue-on-error: true
+
+  # Independent of the test job, so installer results are always reported even when a test fails.
+  windows-installer:
+    name: Windows installer (MSI build + install smoke test)
+    runs-on: windows-latest
+    # Two MSI builds and several msiexec runs.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
         with:
-          name: windows-binaries
-          path: artifacts
-          retention-days: 7
+          global-json-file: global.json
+      - name: Publish desktop + service (self-contained win-x64)
+        shell: pwsh
+        run: |
+          dotnet publish src/SabhaMujic.Desktop -c Release -o artifacts/desktop
+          dotnet publish src/SabhaMujic.Service -c Release -o artifacts/service
       # MSI (WiX 5.0.2) from the publish output above. 0.1.0 is only the "old version" for the upgrade test; the
       # 0.1.<run number> MSI is the one uploaded, so successive CI builds upgrade each other.
       - name: Build MSIs
