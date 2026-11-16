@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-11-16. All planned milestones (M0–M6) are implemented, merged and pushed. Automated verification is green on Linux and on Windows CI; what remains needs a real PC, speakers and an iPhone (`docs/WINDOWS_TEST_CHECKLIST.md`)._
+_Last updated: 2026-11-16. All planned milestones (M0–M6) are implemented, merged and pushed. Automated verification is green on Linux and on Windows CI (run 32: all three jobs); what remains needs a real PC, speakers and an iPhone (`docs/WINDOWS_TEST_CHECKLIST.md`)._
 
 ## Completion summary (Step 8 criteria)
 See `docs/TESTING.md` → "Verification status of completion criteria" for evidence per item.
