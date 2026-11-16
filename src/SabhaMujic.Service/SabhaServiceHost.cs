@@ -16,9 +16,11 @@ public static class WindowsHostComposition
 
     /// <summary>
     /// Media Foundation decoding, WASAPI output, protected folders (<see cref="WindowsStoreAcl"/>), the ACL'd pipe and
-    /// token-based caller identity.
+    /// token-based caller identity. With <paramref name="remote"/> the iPhone remote runs too, its CA/TLS keys protected
+    /// by DPAPI (machine scope) in the ACL'd <c>certs</c> folder.
     /// </summary>
-    public static SabhaHostOptions CreateOptions(string dataRoot, ILoggerFactory loggerFactory, string? pipeName = null) => new()
+    public static SabhaHostOptions CreateOptions(string dataRoot, ILoggerFactory loggerFactory, string? pipeName = null,
+        SabhaRemoteOptions? remote = null) => new()
     {
         DataRoot = dataRoot,
         PipeName = pipeName ?? Endpoints.PipeName,
@@ -27,8 +29,20 @@ public static class WindowsHostComposition
         StoreAcl = new WindowsStoreAcl(),
         PipeStreams = new WindowsPipeStreamFactory(),
         CallerIdentity = new WindowsCallerIdentity(),
+        Remote = remote,
         LoggerFactory = loggerFactory,
     };
+
+    /// <summary>The service's options from its configuration (see <see cref="ServiceSettings"/>).</summary>
+    public static SabhaHostOptions CreateOptions(ServiceSettings settings, ILoggerFactory loggerFactory) =>
+        CreateOptions(settings.DataRoot, loggerFactory, settings.PipeName, settings.RemoteEnabled
+            ? new SabhaRemoteOptions
+            {
+                SecretProtector = new DpapiSecretProtector(),
+                HttpsPort = settings.HttpsPort,
+                BootstrapPort = settings.BootstrapPort,
+            }
+            : null);
 }
 
 /// <summary>Runs <see cref="SabhaHost"/> for the lifetime of the Windows service (or console run).</summary>

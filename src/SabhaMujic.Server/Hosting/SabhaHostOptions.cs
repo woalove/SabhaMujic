@@ -25,6 +25,9 @@ public sealed record SabhaDataPaths(string Root)
     public string Uploads => Path.Combine(Root, "uploads");
 
     public string Logs => Path.Combine(Root, "logs");
+
+    /// <summary>Remote CA and TLS certificate (keys protected with the secret protector; ACL-protected folder).</summary>
+    public string Certs => Path.Combine(Root, "certs");
 }
 
 /// <summary>
@@ -59,8 +62,14 @@ public sealed class SabhaHostOptions
 
     public ICallerIdentity? CallerIdentity { get; init; }
 
-    /// <summary>Default: <see cref="LocalRemoteUrlProvider"/> until the HTTPS remote (M5) supplies the real one.</summary>
+    /// <summary>
+    /// Overrides the pairing URLs. Default: the remote's <c>RemoteUrlProvider</c> when <see cref="Remote"/> is set, else
+    /// <see cref="LocalRemoteUrlProvider"/>.
+    /// </summary>
     public IRemoteUrlProvider? RemoteUrls { get; init; }
+
+    /// <summary>Runs the HTTPS remote + bootstrap site in the host (as the first <see cref="IHostedComponent"/>); null disables it.</summary>
+    public SabhaRemoteOptions? Remote { get; init; }
 
     public ServerOptions Server { get; init; } = new();
 
@@ -89,7 +98,7 @@ public sealed class SabhaHostOptions
     public ILoggerFactory LoggerFactory { get; init; } = NullLoggerFactory.Instance;
 }
 
-/// <summary>Pairing/bootstrap URLs on this machine's host name until the remote (M5) provides the real provider.</summary>
+/// <summary>Pairing/bootstrap URLs on this machine's host name, used when the remote is not enabled.</summary>
 public sealed class LocalRemoteUrlProvider(string? host = null) : IRemoteUrlProvider
 {
     private readonly string _host = host ?? Environment.MachineName.ToLowerInvariant() + ".local";

@@ -15,9 +15,10 @@ public sealed class HostHarness : IAsyncDisposable
 {
     private readonly List<PipeSabhaClient> _clients = [];
 
-    private HostHarness(double speed)
+    private HostHarness(double speed, bool remote)
     {
         Speed = speed;
+        WithRemote = remote;
         Root = Path.Combine(Path.GetTempPath(), "sabhamujic-host-tests", Guid.NewGuid().ToString("N"));
         PipeName = "sm-" + Guid.NewGuid().ToString("N")[..12];
     }
@@ -26,6 +27,11 @@ public sealed class HostHarness : IAsyncDisposable
 
     public string PipeName { get; }
 
+    /// <summary>Also run the HTTPS remote on loopback (free ports, unencrypted dev keys, a fixed fake LAN identity).</summary>
+    public bool WithRemote { get; }
+
+    public Remote.FakeNetwork Network { get; } = new() { Addresses = [System.Net.IPAddress.Parse("192.168.1.20")] };
+
     /// <summary>Real-time multiplier of the null output (10 = ten seconds of audio per second).</summary>
     public double Speed { get; }
 
@@ -33,9 +39,9 @@ public sealed class HostHarness : IAsyncDisposable
 
     public ServerApplication App => Host.App;
 
-    public static async Task<HostHarness> StartAsync(double speed = 10)
+    public static async Task<HostHarness> StartAsync(double speed = 10, bool remote = false)
     {
-        var harness = new HostHarness(speed);
+        var harness = new HostHarness(speed, remote);
         await harness.StartHostAsync();
         return harness;
     }
@@ -50,6 +56,18 @@ public sealed class HostHarness : IAsyncDisposable
         Engine = new PlaybackEngineOptions(),
         StateHeartbeat = TimeSpan.FromMilliseconds(300),
         PersistDebounce = TimeSpan.FromMilliseconds(100),
+        Remote = WithRemote
+            ? new SabhaRemoteOptions
+            {
+                SecretProtector = Server.Remote.Certificates.UnprotectedSecretProtector.Instance,
+                HttpsPort = 0,
+                BootstrapPort = 0,
+                BindAddress = System.Net.IPAddress.Loopback,
+                Network = Network,
+                UrlHostOverride = "127.0.0.1",
+                MachineName = "TEST-PC",
+            }
+            : null,
     };
 
     public async Task StartHostAsync() => Host = await SabhaHost.StartAsync(Options());

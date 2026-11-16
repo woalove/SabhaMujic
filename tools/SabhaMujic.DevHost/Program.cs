@@ -9,6 +9,10 @@ using SabhaMujic.Server.Hosting;
 // The real service (engine, database, protected store, pipe) with a silent real-time output.
 //
 //   SabhaMujic.DevHost --data <dir> [--pipe <name>] [--seed-admin <name:pin>] [--speed <factor>] [--verbose]
+//                      [--remote [--https-port <n>] [--http-port <n>]]
+//
+// --remote also runs the iPhone remote (HTTPS app/API/hub + HTTP setup page). Dev only: its CA and TLS keys are stored
+// UNENCRYPTED in <data>/certs (the Windows service uses DPAPI). Port 0 picks a free port.
 //
 // --seed-admin creates the first administrator on an empty database (dev only: on a real install the first admin is
 // created from the desktop app started with "Run as administrator").
@@ -19,6 +23,9 @@ string pipeName = Endpoints.PipeName;
 string? seedAdmin = null;
 double speed = 1.0;
 bool verbose = false;
+bool remote = false;
+int httpsPort = Endpoints.RemoteHttpsPort;
+int httpPort = Endpoints.BootstrapHttpPort;
 for (var i = 0; i < args.Length; i++)
 {
     switch (args[i])
@@ -38,8 +45,18 @@ for (var i = 0; i < args.Length; i++)
         case "--verbose":
             verbose = true;
             break;
+        case "--remote":
+            remote = true;
+            break;
+        case "--https-port" when i + 1 < args.Length:
+            httpsPort = int.Parse(args[++i], CultureInfo.InvariantCulture);
+            break;
+        case "--http-port" when i + 1 < args.Length:
+            httpPort = int.Parse(args[++i], CultureInfo.InvariantCulture);
+            break;
         case "-h" or "--help":
-            Console.WriteLine("SabhaMujic.DevHost --data <dir> [--pipe <name>] [--seed-admin <name:pin>] [--speed <factor>] [--verbose]");
+            Console.WriteLine("SabhaMujic.DevHost --data <dir> [--pipe <name>] [--seed-admin <name:pin>] [--speed <factor>] [--verbose] " +
+                "[--remote [--https-port <n>] [--http-port <n>]]");
             return 0;
         default:
             Console.Error.WriteLine($"Unknown argument '{args[i]}'. Use --help.");
@@ -68,7 +85,22 @@ var host = await SabhaHost.StartAsync(new SabhaHostOptions
     Decoders = decoders,
     OutputFactory = () => new NullRealtimeOutput(speed),
     LoggerFactory = loggerFactory,
+    Remote = remote
+        ? new SabhaRemoteOptions
+        {
+            SecretProtector = SabhaMujic.Server.Remote.Certificates.UnprotectedSecretProtector.Instance,
+            HttpsPort = httpsPort,
+            BootstrapPort = httpPort,
+        }
+        : null,
 });
+
+if (host.Remote?.Host is { } remoteHost)
+{
+    Console.WriteLine("WARNING: --remote stores the remote's CA and TLS keys UNENCRYPTED in the data folder. Development only.");
+    Console.WriteLine($"Remote: https port {remoteHost.HttpsPort}, setup page http port {remoteHost.BootstrapPort}, " +
+        $"CA fingerprint {host.Remote.Authority.Sha256Fingerprint}");
+}
 
 if (seedAdmin is not null)
 {
