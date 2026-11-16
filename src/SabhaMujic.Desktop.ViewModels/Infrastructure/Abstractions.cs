@@ -83,7 +83,11 @@ public enum RestartResult
 /// <summary>Relaunches the app with administrator rights (UAC prompt) and exits on success. Implemented by the WPF app.</summary>
 public interface IAppRestarter
 {
-    RestartResult RestartAsAdministrator();
+    /// <summary>
+    /// Restarts elevated with the current command line, plus <paramref name="startupArgument"/> when given and not already
+    /// present (e.g. <see cref="RecoveryViewModel.StartupArgument"/> to reopen the recovery screen).
+    /// </summary>
+    RestartResult RestartAsAdministrator(string? startupArgument = null);
 }
 
 /// <summary>The UI services a view model may use. One instance is shared by the whole app.</summary>

@@ -26,6 +26,16 @@ public interface IAuthApi
     /// Otherwise <see cref="ErrorCode.Forbidden"/> / <see cref="ErrorCode.Conflict"/>.
     /// </summary>
     Task<SessionDto> CompleteInitialSetupAsync(string adminUserName, string secret, CancellationToken ct = default);
+
+    /// <summary>
+    /// Local recovery when every administrator PIN is forgotten. Same gate as first-run setup: the caller must be a local
+    /// Windows administrator running elevated on the desktop pipe (never the remote), otherwise
+    /// <see cref="ErrorCode.Forbidden"/>. Sets a new PIN for the administrator <paramref name="adminUserName"/> (all of
+    /// that account's sessions are signed out), or creates a new administrator with that name when no account has it, and
+    /// signs in as it. <see cref="ErrorCode.Conflict"/> when the name belongs to a non-administrator account;
+    /// <see cref="ErrorCode.RateLimited"/> after repeated attempts. Audited.
+    /// </summary>
+    Task<SessionDto> ResetAdministratorAsync(string adminUserName, string newSecret, CancellationToken ct = default);
 }
 
 public interface ILibraryApi

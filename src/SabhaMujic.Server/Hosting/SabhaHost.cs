@@ -57,6 +57,9 @@ public sealed class SabhaHost : IAsyncDisposable
 
     public AnalysisWorker Analysis { get; private set; } = null!;
 
+    /// <summary>Saves the queue and playback settings (null until the engine is up).</summary>
+    public PlaybackPersistence? Persistence => _persistence;
+
     /// <summary>The application layer: services, repositories, events and <c>CreateSession</c> for transports.</summary>
     public ServerApplication App { get; private set; } = null!;
 
@@ -88,10 +91,8 @@ public sealed class SabhaHost : IAsyncDisposable
     {
         var loggers = _options.LoggerFactory;
         var clock = _options.Clock ?? TimeProvider.System;
-        foreach (var dir in new[] { Paths.Root, Paths.Data, Paths.Library, Paths.Uploads, Paths.Logs })
-        {
-            Directory.CreateDirectory(dir);
-        }
+        // Before anything is written: real folders only (no junctions/symlinks), owned and locked down.
+        _options.RootGuard.Prepare(Paths);
 
         // The database holds secret and token hashes: protect its folder before creating the file.
         _options.StoreAcl.Secure(Paths.Data);
@@ -140,7 +141,14 @@ public sealed class SabhaHost : IAsyncDisposable
 
         if (_options.StartPipe)
         {
-            Pipe = new PipeRpcServer(App, new PipeServerOptions { PipeName = _options.PipeName, MaxConnections = _options.PipeMaxConnections },
+            Pipe = new PipeRpcServer(App, new PipeServerOptions
+                {
+                    PipeName = _options.PipeName,
+                    MaxConnections = _options.PipeMaxConnections,
+                    MaxConnectionsPerPrincipal = _options.PipeMaxConnectionsPerPrincipal,
+                    HelloTimeout = _options.PipeHelloTimeout,
+                    AuthenticationTimeout = _options.PipeAuthenticationTimeout,
+                },
                 _options.PipeStreams, _options.CallerIdentity, loggers.CreateLogger<PipeRpcServer>());
             Pipe.Start();
         }
@@ -184,15 +192,17 @@ public sealed class SabhaHost : IAsyncDisposable
             await _lifetime.CancelAsync().ConfigureAwait(false);
             await Step("stop maintenance", () => _maintenance).ConfigureAwait(false);
 
+            // Fade out first, then save: the saved current item and position are exactly where the audio stopped. The
+            // fade goes straight to the mixer, so the engine never moves on to another item (no next track starts).
+            if (Engine is not null)
+            {
+                await Step("fade out", FadeOutAsync).ConfigureAwait(false);
+            }
+
             if (_persistence is not null)
             {
                 await Step("save playback state", () => _persistence.FlushAsync(CancellationToken.None)).ConfigureAwait(false);
                 await Step("stop persistence", () => _persistence.DisposeAsync().AsTask()).ConfigureAwait(false);
-            }
-
-            if (Engine is not null)
-            {
-                await Step("fade out", FadeOutAsync).ConfigureAwait(false);
             }
 
             if (Playback is not null)

@@ -16,6 +16,7 @@ public static class Authorizer
         [Operation.ResumeSession] = AccessLevel.Anonymous,
         [Operation.Pair] = AccessLevel.Anonymous,
         [Operation.InitialSetup] = AccessLevel.Anonymous,
+        [Operation.LocalRecovery] = AccessLevel.Anonymous,
 
         [Operation.Logout] = AccessLevel.Authenticated,
         [Operation.BrowseLibrary] = AccessLevel.Authenticated,

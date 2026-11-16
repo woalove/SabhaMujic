@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using SabhaMujic.Contracts;
 using SabhaMujic.Core.Security;
+using SabhaMujic.Data;
 using SabhaMujic.Server.Application;
 
 namespace SabhaMujic.Server.Api;
@@ -35,6 +36,8 @@ public sealed class ApiSession : IAuthApi, ILibraryApi, IPlaybackApi, IPlaylistA
     private CallerContext _caller;
     private string? _tokenHash;
     private long _binding;
+    private int _helloCompleted;
+    private int _callsInProgress;
 
     internal ApiSession(ServerApplication app, ClientKind client, string transportPrincipal, bool isElevatedAdministrator, ILogger<ApiSession> logger)
     {
@@ -50,6 +53,12 @@ public sealed class ApiSession : IAuthApi, ILibraryApi, IPlaybackApi, IPlaylistA
 
     /// <summary>True when the transport verified an elevated local Administrator token (desktop pipe on Windows only).</summary>
     public bool IsElevatedAdministrator => _isElevatedAdministrator;
+
+    /// <summary>True once <see cref="HelloAsync"/> succeeded on this connection (the pipe's handshake deadline checks it).</summary>
+    public bool HelloCompleted => Volatile.Read(ref _helloCompleted) != 0;
+
+    /// <summary>True while a call runs (the pipe's sign-in deadline never closes a connection in the middle of one, e.g. a login).</summary>
+    public bool HasCallInProgress => Volatile.Read(ref _callsInProgress) != 0;
 
     /// <summary>The caller as of the last bind/unbind (not re-validated).</summary>
     public CallerContext Caller
@@ -76,6 +85,7 @@ public sealed class ApiSession : IAuthApi, ILibraryApi, IPlaybackApi, IPlaylistA
                 $"This app (contract {clientContractVersion}) does not match the SabhaMujic service (contract {ContractVersion.Current}). Update the app.");
         }
 
+        Volatile.Write(ref _helloCompleted, 1);
         return Task.FromResult(new HelloResponse(ContractVersion.Current, _app.Options.ServerVersion, _app.Options.MachineName));
     }, ct);
 
@@ -93,6 +103,13 @@ public sealed class ApiSession : IAuthApi, ILibraryApi, IPlaybackApi, IPlaylistA
     /// </summary>
     public Task<SessionDto> CompleteInitialSetupAsync(string adminUserName, string secret, CancellationToken ct = default) => Run(Auth, async _ =>
         Bind(await _app.Auth.CompleteInitialSetupAsync(_anonymous, _isElevatedAdministrator, adminUserName, secret, ct).ConfigureAwait(false)), ct);
+
+    /// <summary>
+    /// Admin PIN recovery. Like setup, <see cref="AuthService.ResetAdministratorAsync"/> requires the desktop pipe and an
+    /// elevated local Administrator as reported by the transport; the connection is then signed in as that administrator.
+    /// </summary>
+    public Task<SessionDto> ResetAdministratorAsync(string adminUserName, string newSecret, CancellationToken ct = default) => Run(Auth, async _ =>
+        Bind(await _app.Auth.ResetAdministratorAsync(_anonymous, _isElevatedAdministrator, adminUserName, newSecret, ct).ConfigureAwait(false)), ct);
 
     public Task LogoutAsync(CancellationToken ct = default) => Run(Auth, async caller =>
     {
@@ -260,6 +277,7 @@ public sealed class ApiSession : IAuthApi, ILibraryApi, IPlaybackApi, IPlaylistA
 
     private async Task<T> Run<T>(Operation operation, Func<CallerContext, Task<T>> body, CancellationToken ct)
     {
+        Interlocked.Increment(ref _callsInProgress);
         try
         {
             var caller = await CurrentCallerAsync(ct).ConfigureAwait(false);
@@ -268,8 +286,19 @@ public sealed class ApiSession : IAuthApi, ILibraryApi, IPlaybackApi, IPlaylistA
         }
         catch (Exception ex) when (ex is not SabhaMujicException and not OperationCanceledException)
         {
+            if (StorageErrors.IsBusyOrFull(ex))
+            {
+                // Transient and environmental: still Internal, but the client can say "try again" (no paths or SQL leak).
+                _logger.LogWarning(ex, "Storage busy or full during {Operation}.", operation);
+                throw new SabhaMujicException(ErrorCode.Internal, ServiceMessages.StorageUnavailable);
+            }
+
             _logger.LogError(ex, "Unexpected failure in {Operation}.", operation);
             throw new SabhaMujicException(ErrorCode.Internal, "An internal error occurred in the SabhaMujic service.");
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _callsInProgress);
         }
     }
 

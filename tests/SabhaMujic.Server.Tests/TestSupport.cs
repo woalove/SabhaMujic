@@ -268,12 +268,14 @@ public sealed class TestServer : IAsyncDisposable
     /// <summary>Pipe caller identity used by <see cref="StartPipe"/> (default: never elevated).</summary>
     public ICallerIdentity? Identity { get; set; }
 
+    /// <param name="pipe">Builds the pipe options from the generated pipe name (overrides maxConnections/maxMessageBytes).</param>
     public static async Task<TestServer> StartAsync(int maxConnections = 32, int maxMessageBytes = 4 * 1024 * 1024, ServerOptions? options = null,
-        bool seedUsers = true, ICallerIdentity? identity = null)
+        bool seedUsers = true, ICallerIdentity? identity = null, Func<string, PipeServerOptions>? pipe = null)
     {
         var root = Path.Combine(Path.GetTempPath(), "sabhamujic-server-tests", Guid.NewGuid().ToString("N"));
         var pipeName = "sm-" + Guid.NewGuid().ToString("N")[..12];
-        var server = new TestServer(root, new PipeServerOptions { PipeName = pipeName, MaxConnections = maxConnections, MaxMessageBytes = maxMessageBytes },
+        var server = new TestServer(root,
+            pipe?.Invoke(pipeName) ?? new PipeServerOptions { PipeName = pipeName, MaxConnections = maxConnections, MaxMessageBytes = maxMessageBytes },
             options ?? new ServerOptions { SecretHashIterations = 1_000 });
         await server.Database.MigrateAsync();
         server.Identity = identity;
@@ -306,7 +308,7 @@ public sealed class TestServer : IAsyncDisposable
         }
     }
 
-    public PipeSabhaClient NewClient()
+    public PipeSabhaClient NewClient(TimeSpan? quietReconnectAfter = null)
     {
         var client = new PipeSabhaClient(new PipeClientOptions
         {
@@ -314,6 +316,7 @@ public sealed class TestServer : IAsyncDisposable
             ConnectTimeout = TimeSpan.FromSeconds(2),
             InitialBackoff = TimeSpan.FromMilliseconds(50),
             MaxBackoff = TimeSpan.FromMilliseconds(250),
+            QuietReconnectAfter = quietReconnectAfter ?? TimeSpan.FromSeconds(5),
         });
         lock (_clients)
         {

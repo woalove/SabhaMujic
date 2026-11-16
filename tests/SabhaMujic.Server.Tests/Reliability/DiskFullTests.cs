@@ -71,12 +71,12 @@ public sealed class DiskFullTests(ITestOutputHelper output)
             var filler = Path.Combine(root, "filler.bin");
             FillDisk(filler);
 
-            // An import cannot be staged or stored: it fails with a defined code (Internal today: the client is not told
-            // the disk is full, see the QA report); like the desktop app, the test then cancels the upload.
+            // An import cannot be staged or stored: it fails with Internal and the "storage busy or full" message (R-7);
+            // like the desktop app, the test then cancels the upload.
             var wav = SoakWav.Through(30, 82);
             var import = await ImportCancellingOnFailureAsync(h, wav, "While full");
             Assert.NotNull(import);
-            Assert.True(Enum.IsDefined(import.Code), $"defined code, got {import.Code}");
+            Assert.Equal((ErrorCode.Internal, ServiceMessages.StorageUnavailable), (import.Code, import.Message));
             output.WriteLine($"Import on a full disk failed with {import.Code}: {import.Message}");
             Assert.Equal(0, h.Host.Uploads.ActiveCount);
             var tracks = (await h.App.Tracks.QueryAsync(new TrackQuery())).Items;

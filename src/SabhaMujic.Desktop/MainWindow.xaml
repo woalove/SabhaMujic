@@ -5,6 +5,7 @@
         xmlns:admin="clr-namespace:SabhaMujic.Desktop.ViewModels.Admin;assembly=SabhaMujic.Desktop.ViewModels"
         xmlns:views="clr-namespace:SabhaMujic.Desktop.Views"
         Title="SabhaMujic" Height="720" Width="1180" MinHeight="480" MinWidth="760"
+        Icon="pack://application:,,,/Assets/SabhaMujic.ico"
         ResizeMode="CanResize" WindowStartupLocation="CenterScreen"
         FontFamily="{StaticResource UiFont}" FontSize="15"
         Foreground="{StaticResource TextBrush}" Background="{StaticResource AppBackgroundBrush}">
@@ -70,6 +71,8 @@
                          Visibility="{Binding DataContext.IsLoginVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibility}}" />
         <views:SetupView Grid.Row="2" DataContext="{Binding Setup}"
                          Visibility="{Binding DataContext.IsSetupVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibility}}" />
+        <views:RecoveryView Grid.Row="2" DataContext="{Binding Recovery}"
+                            Visibility="{Binding DataContext.IsRecoveryVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibility}}" />
 
         <!-- Signed in: sidebar | content | queue panel -->
         <Grid Grid.Row="2" Visibility="{Binding IsSignedIn, Converter={StaticResource BoolToVisibility}}">

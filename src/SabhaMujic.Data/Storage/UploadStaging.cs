@@ -79,6 +79,11 @@ public sealed class UploadStaging
         ArgumentOutOfRangeException.ThrowIfLessThan(maxConcurrentUploads, 1);
         StagingDirectory = Path.GetFullPath(stagingDirectory);
         Directory.CreateDirectory(StagingDirectory);
+        if ((File.GetAttributes(StagingDirectory) & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new IOException("The upload staging folder is a junction or symbolic link; refusing to use it.");
+        }
+
         acl.Secure(StagingDirectory);
         _clock = clock ?? TimeProvider.System;
         _idleTimeout = idleTimeout ?? DefaultIdleTimeout;

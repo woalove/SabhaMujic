@@ -35,6 +35,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
         Tracks = new TrackInfoCache(client);
         Login = new LoginViewModel(client);
         Setup = new SetupViewModel(client, ui.Restarter);
+        Recovery = new RecoveryViewModel(client, ui.Restarter);
         NowPlaying = new NowPlayingViewModel(client, ui, Tracks);
         Queue = new QueueViewModel(client, ui, Tracks);
         Playlists = new PlaylistsViewModel(client, ui, Tracks);
@@ -48,6 +49,13 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
             ApplySession(session);
         };
         Setup.SetupNoLongerRequired += () => IsSetupRequired = false;
+        Login.RecoveryRequested += OpenRecovery;
+        Recovery.Closed += () => IsRecoveryOpen = false;
+        Recovery.RecoveryCompleted += session =>
+        {
+            IsRecoveryOpen = false;
+            ApplySession(session);
+        };
         _client.ConnectionStateChanged += (_, state) => _ui.Dispatcher.Post(() => OnClientConnectionStateChanged(state));
         _client.SessionChanged += (_, session) => _ui.Dispatcher.Post(() => ApplySession(session));
         _client.Events.SessionEndedReceived += reason => _ui.Dispatcher.Post(() => OnSessionEnded(reason));
@@ -60,14 +68,25 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
     /// <summary>First-run "create administrator" form, shown instead of <see cref="Login"/> while no accounts exist.</summary>
     public SetupViewModel Setup { get; }
 
+    /// <summary>"Forgot admin PIN?" screen, shown instead of <see cref="Login"/> while <see cref="IsRecoveryOpen"/>.</summary>
+    public RecoveryViewModel Recovery { get; }
+
     /// <summary>True while the service reports a fresh install (no accounts). Checked after each connect while signed out.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsLoginVisible), nameof(IsSetupVisible))]
+    [NotifyPropertyChangedFor(nameof(IsLoginVisible), nameof(IsSetupVisible), nameof(IsRecoveryVisible))]
     public partial bool IsSetupRequired { get; private set; }
 
-    public bool IsLoginVisible => !IsSignedIn && !IsSetupRequired;
+    /// <summary>True after "Forgot admin PIN?" (or <see cref="RecoveryViewModel.StartupArgument"/>) until the user goes back or signs in.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsLoginVisible), nameof(IsRecoveryVisible))]
+    public partial bool IsRecoveryOpen { get; private set; }
+
+    public bool IsLoginVisible => !IsSignedIn && !IsSetupRequired && !IsRecoveryOpen;
 
     public bool IsSetupVisible => !IsSignedIn && IsSetupRequired;
+
+    /// <summary>First-run setup wins over recovery: with no accounts there is nothing to recover.</summary>
+    public bool IsRecoveryVisible => !IsSignedIn && !IsSetupRequired && IsRecoveryOpen;
 
     public NowPlayingViewModel NowPlaying { get; }
 
@@ -108,7 +127,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsSignedIn), nameof(IsAdmin), nameof(IsAdminVisible), nameof(UserDisplayText), nameof(IsLoginVisible),
-        nameof(IsSetupVisible))]
+        nameof(IsSetupVisible), nameof(IsRecoveryVisible))]
     public partial SessionDto? Session { get; private set; }
 
     public bool IsSignedIn => Session is not null;
@@ -142,6 +161,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
         ConnectionState = _client.State;
         Login.IsConnected = IsConnected;
         Setup.IsConnected = IsConnected;
+        Recovery.IsConnected = IsConnected;
         if (_client.Session is { } existing)
         {
             ApplySession(existing);
@@ -209,6 +229,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
         ConnectionState = state;
         Login.IsConnected = state == ConnectionState.Connected;
         Setup.IsConnected = state == ConnectionState.Connected;
+        Recovery.IsConnected = state == ConnectionState.Connected;
         if (state == ConnectionState.Connected)
         {
             ConnectionError = null;
@@ -254,6 +275,13 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
         {
             _ = LoadAllAsync();
         }
+    }
+
+    /// <summary>Shows the "Forgot admin PIN?" screen (from the sign-in link, or at startup with <c>--recover-admin</c>).</summary>
+    public void OpenRecovery()
+    {
+        Recovery.Clear();
+        IsRecoveryOpen = true;
     }
 
     private async Task CheckSetupAsync() => IsSetupRequired = await Setup.IsSetupRequiredAsync().ConfigureAwait(true);

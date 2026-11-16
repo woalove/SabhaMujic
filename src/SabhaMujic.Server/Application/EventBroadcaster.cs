@@ -131,13 +131,39 @@ public sealed class EventBroadcaster
     {
         ArgumentNullException.ThrowIfNull(match);
         var matched = Snapshot().Where(s => s.Caller.IsAuthenticated && match(s.Caller)).ToList();
+        // Read before raising: the handlers sign the connections out, which resets their callers.
+        var sessionIds = matched.Select(s => s.Caller.SessionId).OfType<string>().Distinct(StringComparer.Ordinal).ToList();
         foreach (var subscription in matched)
         {
             subscription.Enqueue(new SessionEndedEvent(reason));
             subscription.RaiseSessionEnded(reason);
         }
 
+        foreach (var sessionId in sessionIds)
+        {
+            CloseSession(sessionId);
+        }
+
         return matched.Count;
+    }
+
+    /// <summary>
+    /// Raised (synchronously) with the id of each session that was signed out, revoked or otherwise ended, so per-session
+    /// resources (staged uploads) are released at once. Handlers must not block or throw.
+    /// </summary>
+    public event Action<string>? SessionClosed;
+
+    /// <summary>Reports a session as ended (see <see cref="SessionClosed"/>); <see cref="EndSessions"/> does it for live ones.</summary>
+    public void CloseSession(string sessionId)
+    {
+        try
+        {
+            SessionClosed?.Invoke(sessionId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "A SessionClosed handler failed.");
+        }
     }
 
     private void Publish(ServerEvent serverEvent, Func<CallerContext, bool> filter)

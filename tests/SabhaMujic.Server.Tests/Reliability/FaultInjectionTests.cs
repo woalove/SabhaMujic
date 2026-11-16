@@ -72,7 +72,7 @@ public sealed class FaultInjectionTests
         Assert.Empty(h.UnexpectedErrors());
     }
 
-    [Fact(Skip = "BUG-02: playing an unplayable track (missing/corrupt file) with nothing playable after it stops the music that was playing and reports 'None of the queued tracks could be played'. See docs/QA_REPORT.md.")]
+    [Fact]
     public async Task Asking_for_an_unplayable_track_keeps_the_current_track_playing()
     {
         await using var h = await ReliabilityHost.StartAsync(speed: 5);
@@ -119,7 +119,7 @@ public sealed class FaultInjectionTests
     }
 
     [Fact]
-    public async Task A_database_locked_past_the_busy_timeout_delays_writes_but_nothing_fails_and_playback_never_stalls()
+    public async Task A_database_locked_past_the_busy_timeout_fails_writes_cleanly_retries_saves_and_playback_never_stalls()
     {
         await using var h = await ReliabilityHost.StartAsync(speed: 5);
         var tracks = new[] { await h.ImportAsync(SoakWav.Loopable(40, 31), "One"), await h.ImportAsync(SoakWav.Through(20, 32), "Two") };
@@ -128,8 +128,9 @@ public sealed class FaultInjectionTests
         await h.Admin.Playback.ResumeAsync();
         await AssertEx.Eventually(() => h.Host.Engine.GetState().Status == PlaybackStatus.Playing, "playing");
 
-        // Held for 7 s: longer than the 5 s busy_timeout pragma. Microsoft.Data.Sqlite keeps retrying a busy statement
-        // until its 30 s command timeout, so writers wait instead of failing (see QA report: the 5 s figure is not the limit).
+        // Held for 8 s: longer than the single 5 s busy timeout (busy_timeout pragma = command timeout, R-6). A client write
+        // fails after about 5 s with Internal and the "storage busy" message (R-7); the debounced playback-state save fails
+        // once (logged once) and is retried by itself after the lock is gone (BUG-01).
         var held = System.Diagnostics.Stopwatch.StartNew();
         Task playlist;
         using (var locker = await LockDatabaseAsync(h))
@@ -137,7 +138,7 @@ public sealed class FaultInjectionTests
             var enqueue = h.Admin.Playback.EnqueueAsync([tracks[1]], playNext: false); // engine now, debounced save later
             playlist = h.Admin.Playlists.CreatePlaylistAsync("During lock", tracks);   // direct DB write
             var positions = new List<double>();
-            while (held.Elapsed < TimeSpan.FromSeconds(7))
+            while (held.Elapsed < TimeSpan.FromSeconds(8))
             {
                 positions.Add(h.Host.Engine.GetState().PositionSeconds);
                 await Task.Delay(100);
@@ -146,16 +147,18 @@ public sealed class FaultInjectionTests
             Assert.True(h.Host.Engine.GetState().Status is PlaybackStatus.Playing or PlaybackStatus.Crossfading);
             Assert.True(positions.Distinct().Count() > 30, "the engine kept advancing during the lock");
             Assert.True(enqueue.IsCompletedSuccessfully, "queue edits do not wait for the database");
-            Assert.False(playlist.IsCompleted, "the playlist write waits for the lock");
-            Assert.DoesNotContain(h.Logs.Entries, l => l.Message.StartsWith("Saving the playback state failed", StringComparison.Ordinal));
+            var failure = await Assert.ThrowsAsync<SabhaMujicException>(() => playlist);
+            Assert.Equal((ErrorCode.Internal, ServiceMessages.StorageUnavailable), (failure.Code, failure.Message));
+            Assert.InRange(held.Elapsed, TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(9));
         }
 
-        await playlist;
         await AssertEx.Eventually(() => PersistedTrackIds(h).SequenceEqual(h.Host.Engine.GetQueue().Items.Select(i => i.TrackId)), "queue saved", 15_000);
-        Assert.Empty(h.UnexpectedErrors());
+        Assert.Single(h.Logs.Entries, l => l.Message.StartsWith("Saving the playback state failed", StringComparison.Ordinal));
+        await h.Admin.Playlists.CreatePlaylistAsync("After lock", tracks); // the same write works once the lock is gone
+        Assert.Empty(h.UnexpectedErrors("Saving the playback state failed"));
     }
 
-    [Fact(Skip = "BUG-01: a playback-state save that fails (database locked past the ~30 s command timeout) is never retried; the DB stays stale until the next queue/settings change. Takes ~35 s. See docs/QA_REPORT.md.")]
+    [Fact]
     public async Task A_failed_playback_state_save_is_retried_after_the_lock_is_released()
     {
         await using var h = await ReliabilityHost.StartAsync(speed: 5);
@@ -169,6 +172,7 @@ public sealed class FaultInjectionTests
             await AssertEx.Eventually(() => h.Logs.Entries.Any(l => l.Message.StartsWith("Saving the playback state failed", StringComparison.Ordinal)),
                 "failed save logged", 45_000);
             Assert.Equal(2, h.Host.Engine.GetQueue().Items.Count);
+            Assert.True(h.Host.Persistence!.IsDirty);
         }
 
         // No further change: the queue of two must still reach the database (a crash now would otherwise lose it).

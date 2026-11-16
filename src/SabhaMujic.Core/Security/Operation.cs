@@ -11,6 +11,9 @@ public enum Operation
     /// <summary>First-run admin creation. Anonymous at the matrix level; the service additionally requires
     /// an empty user table and a local Windows administrator on the desktop pipe.</summary>
     InitialSetup,
+    /// <summary>Admin PIN recovery. Anonymous at the matrix level; the service additionally requires an elevated local
+    /// Windows administrator on the desktop pipe (the same gate as <see cref="InitialSetup"/>).</summary>
+    LocalRecovery,
 
     // Any authenticated user (Volunteer or Admin)
     Logout,

@@ -4,11 +4,20 @@ namespace SabhaMujic.Data;
 
 /// <summary>
 /// Connection factory for the SabhaMujic SQLite database file. Thread-safe: every operation opens its own
-/// (pooled) connection, and each connection gets WAL, foreign keys, a 5 s busy timeout and synchronous=NORMAL.
+/// (pooled) connection, and each connection gets WAL, foreign keys, the busy timeout and synchronous=NORMAL.
 /// Call <see cref="MigrateAsync"/> once at startup before using repositories.
+/// <para>
+/// Busy waiting: one deliberate limit, <see cref="BusyTimeoutSeconds"/> (5 s), used both for SQLite's
+/// <c>busy_timeout</c> pragma and for Microsoft.Data.Sqlite's command timeout (which otherwise keeps retrying a busy
+/// statement for 30 s). A statement blocked longer than that fails with SQLITE_BUSY; background writers (playback state,
+/// analysis results) retry with backoff, and client calls fail fast with a "storage busy or full" message.
+/// </para>
 /// </summary>
 public sealed class SqliteDatabase
 {
+    /// <summary>How long a statement waits for a lock held by another connection before failing with SQLITE_BUSY.</summary>
+    public const int BusyTimeoutSeconds = 5;
+
     private const string ConnectionPragmas =
         "PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;";
 
@@ -33,7 +42,7 @@ public sealed class SqliteDatabase
             Cache = SqliteCacheMode.Private,
             Pooling = true,
             ForeignKeys = true,
-            DefaultTimeout = 30,
+            DefaultTimeout = BusyTimeoutSeconds, // must match busy_timeout in ConnectionPragmas (a test checks both)
         }.ToString();
     }
 

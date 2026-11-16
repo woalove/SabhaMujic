@@ -15,9 +15,12 @@ public class SetupRestartTests
 
         public int Calls { get; private set; }
 
-        public RestartResult RestartAsAdministrator()
+        public string? LastArgument { get; private set; }
+
+        public RestartResult RestartAsAdministrator(string? startupArgument = null)
         {
             Calls++;
+            LastArgument = startupArgument;
             return Next;
         }
     }

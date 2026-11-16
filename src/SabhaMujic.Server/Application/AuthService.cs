@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using SabhaMujic.Contracts;
 using SabhaMujic.Core.Security;
 using SabhaMujic.Data.Repositories;
@@ -29,12 +31,16 @@ public sealed class AuthService
     private readonly FailureRateLimiter _loginGlobal;
     private readonly FailureRateLimiter _pairingPerCaller;
     private readonly FailureRateLimiter _pairingGlobal;
+    private readonly FailureRateLimiter _recoveryPerCaller;
     private readonly Lazy<string> _dummyHash;
     private readonly SemaphoreSlim _bootstrapGate = new(1, 1);
+    private readonly ILogger _logger;
+    private long _touchSuspendedUntilTicks;
 
     public AuthService(IUserRepository users, ISessionRepository sessions, IDeviceRepository devices, IPairingCodeRepository pairingCodes,
-        EventBroadcaster events, AuditWriter audit, ServerOptions options, TimeProvider clock)
+        EventBroadcaster events, AuditWriter audit, ServerOptions options, TimeProvider clock, ILogger<AuthService>? logger = null)
     {
+        _logger = logger ?? NullLogger<AuthService>.Instance;
         _users = users;
         _sessions = sessions;
         _devices = devices;
@@ -47,6 +53,7 @@ public sealed class AuthService
         _loginGlobal = new FailureRateLimiter(options.LoginMaxFailuresGlobal, options.LoginFailureWindow, clock);
         _pairingPerCaller = new FailureRateLimiter(options.PairingMaxFailuresPerCaller, options.PairingFailureWindow, clock);
         _pairingGlobal = new FailureRateLimiter(options.PairingMaxFailuresGlobal, options.PairingFailureWindow, clock);
+        _recoveryPerCaller = new FailureRateLimiter(options.LoginMaxFailuresPerUser, options.LoginFailureWindow, clock);
         // Verified against when the user does not exist, so unknown and known names take about the same time.
         _dummyHash = new Lazy<string>(() => SecretHasher.Hash(Tokens.NewToken(), options.SecretHashIterations));
     }
@@ -138,6 +145,91 @@ public sealed class AuthService
         return result;
     }
 
+    /// <summary>
+    /// Admin PIN recovery from the desktop app. Same gate as <see cref="CompleteInitialSetupAsync"/> (desktop pipe AND an
+    /// elevated local Administrator, never the remote). Sets a new PIN for the named administrator and signs out all of
+    /// its sessions, or creates a new administrator when no account has that name; then signs in as it.
+    /// <para>Rate-limited like sign-in, per Windows account (transport principal): every gated attempt counts, granted or
+    /// denied, because recovery checks no secret. Remote callers are refused before the limiter so they cannot use up a
+    /// local account's attempts.</para>
+    /// </summary>
+    public async Task<AuthResult> ResetAdministratorAsync(CallerContext caller, bool isElevatedAdministrator, string userName, string newSecret,
+        CancellationToken ct)
+    {
+        if (caller.Client != ClientKind.Desktop)
+        {
+            await _audit.WriteAsync(caller, "recovery.denied").ConfigureAwait(false);
+            throw RecoveryForbidden();
+        }
+
+        var callerKey = "recovery:" + caller.Principal;
+        if (_recoveryPerCaller.IsLimited(callerKey))
+        {
+            await _audit.WriteAsync(caller, "recovery.rate_limited").ConfigureAwait(false);
+            throw new SabhaMujicException(ErrorCode.RateLimited, "Too many recovery attempts. Wait a few minutes and try again.");
+        }
+
+        _recoveryPerCaller.RecordFailure(callerKey);
+        if (!isElevatedAdministrator)
+        {
+            await _audit.WriteAsync(caller, "recovery.denied").ConfigureAwait(false);
+            throw RecoveryForbidden();
+        }
+
+        var name = (userName ?? "").Trim();
+        if (name.Length == 0)
+        {
+            throw new SabhaMujicException(ErrorCode.InvalidArgument, "Enter the administrator's user name.");
+        }
+
+        var hash = HashSecret(newSecret); // validates the PIN before anything changes
+        UserRecord user;
+        bool created;
+        await _bootstrapGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var existing = await _users.GetByNameAsync(name, ct).ConfigureAwait(false);
+            if (existing is null)
+            {
+                user = await _users.CreateAsync(name, Role.Admin, hash, ct).ConfigureAwait(false);
+                created = true;
+            }
+            else if (existing.Role != Role.Admin)
+            {
+                throw new SabhaMujicException(ErrorCode.Conflict,
+                    $"'{existing.UserName}' is not an administrator. Enter an administrator's name, or a new name to create an administrator.");
+            }
+            else
+            {
+                if (!await _users.UpdateSecretHashAsync(existing.Id, hash, ct).ConfigureAwait(false))
+                {
+                    throw new SabhaMujicException(ErrorCode.NotFound, "That account was just removed. Try again.");
+                }
+
+                user = existing;
+                created = false;
+            }
+
+            // Every existing session of the account ends (a new account has none): whoever knew the old PIN is out.
+            await _sessions.RevokeAllForUserAsync(user.Id, CancellationToken.None).ConfigureAwait(false);
+        }
+        finally
+        {
+            _bootstrapGate.Release();
+        }
+
+        var userId = user.Id;
+        _events.EndSessions(c => c.UserId == userId, "This account's PIN was reset on the SabhaMujic PC. Please sign in again.");
+        var result = await CreateUserSessionAsync(caller, user, CancellationToken.None).ConfigureAwait(false);
+        await _audit.WriteAsync(result.Caller, created ? "recovery.admin_created" : "recovery.admin_reset", "user:" + user.UserName)
+            .ConfigureAwait(false);
+        _events.PublishLibraryChanged(new LibraryChangedDto(LibraryChangeKind.UsersChanged, user.Id));
+        return result;
+    }
+
+    private static SabhaMujicException RecoveryForbidden() => new(ErrorCode.Forbidden,
+        "Resetting an administrator PIN must be done in the SabhaMujic app started with 'Run as administrator' on this PC.");
+
     private async Task<AuthResult> CreateUserSessionAsync(CallerContext caller, UserRecord user, CancellationToken ct)
     {
         var lifetime = caller.Client == ClientKind.Remote ? _options.RemoteSessionLifetime : _options.DesktopSessionLifetime;
@@ -182,6 +274,12 @@ public sealed class AuthService
     /// <summary>
     /// Returns the active session for a token hash, or null. Applies the sliding expiry at most once per
     /// <see cref="ServerOptions.SessionTouchInterval"/>.
+    /// <para>
+    /// The last-seen/expiry write is best-effort: it must never fail (or hold up for long) the command it rides on. When it
+    /// fails (database busy or full) the failure is logged at debug level, the command goes ahead with the session as
+    /// read, and touches pause for <see cref="ServerOptions.SessionTouchInterval"/> so an outage costs at most one slow
+    /// call per interval; the next call after that tries again.
+    /// </para>
     /// </summary>
     public async Task<SessionRecord?> ValidateAsync(string tokenHash, CancellationToken ct)
     {
@@ -192,17 +290,26 @@ public sealed class AuthService
         }
 
         var now = _clock.GetUtcNow();
-        if (now - record.LastSeenAt >= _options.SessionTouchInterval)
+        if (now - record.LastSeenAt >= _options.SessionTouchInterval && now.UtcTicks >= Volatile.Read(ref _touchSuspendedUntilTicks))
         {
             var extendTo = now + LifetimeOf(record);
-            if (await _sessions.TouchAsync(record.Id, extendTo, ct).ConfigureAwait(false))
+            try
             {
-                if (record.DeviceId is { } deviceId)
+                if (await _sessions.TouchAsync(record.Id, extendTo, ct).ConfigureAwait(false))
                 {
-                    await _devices.TouchAsync(deviceId, ct).ConfigureAwait(false);
-                }
+                    if (record.DeviceId is { } deviceId)
+                    {
+                        await _devices.TouchAsync(deviceId, ct).ConfigureAwait(false);
+                    }
 
-                record = record with { LastSeenAt = now, ExpiresAt = extendTo > record.ExpiresAt ? extendTo : record.ExpiresAt };
+                    record = record with { LastSeenAt = now, ExpiresAt = extendTo > record.ExpiresAt ? extendTo : record.ExpiresAt };
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Volatile.Write(ref _touchSuspendedUntilTicks, (now + _options.SessionTouchInterval).UtcTicks);
+                _logger.LogDebug(ex, "Could not record session activity; the session stays valid and the next call after {Interval} tries again.",
+                    _options.SessionTouchInterval);
             }
         }
 
@@ -226,6 +333,7 @@ public sealed class AuthService
             await _devices.RevokeAsync(deviceId, ct).ConfigureAwait(false); // also revokes every session of the device
             await _audit.WriteAsync(caller, "device.logout", "device:" + deviceId).ConfigureAwait(false);
             _events.EndSessions(c => c.DeviceId == deviceId, "This device was signed out.");
+            _events.CloseSession(sessionId); // even if this connection has no event subscription
             _events.PublishLibraryChanged(new LibraryChangedDto(LibraryChangeKind.DevicesChanged, deviceId));
             return;
         }
@@ -233,6 +341,7 @@ public sealed class AuthService
         await _sessions.RevokeAsync(id, ct).ConfigureAwait(false);
         await _audit.WriteAsync(caller, "logout").ConfigureAwait(false);
         _events.EndSessions(c => c.SessionId == sessionId, "Signed out.");
+        _events.CloseSession(sessionId);
     }
 
     /// <summary>Consumes a pairing code and creates a device with a long-lived token (rate-limited per caller and globally).</summary>

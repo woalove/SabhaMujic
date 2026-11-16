@@ -17,6 +17,7 @@ public static class OperationMap
         [$"{nameof(IAuthApi)}.{nameof(IAuthApi.LogoutAsync)}"] = Operation.Logout,
         [$"{nameof(IAuthApi)}.{nameof(IAuthApi.IsSetupRequiredAsync)}"] = Operation.InitialSetup,
         [$"{nameof(IAuthApi)}.{nameof(IAuthApi.CompleteInitialSetupAsync)}"] = Operation.InitialSetup,
+        [$"{nameof(IAuthApi)}.{nameof(IAuthApi.ResetAdministratorAsync)}"] = Operation.LocalRecovery,
 
         [$"{nameof(ILibraryApi)}.{nameof(ILibraryApi.GetCategoriesAsync)}"] = Operation.BrowseLibrary,
         [$"{nameof(ILibraryApi)}.{nameof(ILibraryApi.GetTracksAsync)}"] = Operation.BrowseLibrary,

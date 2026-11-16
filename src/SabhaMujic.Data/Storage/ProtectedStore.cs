@@ -25,10 +25,10 @@ public sealed partial class ProtectedStore
         ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
         ArgumentNullException.ThrowIfNull(acl);
         RootDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootDirectory));
-        Directory.CreateDirectory(RootDirectory);
+        CreateRealDirectory(RootDirectory); // checked before securing: applying an ACL to a link would change its target
         acl.Secure(RootDirectory);
         StagingDirectory = Path.Combine(RootDirectory, StagingFolderName);
-        Directory.CreateDirectory(StagingDirectory);
+        CreateRealDirectory(StagingDirectory);
         CleanupStaging();
     }
 
@@ -98,7 +98,7 @@ public sealed partial class ProtectedStore
 
             var key = hash + ext;
             var finalPath = PathForKey(key);
-            Directory.CreateDirectory(Path.GetDirectoryName(finalPath)!);
+            CreateRealDirectory(Path.GetDirectoryName(finalPath)!);
             if (File.Exists(finalPath))
             {
                 File.Delete(tempPath);
@@ -177,6 +177,19 @@ public sealed partial class ProtectedStore
         }
 
         return path;
+    }
+
+    /// <summary>
+    /// Creates a folder of the store, refusing a junction/symlink in its place (checked without following it), so a link
+    /// planted inside the store can never redirect where protected audio is written.
+    /// </summary>
+    private static void CreateRealDirectory(string path)
+    {
+        Directory.CreateDirectory(path);
+        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new IOException($"The protected store folder '{Path.GetFileName(path)}' is a junction or symbolic link; refusing to use it.");
+        }
     }
 
     private static bool TryDelete(string path)

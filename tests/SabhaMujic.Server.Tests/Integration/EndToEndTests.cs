@@ -102,8 +102,15 @@ public sealed class EndToEndTests
         var songPath = h.Host.Store.GetPhysicalPath((await h.App.Tracks.GetFileInfoAsync(song.TrackId))!.FileKey);
         Assert.True(File.Exists(songPath));
 
+        var crossfades = new System.Collections.Concurrent.ConcurrentQueue<double>();
+        void OnState(object? sender, PlaybackStateDto s) => crossfades.Enqueue(s.CrossfadeSeconds);
+        h.Host.Engine.StateChanged += OnState;
         await admin.Admin.DeleteTrackAsync(song.TrackId);
+        h.Host.Engine.StateChanged -= OnState;
 
+        // R-9: the hard cut does not touch the crossfade setting (nothing ever pushes 0 to clients).
+        Assert.All(crossfades, c => Assert.Equal(6.0, c));
+        Assert.Equal(6.0, (await admin.Playback.GetStateAsync()).CrossfadeSeconds);
         Assert.False(File.Exists(songPath));
         Assert.Equal(1, h.StoredFileCount());
         Assert.DoesNotContain(song.TrackId, (await admin.Playback.GetQueueAsync()).Items.Select(i => i.TrackId));

@@ -55,6 +55,12 @@ public sealed class SabhaHostOptions
     /// <summary>Creates the audio output (WASAPI on Windows). Default: a real-time <see cref="NullRealtimeOutput"/>.</summary>
     public Func<IAudioOutput>? OutputFactory { get; init; }
 
+    /// <summary>
+    /// Runs first: creates the data root and its folders, refuses junctions/symlinks, and (Windows service) takes ownership
+    /// and applies the folder DACLs. Default: the cross-platform checks only.
+    /// </summary>
+    public DataRootGuard RootGuard { get; init; } = new();
+
     /// <summary>Applied to the data, library and uploads folders. Default: no-op (development only).</summary>
     public IStoreAcl StoreAcl { get; init; } = NoOpStoreAcl.Instance;
 
@@ -74,6 +80,15 @@ public sealed class SabhaHostOptions
     public ServerOptions Server { get; init; } = new();
 
     public int PipeMaxConnections { get; init; } = 32;
+
+    /// <summary>Per OS account cap on pipe connections (<see cref="Pipe.PipeServerOptions.MaxConnectionsPerPrincipal"/>); the Windows service sets 8.</summary>
+    public int? PipeMaxConnectionsPerPrincipal { get; init; }
+
+    /// <summary>Handshake deadline for pipe connections (<see cref="Pipe.PipeServerOptions.HelloTimeout"/>).</summary>
+    public TimeSpan? PipeHelloTimeout { get; init; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>Sign-in deadline for pipe connections (<see cref="Pipe.PipeServerOptions.AuthenticationTimeout"/>).</summary>
+    public TimeSpan? PipeAuthenticationTimeout { get; init; } = TimeSpan.FromSeconds(60);
 
     public PlaybackEngineOptions? Engine { get; init; }
 
