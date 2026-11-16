@@ -70,6 +70,12 @@ public class RenderPathTests(ITestOutputHelper log)
         return total;
     }
 
+    /// <summary>
+    /// The output's pull rate, measured from frames actually rendered between two samples taken after the first audio
+    /// was heard. A busy machine (a late timer, a slow first decode) cannot fail it: under load the realtime output
+    /// catches up to its clock, and a 30 s track at 20x would otherwise end inside one overslept 1.5 s delay (CI run 24
+    /// saw "position 0.00 s after 2.42 s": the track had ended).
+    /// </summary>
     [Fact]
     public async Task Realtime_null_output_pulls_at_the_speed_factor()
     {
@@ -78,14 +84,27 @@ public class RenderPathTests(ITestOutputHelper log)
         var resolver = new FakeResolver();
         var track = resolver.Add(TestSignals.WriteWav(dir.File("t.wav"), TestSignals.Tone(30, 440)));
         using var engine = new PlaybackEngine(output, new Decoding.WaveFileDecoderFactory(), resolver, new PlaybackEngineOptions { AnalyzeMissingTracks = false });
+        await engine.SetLoopModeAsync(LoopMode.RepeatQueue); // keeps playing however late the samples are taken
         await engine.PlayTrackAsync(track);
+        Assert.Equal(PlaybackStatus.Playing, engine.GetState().Status);
+
+        // Wait (generously) for the first rendered audio, then time from there.
+        var wait = Stopwatch.StartNew();
+        while (engine.GetState().PositionSeconds <= 0 && wait.Elapsed < TimeSpan.FromSeconds(20))
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.True(engine.GetState().PositionSeconds > 0, $"playback did not start within {wait.Elapsed.TotalSeconds:F1} s");
+        long frames0 = output.FramesRendered;
         var sw = Stopwatch.StartNew();
         await Task.Delay(500);
-        double position = engine.GetState().PositionSeconds;
-        double expected = sw.Elapsed.TotalSeconds * 20;
-        log.WriteLine($"position {position:F2} s after {sw.Elapsed.TotalSeconds:F2} s at 20x");
-        Assert.InRange(position, expected * 0.6, expected * 1.2);
-        Assert.Equal(PlaybackStatus.Playing, engine.GetState().Status);
+        long frames1 = output.FramesRendered;
+        double elapsed = sw.Elapsed.TotalSeconds;
+        double rate = (frames1 - frames0) / (double)AudioFormat.SampleRate / elapsed;
+        log.WriteLine($"{rate:F1}x over {elapsed:F2} s (first audio after {wait.Elapsed.TotalSeconds:F2} s)");
+        Assert.InRange(rate, 20 * 0.6, 20 * 1.2);
+        Assert.True(engine.GetState().Status is PlaybackStatus.Playing or PlaybackStatus.Crossfading); // RepeatQueue may be fading into itself
         engine.Dispose();
         output.Dispose();
     }

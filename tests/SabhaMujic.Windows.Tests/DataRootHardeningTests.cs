@@ -4,6 +4,7 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging.EventLog;
 using Microsoft.Extensions.Options;
@@ -25,19 +26,37 @@ public sealed class DataRootHardeningTests(ITestOutputHelper output)
     private static readonly string[] OwnerSids =
         new[] { ServiceSid.LocalSystem, ServiceSid.Administrators, ServiceSid.For(ServiceSid.ServiceName) }.Select(s => s.Value).Order().ToArray();
 
+    /// <summary>
+    /// Checks the configured settings only. Building a host would construct the Event Log logger, which throws when the
+    /// source is not registered (CI run 24: the runner never ran the installer).
+    /// </summary>
     [Fact]
     public void Event_log_settings_carry_the_installer_source_name()
     {
-        using var root = WindowsTestSupport.NewProgramDataDir();
-        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { DisableDefaults = false });
-        var settings = new ServiceSettings(root.Path, PipeName: null, RemoteEnabled: false, HttpsPort: 8443, BootstrapPort: null);
-        ServiceProgram.Configure(builder, settings, new SabhaDataPaths(root.Path));
-        using var host = builder.Build();
+        var services = new ServiceCollection();
+        services.AddOptions();
+        ServiceProgram.ConfigureEventLog(services);
+        using var provider = services.BuildServiceProvider();
 
-        var eventLog = host.Services.GetRequiredService<IOptions<EventLogSettings>>().Value;
-        Assert.Equal("SabhaMujic.Service", eventLog.SourceName);
-        Assert.Equal("Application", eventLog.LogName);
+        var eventLog = provider.GetRequiredService<IOptions<EventLogSettings>>().Value;
+        Assert.Equal(("SabhaMujic.Service", "Application"), (eventLog.SourceName, eventLog.LogName));
         Assert.Equal("SabhaMujic.Service", ServiceProgram.EventLogSource);
+    }
+
+    /// <summary>A dev build run without the installer must not crash at startup: no Event Log logger, the rest logs.</summary>
+    [Fact]
+    public void Without_the_registered_source_the_service_host_builds_without_the_event_log()
+    {
+        using var root = WindowsTestSupport.NewProgramDataDir();
+        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings());
+        Assert.Contains(builder.Services, d => d.ImplementationType == typeof(EventLogLoggerProvider)); // the default host adds it
+        var settings = new ServiceSettings(root.Path, PipeName: null, RemoteEnabled: false, HttpsPort: 8443, BootstrapPort: null);
+        ServiceProgram.Configure(builder, settings, new SabhaDataPaths(root.Path), eventLogSourceRegistered: false);
+
+        using var host = builder.Build();
+        Assert.DoesNotContain(host.Services.GetServices<ILoggerProvider>(), p => p is EventLogLoggerProvider);
+        host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("test").LogWarning("logging works without the Event Log");
+        output.WriteLine($"Event Log source registered on this machine: {ServiceProgram.IsEventLogSourceRegistered()}");
     }
 
     [Fact]
