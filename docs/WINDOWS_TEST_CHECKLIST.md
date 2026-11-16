@@ -75,3 +75,16 @@ Build it with `dotnet run --project tools/SabhaMujic.AudioSpike -c Release -- <f
 - [ ] Restart the service mid-track, then press Play: it continues near the old position, with the same queue.
 - [ ] `%ProgramData%\SabhaMujic\certs` is ACL'd like `data`, and `ca.key` isn't readable as plain data.
 - [ ] With `SabhaMujic:Remote:Enabled=false`, nothing listens on 8443 or 8080.
+
+## Installer (M6): run the CI-built `SabhaMujic-0.1.<run>-x64.msi` on a real PC without SabhaMujic
+The silent install, uninstall, upgrade and refused downgrade are covered by `installer/smoke-test.ps1` on CI. These items need a person.
+- [ ] Double-clicking the downloaded MSI: SmartScreen shows "Windows protected your PC"; **More info → Run anyway** starts setup. Note the exact wording.
+- [ ] Dialogs, in order: Welcome → **About this software** (the RTF renders with bold headings, bullet indentation and a readable font; the text matches `AboutThisSoftware.rtf`; the "I accept" box enables Next; **Print** works) → **Custom Setup** → Ready → progress (one UAC prompt) → Finish. No truncated or overlapping text at 100% and 150% scaling.
+- [ ] Custom Setup: "SabhaMujic" can't be set to unavailable; "Desktop shortcut" can. With it deselected, no desktop shortcut is created. **Change** from Settings → Apps adds it later.
+- [ ] Finish page: the optional text and the **Launch SabhaMujic** checkbox (ticked) are shown. Finishing launches the app **unelevated** (Task Manager → Details → "Elevated" column says No), and the first-run screen leads to "Restart as administrator".
+- [ ] Unticking **Launch SabhaMujic** finishes without starting the app.
+- [ ] Start menu "SabhaMujic" and the desktop shortcut (Public Desktop) open the app; check which icon they show and whether right-click → **Run as administrator** works on them.
+- [ ] Services: "SabhaMujic Playback Service", **Automatic (Delayed Start)**, log on as `NT SERVICE\SabhaMujic`, Recovery tab: restart after 5 s for all three failures. After a reboot the service starts by itself within about 2 minutes.
+- [ ] Windows Defender Firewall → Inbound rules: "SabhaMujic Remote (HTTPS)" and "SabhaMujic Remote setup (HTTP)", Private profile only. No Windows Firewall prompt appears when the service starts listening.
+- [ ] Running the newer MSI interactively over an installed older one upgrades in place (data kept). Running an older MSI over a newer one shows the downgrade message.
+- [ ] Uninstall from Settings → Apps: no leftover program folder, shortcuts or firewall rules; `C:\ProgramData\SabhaMujic` is kept. The "Remove everything" steps in `docs/SETUP.md` then work as written.

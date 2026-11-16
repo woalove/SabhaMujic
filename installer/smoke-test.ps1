@@ -7,7 +7,7 @@
     SabhaMujic and leaves %ProgramData%\SabhaMujic behind.
 
     1. Installs -Msi silently, then checks the service (account, start mode, failure actions, Running, still running
-       15 s later), the desktop pipe, the protected folder ACLs, the Event Log source, the firewall rules, shortcuts and
+       15 s later), the desktop pipe, the remote setup site, the protected folder ACLs, the Event Log source, the firewall rules, shortcuts and
        the Programs and Features entry, and prints the service log.
     2. Uninstalls: the service, firewall rules and program files are gone; %ProgramData%\SabhaMujic is kept.
     3. Reinstalls -Msi over the kept data, then upgrades to -UpgradeMsi (a higher version): checks run again and the
@@ -56,6 +56,7 @@ New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $LogDir = (Resolve-Path $LogDir).Path
 $script:Failures = [System.Collections.Generic.List[string]]::new()
 $script:StartedAt = Get-Date
+$script:HealthText = ''
 
 # ---------------------------------------------------------------------------------------------------------- helpers
 
@@ -185,20 +186,26 @@ function Assert-Installed([string] $ExpectedVersion) {
     if (-not $pipe) { throw "Named pipe \\.\pipe\$PipeName does not exist within 60 s." }
     Write-Host "  ok   named pipe \\.\pipe\$PipeName exists"
 
-    # Informational only: whether the service hosts the iPhone remote depends on the build and its configuration.
-    try {
-        $health = Invoke-WebRequest -Uri 'http://localhost:8080/health' -TimeoutSec 5 -UseBasicParsing
-        Write-Host "  info remote setup site http://localhost:8080/health answered $($health.StatusCode): $($health.Content)"
-    }
-    catch {
-        Write-Host "  info remote setup site http://localhost:8080/health not reachable ($($_.Exception.Message))"
-    }
+    # The iPhone remote is on by default (SabhaMujic:Remote:Enabled); its plain-HTTP setup site answers /health.
+    $healthy = Wait-Until {
+        try {
+            $response = Invoke-WebRequest -Uri 'http://localhost:8080/health' -TimeoutSec 5 -UseBasicParsing
+            $script:HealthText = "$($response.StatusCode) $($response.Content)"
+            return $response.StatusCode -eq 200 -and "$($response.Content)".Trim() -eq 'OK'
+        }
+        catch {
+            $script:HealthText = $_.Exception.Message
+            return $false
+        }
+    } 30
+    $healthText = $script:HealthText
+    Test-Check $healthy "remote setup site http://localhost:8080/health answers OK ($healthText)"
 
     # Protected folders: exactly SYSTEM, Administrators and the service SID, inheritance off (WindowsStoreAcl).
     $serviceSid = ([System.Security.Principal.NTAccount] $ServiceAccount).Translate([System.Security.Principal.SecurityIdentifier]).Value
     $expectedSids = @('S-1-5-18', 'S-1-5-32-544', $serviceSid) | Sort-Object
     $forbidden = @{ 'S-1-1-0' = 'Everyone'; 'S-1-5-11' = 'Authenticated Users'; 'S-1-5-32-545' = 'BUILTIN\Users' }
-    foreach ($name in 'data', 'library', 'uploads') {
+    foreach ($name in 'data', 'library', 'uploads', 'certs') {
         $path = Join-Path $DataRoot $name
         if (-not (Wait-Until { Test-Path -LiteralPath $path } 30)) {
             Test-Check $false "$path exists"
