@@ -679,8 +679,11 @@ public sealed class PlaybackEngine : IDisposable
             return StartOutcome.Failed;
         }
 
-        // Only when the playing item is still queued: if it was just removed (or the queue replaced), it must not linger.
-        bool keepCurrentOnFailure = userInitiated && audible && _current is not null && IndexOf(items, _current.QueueItemId) >= 0;
+        // Something is playing (by the engine's own state: the mixer publishes its current voice only after the next
+        // render block). Only when the playing item is still queued: if it was just removed (or the queue replaced), it
+        // must not linger.
+        bool keepCurrentOnFailure = userInitiated && _machine.State is PlaybackStatus.Playing or PlaybackStatus.Crossfading
+            && _current is not null && IndexOf(items, _current.QueueItemId) >= 0;
         if (!keepCurrentOnFailure)
         {
             _machine.TryFire(PlaybackTrigger.Load);

@@ -192,15 +192,17 @@ public sealed class SabhaHost : IAsyncDisposable
             await _lifetime.CancelAsync().ConfigureAwait(false);
             await Step("stop maintenance", () => _maintenance).ConfigureAwait(false);
 
+            // Fade out first, then save: the saved current item and position are exactly where the audio stopped. The
+            // fade goes straight to the mixer, so the engine never moves on to another item (no next track starts).
+            if (Engine is not null)
+            {
+                await Step("fade out", FadeOutAsync).ConfigureAwait(false);
+            }
+
             if (_persistence is not null)
             {
                 await Step("save playback state", () => _persistence.FlushAsync(CancellationToken.None)).ConfigureAwait(false);
                 await Step("stop persistence", () => _persistence.DisposeAsync().AsTask()).ConfigureAwait(false);
-            }
-
-            if (Engine is not null)
-            {
-                await Step("fade out", FadeOutAsync).ConfigureAwait(false);
             }
 
             if (Playback is not null)

@@ -943,6 +943,11 @@ public sealed class SoakRunner : IAsyncDisposable
             var sw = Stopwatch.StartNew();
             await host.StopAsync().ConfigureAwait(false);
             var stopSeconds = sw.Elapsed.TotalSeconds;
+            // What the final save actually wrote. The output keeps rendering at Speed× in wall-clock time while the host
+            // stops (closing the remote and the pipe, then the fade), so with RepeatQueue the engine can legitimately move
+            // on several items after the pre-stop snapshot above (1.3 s of stop = 156 s of audio at 120×). The restore must
+            // match the save; the snapshot only fixes which tracks are queued.
+            var persisted = await new Data.Repositories.SqlitePlaybackStateRepository(host.Database).LoadQueueAsync().ConfigureAwait(false);
             _simBase += (_output?.FramesRendered ?? 0) / (double)AudioFormat.SampleRate;
             _output = null;
             _host = null;
@@ -957,10 +962,13 @@ public sealed class SoakRunner : IAsyncDisposable
             var restoredQueue = H.Engine.GetQueue();
             var restoredState = H.Engine.GetState();
             var queueOk = restoredQueue.Items.Select(i => i.TrackId).SequenceEqual(expectedQueue.Items.Select(i => i.TrackId).Where(id => !_deleted.Contains(id)))
-                          && (expectedQueue.CurrentIndex < 0 || restoredQueue.CurrentIndex == expectedQueue.CurrentIndex);
+                          && restoredQueue.Items.Select(i => i.QueueItemId).SequenceEqual(persisted.Items.Select(i => i.QueueItemId))
+                          && (persisted.CurrentIndex < 0 || restoredQueue.CurrentIndex == persisted.CurrentIndex)
+                          && (expectedQueue.CurrentIndex < 0 || persisted.CurrentIndex >= 0);
             var settingsOk = restoredState.Volume == expectedState.Volume && restoredState.Muted == expectedState.Muted
                              && restoredState.LoopMode == expectedState.LoopMode && restoredState.CrossfadeSeconds == expectedState.CrossfadeSeconds;
-            var detail = $"queue {expectedQueue.Items.Count}@{expectedQueue.CurrentIndex} -> {restoredQueue.Items.Count}@{restoredQueue.CurrentIndex}; " +
+            var detail = $"queue {expectedQueue.Items.Count}@{expectedQueue.CurrentIndex} (saved {persisted.Items.Count}@{persisted.CurrentIndex}) -> " +
+                         $"{restoredQueue.Items.Count}@{restoredQueue.CurrentIndex}; " +
                          $"settings {expectedState.Volume}/{expectedState.Muted}/{expectedState.LoopMode}/{expectedState.CrossfadeSeconds} -> " +
                          $"{restoredState.Volume}/{restoredState.Muted}/{restoredState.LoopMode}/{restoredState.CrossfadeSeconds}";
             if (!queueOk)
