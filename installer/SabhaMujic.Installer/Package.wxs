@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SabhaMujic MSI: per-machine, x64, WiX 5.0.2 (docs/ARCHITECTURE.md #29). Build it with installer/build.ps1.
+  Inputs from SabhaMujic.Installer.wixproj:
+    $(var.ProductVersion)   MSI ProductVersion (major.minor.build).
+    !(bindpath.Service)     self-contained publish of src/SabhaMujic.Service.
+    !(bindpath.App)         self-contained publish of src/SabhaMujic.Desktop.
+  The installer creates no data folders and sets no ACLs: the service creates %ProgramData%\SabhaMujic and locks down
+  data\, library\ and uploads\ itself at startup (WindowsStoreAcl). Uninstall leaves %ProgramData%\SabhaMujic in place.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="SabhaMujic"
+           Manufacturer="SabhaMujic"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="225A0512-A4D1-46A6-905C-E08AF25E8DF9"
+           Scope="perMachine"
+           Language="1033">
+
+    <!-- Default schedule (afterInstallValidate): the old version is removed completely (service stopped and deleted)
+         before the new one is installed. Every release must have a higher version. -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of SabhaMujic is already installed. To go back to this version, uninstall SabhaMujic first; your music library and settings in %ProgramData%\SabhaMujic are kept." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="SabhaMujic">
+        <Directory Id="ServiceFolder" Name="Service" />
+        <Directory Id="AppFolder" Name="App" />
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="SabhaMujic" Description="The playback service and the desktop app." Level="1" AllowAbsent="no" AllowAdvertise="no" Display="expand">
+      <ComponentGroupRef Id="ServiceComponents" />
+      <ComponentGroupRef Id="AppComponents" />
+
+      <!-- Shortcut components use an HKCU registry key path (ICE38/ICE43) and point at the exe through its folder,
+           not [#file], so no formatted string crosses components (ICE69). -->
+      <Component Id="StartMenuShortcutComponent" Directory="ProgramMenuFolder">
+        <Shortcut Id="StartMenuShortcut" Name="SabhaMujic" Description="Play music for the sabha"
+                  Target="[AppFolder]SabhaMujic.Desktop.exe" WorkingDirectory="AppFolder" />
+        <RegistryValue Root="HKCU" Key="Software\SabhaMujic\Installer" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+
+      <Feature Id="DesktopShortcut" Title="Desktop shortcut" Description="A SabhaMujic shortcut on the desktop of every user." Level="1" AllowAdvertise="no">
+        <Component Id="DesktopShortcutComponent" Directory="DesktopFolder">
+          <Shortcut Id="DesktopShortcut" Name="SabhaMujic" Description="Play music for the sabha"
+                    Target="[AppFolder]SabhaMujic.Desktop.exe" WorkingDirectory="AppFolder" />
+          <RegistryValue Root="HKCU" Key="Software\SabhaMujic\Installer" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Feature>
+    </Feature>
+
+    <!-- UI: welcome, "About this software" notice, feature tree (the desktop shortcut is optional), ready, progress,
+         finish. No install-folder choice: the service must live under Program Files, where standard users can't
+         replace its files. -->
+    <WixVariable Id="WixUILicenseRtf" Value="$(sys.SOURCEFILEDIR)AboutThisSoftware.rtf" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="The SabhaMujic service is installed and running. The first time, the app asks you to create an administrator account; that one step needs the app to run as administrator." />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch SabhaMujic" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <!-- WixShellExec formats this value and runs it from the (normally unelevated) UI process, decision #30. -->
+    <Property Id="WixShellExecTarget" Value="[#DesktopExe]" />
+    <UI>
+      <ui:WixUI Id="WixUI_FeatureTree" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="Wix4ShellExec_X64" Order="1"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+    </UI>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="ServiceComponents" Directory="ServiceFolder">
+      <!-- The service exe is authored explicitly (service, firewall rules, Event Log source); everything else in the
+           publish folder is harvested. -->
+      <Component Id="ServiceExeComponent">
+        <File Id="ServiceExe" Name="SabhaMujic.Service.exe" Source="!(bindpath.Service)\SabhaMujic.Service.exe" KeyPath="yes">
+          <!-- iPhone remote: Private network profile only, inbound to the service exe only. -->
+          <fw:FirewallException Id="FirewallRemoteHttps" Name="SabhaMujic Remote (HTTPS)"
+                                Description="SabhaMujic iPhone remote: web app, API and live updates (TCP 8443)."
+                                Port="8443" Protocol="tcp" Profile="private" />
+          <fw:FirewallException Id="FirewallRemoteSetup" Name="SabhaMujic Remote setup (HTTP)"
+                                Description="SabhaMujic iPhone remote setup page: certificate profile download only (TCP 8080)."
+                                Port="8080" Protocol="tcp" Profile="private" />
+        </File>
+
+        <ServiceInstall Name="SabhaMujic"
+                        DisplayName="SabhaMujic Playback Service"
+                        Description="Plays SabhaMujic music, protects the music library and serves the SabhaMujic desktop app and iPhone remote. Stopping it stops playback."
+                        Type="ownProcess"
+                        Start="auto"
+                        Account="NT SERVICE\SabhaMujic"
+                        ErrorControl="normal"
+                        Vital="yes">
+          <!-- MsiServiceConfig (warning WIX1149 is suppressed in the .wixproj): delayed automatic start, and failure
+               actions also apply when the service stops itself with an error. -->
+          <ServiceConfig DelayedAutoStart="yes" FailureActionsWhen="failedToStopOrReturnedError" OnInstall="yes" OnReinstall="yes" />
+          <!-- Restart 5 s after every failure (Windows repeats the last action after the third); the count resets after a day. -->
+          <util:ServiceConfig FirstFailureActionType="restart" SecondFailureActionType="restart" ThirdFailureActionType="restart"
+                              RestartServiceDelayInSeconds="5" ResetPeriodInDays="1" />
+        </ServiceInstall>
+        <ServiceControl Id="SabhaMujicServiceControl" Name="SabhaMujic" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+
+        <!-- The .NET Windows-service host logs warnings and errors to the Application log with its application name
+             (the entry assembly, SabhaMujic.Service) as the source. The virtual account can't register a source, so
+             the installer does. The message file ships in the self-contained publish. -->
+        <util:EventSource Name="SabhaMujic.Service" Log="Application"
+                          EventMessageFile="[ServiceFolder]System.Diagnostics.EventLog.Messages.dll" />
+      </Component>
+
+      <Files Include="!(bindpath.Service)\**">
+        <Exclude Files="!(bindpath.Service)\SabhaMujic.Service.exe" />
+      </Files>
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="AppComponents" Directory="AppFolder">
+      <!-- Authored explicitly so the exit dialog can launch it by file id; the rest is harvested. -->
+      <Component Id="DesktopExeComponent">
+        <File Id="DesktopExe" Name="SabhaMujic.Desktop.exe" Source="!(bindpath.App)\SabhaMujic.Desktop.exe" KeyPath="yes" />
+      </Component>
+
+      <Files Include="!(bindpath.App)\**">
+        <Exclude Files="!(bindpath.App)\SabhaMujic.Desktop.exe" />
+      </Files>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

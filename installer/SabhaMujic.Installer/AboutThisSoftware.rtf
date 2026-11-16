@@ -1,0 +1,22 @@
+{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fswiss\fcharset0 Segoe UI;}}
+\viewkind4\uc1\pard\sa100\f0\fs18
+{\b About this software}\par
+SabhaMujic is a music player for sabha volunteers. This setup installs:\par
+\pard\li240\sa60 - the SabhaMujic Playback Service, a Windows service that runs as NT SERVICE\\SabhaMujic and starts automatically;\par
+- the SabhaMujic desktop app, with a Start menu shortcut and an optional desktop shortcut;\par
+- two Windows Firewall rules for the iPhone remote, inbound TCP 8443 and 8080, on Private networks only.\par
+\pard\sa100 The music library, accounts and settings are stored in %ProgramData%\\SabhaMujic (usually C:\\ProgramData\\SabhaMujic). Uninstalling SabhaMujic keeps that folder. The setup guide (docs/SETUP.md) explains how to remove it completely.\par
+{\b Third-party components}\par
+SabhaMujic includes the following components. Each is used under its own license, shown in parentheses.\par
+\pard\li240\sa60 - .NET runtime, ASP.NET Core, Windows Presentation Foundation, Microsoft.Extensions libraries and Microsoft.Data.Sqlite, by Microsoft (MIT)\par
+- NAudio, by Mark Heath and contributors (MIT)\par
+- StreamJsonRpc, Nerdbank.Streams, Microsoft.VisualStudio.Threading and Microsoft.VisualStudio.Validation, by Microsoft (MIT)\par
+- MessagePack for C# (MIT), Nerdbank.MessagePack (MIT), PolyType (MIT) and Newtonsoft.Json (MIT)\par
+- SignalR JavaScript client (@microsoft/signalr), by Microsoft (MIT)\par
+- CommunityToolkit.Mvvm, by Microsoft and the .NET Foundation (MIT)\par
+- QRCoder (MIT)\par
+- Dapper (Apache License 2.0)\par
+- SQLitePCLRaw (Apache License 2.0) and SQLite (public domain)\par
+- WiX Toolset installer dialogs (Microsoft Reciprocal License)\par
+\pard\sa100 The full license texts are published with each component's source code and NuGet or npm package.\par
+}
