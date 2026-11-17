@@ -72,6 +72,9 @@ jobs:
     runs-on: windows-latest
     # Two MSI builds and several msiexec runs.
     timeout-minutes: 40
+    # contents: write is only used by the manual-run step that publishes the MSI as a pre-release.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
@@ -96,15 +99,36 @@ jobs:
           -Msi artifacts/SabhaMujic-0.1.0-x64.msi -Version 0.1.0
           -UpgradeMsi "artifacts/SabhaMujic-0.1.${{ github.run_number }}-x64.msi" -UpgradeVersion "0.1.${{ github.run_number }}"
           -LogDir artifacts/install-logs
-      # The MSI is large (self-contained .NET payload), so it is uploaded only for manual runs
-      # (Actions → CI → Run workflow). Install logs are kept only when the installer job fails.
-      - uses: actions/upload-artifact@v4
+      # Manual runs (Actions → CI → Run workflow) publish the tested MSI as a GitHub pre-release. Release files don't
+      # count against the account's Actions artifact storage quota (which has been full). Only the newest test build
+      # is kept: older "installer-*" pre-releases and their tags are deleted.
+      - name: Publish installer as a pre-release (manual runs only)
         if: github.event_name == 'workflow_dispatch'
-        continue-on-error: true
-        with:
-          name: windows-msi
-          path: artifacts/SabhaMujic-0.1.${{ github.run_number }}-x64.msi
-          retention-days: 3
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = '${{ github.repository }}'
+          $version = '0.1.${{ github.run_number }}'
+          $tag = "installer-$version"
+          $msi = "artifacts/SabhaMujic-$version-x64.msi"
+          $notes = @"
+          Test build $version of SabhaMujic from branch ${{ github.ref_name }} (commit ${{ github.sha }}).
+          This exact MSI passed the automated install, uninstall, upgrade and downgrade checks on Windows.
+
+          - Unsigned: Windows SmartScreen will warn; choose "More info" then "Run anyway".
+          - Setup: docs/SETUP.md. Manual checks still to do: docs/WINDOWS_TEST_CHECKLIST.md.
+          "@
+          gh release create $tag $msi --repo $repo --target '${{ github.sha }}' --prerelease --title "SabhaMujic $version (test build)" --notes $notes
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed ($LASTEXITCODE)" }
+          $old = gh release list --repo $repo --limit 100 --json tagName,isPrerelease | ConvertFrom-Json |
+              Where-Object { $_.isPrerelease -and $_.tagName -like 'installer-*' -and $_.tagName -ne $tag }
+          foreach ($r in $old) {
+              Write-Host "Deleting older test build $($r.tagName)"
+              gh release delete $r.tagName --repo $repo --yes --cleanup-tag
+          }
+          Write-Host "Published: https://github.com/$repo/releases/tag/$tag"
       - uses: actions/upload-artifact@v4
         if: failure()
         continue-on-error: true
