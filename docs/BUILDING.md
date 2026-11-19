@@ -117,3 +117,6 @@ Artifact uploads are best-effort (`continue-on-error`), because the account's ar
 GitHub Actions artifact storage is a shared account quota. CI uploads test results and install logs only when a job fails (kept 3 days).
 
 To get an installer: start a manual run on the branch (**Actions → CI → Run workflow**). After the install smoke test passes, CI publishes that exact MSI as a GitHub **pre-release** named `installer-0.1.<run number>` (Releases page). Release files don't use the Actions storage quota. Only the newest test build is kept; older `installer-*` pre-releases and their tags are deleted automatically.
+
+## When the Windows jobs run
+Windows runner minutes are billed at twice the Linux rate. Pushes run only the Linux build and tests; the Windows tests and the installer job run on manual runs (**Actions → CI → Run workflow**) and on pull requests.

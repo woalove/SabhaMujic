@@ -10,7 +10,7 @@ Windows music player for sabha volunteers. A Windows service owns playback, prot
 ## Build & test (Linux cloud env or Windows)
 - `dotnet build SabhaMujic.slnx` — WPF/Windows projects compile on Linux because `Directory.Build.props` sets `EnableWindowsTargeting`.
 - `dotnet test SabhaMujic.slnx` — Windows-only tests skip themselves off Windows.
-- Windows CI: `.github/workflows/ci.yml` (`windows-latest`) is the only automated Windows verification.
+- Windows CI: `.github/workflows/ci.yml` (`windows-latest`) is the only automated Windows verification. To save Windows minutes it runs only on manual runs (Actions → CI → Run workflow) and pull requests; pushes run Linux only. Trigger a manual run before declaring Windows behaviour verified.
 
 ## Conventions
 - Target `net10.0` for everything that can run cross-platform. Only `Audio.Windows`, `Service`, `Desktop`, `Windows.Tests` target `net10.0-windows`.

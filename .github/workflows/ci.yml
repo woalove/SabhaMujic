@@ -45,8 +45,11 @@ jobs:
           path: TestResults
           retention-days: 3
 
+  # Windows minutes are billed at 2x and the account's allowance is limited, so the Windows jobs run only on manual
+  # runs (Actions → CI → Run workflow) and pull requests. Pushes run the Linux job only.
   windows:
     name: Windows build + tests
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: windows-latest
     timeout-minutes: 40
     steps:
@@ -72,6 +75,7 @@ jobs:
   # Independent of the test job, so installer results are always reported even when a test fails.
   windows-installer:
     name: Windows installer (MSI build + install smoke test)
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: windows-latest
     # Two MSI builds and several msiexec runs.
     timeout-minutes: 40
