@@ -4,6 +4,10 @@ name: Storage check
 # by uploading a 1 KB file (kept 1 day). Fails if the quota still blocks uploads.
 on:
   workflow_dispatch:
+  # Also runs when this file changes, so a push registers the workflow and performs the check.
+  push:
+    paths:
+      - ".github/workflows/storage-check.yml"
 
 permissions:
   contents: read
