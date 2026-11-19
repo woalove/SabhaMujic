@@ -1,0 +1,21 @@
+name: Storage check
+
+# Manual-only: checks whether the account's Actions artifact storage accepts uploads again
+# by uploading a 1 KB file (kept 1 day). Fails if the quota still blocks uploads.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  upload-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: head -c 1024 /dev/urandom > storage-probe.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: storage-probe
+          path: storage-probe.bin
+          retention-days: 1
