@@ -3,6 +3,9 @@ name: CI
 on:
   push:
     branches: ["main", "claude/**"]
+    # A change to only the storage-check workflow doesn't need the full build.
+    paths-ignore:
+      - ".github/workflows/storage-check.yml"
   pull_request:
   workflow_dispatch:
 
