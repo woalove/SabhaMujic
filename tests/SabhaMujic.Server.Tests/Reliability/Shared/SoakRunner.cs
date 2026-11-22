@@ -330,20 +330,42 @@ public sealed class SoakRunner : IAsyncDisposable
     {
         var info = await H.App.Tracks.GetFileInfoAsync(trackId).ConfigureAwait(false) ?? throw new InvalidOperationException("track vanished");
         var path = H.Store.GetPhysicalPath(info.FileKey);
-        if (truncate)
+        // The track was just imported, so the analysis worker may still have the file open. Windows refuses the
+        // overwrite while it does (sharing violation; Linux allows it), so retry until the reader lets go.
+        await RetryWhileFileInUseAsync(async () =>
         {
-            var bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(false);
-            await File.WriteAllBytesAsync(path, bytes[..(44 + (bytes.Length - 44) / 3 / 2 * 2)]).ConfigureAwait(false);
-        }
-        else
-        {
-            await File.WriteAllBytesAsync(path, SoakWav.Garbage(64_000, trackId.GetHashCode())).ConfigureAwait(false);
-        }
+            if (truncate)
+            {
+                var bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(false);
+                await File.WriteAllBytesAsync(path, bytes[..(44 + (bytes.Length - 44) / 3 / 2 * 2)]).ConfigureAwait(false);
+            }
+            else
+            {
+                await File.WriteAllBytesAsync(path, SoakWav.Garbage(64_000, trackId.GetHashCode())).ConfigureAwait(false);
+            }
+        }).ConfigureAwait(false);
 
         H.Resolver.Invalidate(trackId);
         lock (_library)
         {
             _badTracks.Add(trackId);
+        }
+    }
+
+    private static async Task RetryWhileFileInUseAsync(Func<Task> action)
+    {
+        var deadline = Environment.TickCount64 + 15_000;
+        while (true)
+        {
+            try
+            {
+                await action().ConfigureAwait(false);
+                return;
+            }
+            catch (IOException) when (Environment.TickCount64 < deadline)
+            {
+                await Task.Delay(50).ConfigureAwait(false);
+            }
         }
     }
 
