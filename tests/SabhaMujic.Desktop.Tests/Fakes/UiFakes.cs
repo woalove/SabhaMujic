@@ -107,6 +107,27 @@ public sealed class FakeDialogs : IDialogService
         Asked.Add($"secret:{title}");
         return Task.FromResult(PromptResults.Count > 0 ? PromptResults.Dequeue() : null);
     }
+
+    /// <summary>Sheets shown so far.</summary>
+    public List<SheetViewModel> Sheets { get; } = [];
+
+    /// <summary>
+    /// Plays the user's part while a sheet is open (tick boxes, run its Save command). Without it the sheet is cancelled.
+    /// The result is what the sheet itself reports (<see cref="SheetViewModel.WasSaved"/>).
+    /// </summary>
+    public Func<SheetViewModel, Task>? OnSheet { get; set; }
+
+    public async Task<bool> ShowSheetAsync(SheetViewModel sheet)
+    {
+        Asked.Add($"sheet:{sheet.Title}");
+        Sheets.Add(sheet);
+        if (OnSheet is not null)
+        {
+            await OnSheet(sheet);
+        }
+
+        return sheet.WasSaved;
+    }
 }
 
 public sealed class FakeFilePicker : IFilePicker

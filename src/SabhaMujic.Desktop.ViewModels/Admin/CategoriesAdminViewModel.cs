@@ -7,7 +7,7 @@ using SabhaMujic.Desktop.ViewModels.Infrastructure;
 
 namespace SabhaMujic.Desktop.ViewModels.Admin;
 
-/// <summary>Admin: create, rename, delete and reorder categories.</summary>
+/// <summary>Admin: create, rename, delete and reorder categories, and choose each category's tracks ("Add tracks…").</summary>
 public sealed partial class CategoriesAdminViewModel : ViewModelBase
 {
     private readonly ISabhaClient _client;
@@ -92,6 +92,35 @@ public sealed partial class CategoriesAdminViewModel : ViewModelBase
             await _client.Admin.DeleteCategoryAsync(category.Id).ConfigureAwait(true);
             await ReloadAsync().ConfigureAwait(true);
         }).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// "Add tracks…": a searchable checklist of the library; saving replaces this category's tracks
+    /// (<see cref="IAdminApi.SetCategoryTracksAsync"/>) and keeps each track's other categories.
+    /// </summary>
+    [RelayCommand]
+    private async Task AddTracksAsync(CategoryDto? category)
+    {
+        category ??= SelectedCategory;
+        if (category is null)
+        {
+            return;
+        }
+
+        var sheet = new CategoryTracksSheet(_client, category.Id, category.Name);
+        if (!await sheet.LoadAsync().ConfigureAwait(true))
+        {
+            ErrorMessage = sheet.ErrorMessage;
+            return;
+        }
+
+        if (await _ui.Dialogs.ShowSheetAsync(sheet).ConfigureAwait(true))
+        {
+            StatusMessage = sheet.SelectedCount == 1
+                ? $"\"{category.Name}\" now has 1 track."
+                : $"\"{category.Name}\" now has {sheet.SelectedCount} tracks.";
+            await TryAsync(ReloadAsync).ConfigureAwait(true);
+        }
     }
 
     [RelayCommand]

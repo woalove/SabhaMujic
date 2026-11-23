@@ -134,10 +134,32 @@ public sealed partial class TracksAdminViewModel : ViewModelBase
         // Keep unsaved ticks across a refresh of the list; new categories start unticked.
         var ticked = EditCategories.Count == 0 ? SelectedTrack?.CategoryIds.ToHashSet() ?? [] : EditCategoryIds.ToHashSet();
         EditCategories.Clear();
+        var position = 0;
         foreach (var c in categories.OrderBy(c => c.SortOrder))
         {
-            EditCategories.Add(new CategoryChoice(c.Id, c.Name, ticked.Contains(c.Id)));
+            EditCategories.Add(new CategoryChoice(c.Id, c.Name, ticked.Contains(c.Id), TagColors.ForPosition(position++)));
         }
+    }
+
+    /// <summary>"New category" next to the checklist: creates it and ticks it for the selected track (saved with Save).</summary>
+    [RelayCommand]
+    private async Task NewCategoryAsync()
+    {
+        var name = await _ui.Dialogs.PromptTextAsync("New category", "Category name:").ConfigureAwait(true);
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return;
+        }
+
+        await TryAsync(async () =>
+        {
+            var created = await _client.Admin.CreateCategoryAsync(name.Trim()).ConfigureAwait(true);
+            if (EditCategories.All(c => c.Id != created.Id))
+            {
+                EditCategories.Add(new CategoryChoice(created.Id, created.Name, isSelected: SelectedTrack is not null,
+                    TagColors.ForPosition(EditCategories.Count)));
+            }
+        }).ConfigureAwait(true);
     }
 
     public Task<bool> LoadAsync() => TryAsync(SearchAsync, clearError: false);

@@ -56,7 +56,7 @@ public class ImportViewModelTests
         var category = new CategoryDto(Guid.NewGuid(), "Dhun", 0, 0);
         var vm = Create(chunkSize: 4);
         vm.SetCategories([category]);
-        vm.DefaultCategory = vm.CategoryOptions[1];
+        vm.DefaultCategories.Choices[0].IsSelected = true;
         _ui.FilePicker.Paths.Add(_ui.FileSystem.Add("/music/Morning_Dhun.mp3", 10));
 
         await vm.AddFilesCommand.ExecuteAsync(null);
