@@ -7,10 +7,10 @@ _Last updated: 2026-11-23 (v2 in progress, see below). v1 status as of 2026-11-1
 |---|---|
 | Open desktop use (no login); admin sign-in with username + password; 15 min idle sign-out | Backend + view models merged (2d575e3); Linux-verified; **Windows unverified** |
 | iPhone remote admin-only: username + password, "Remember this phone" (180 days), pairing removed | Merged; verified in Chromium emulation; **real iPhone unverified** |
-| Categories many-to-many, assignable from a track or from a category | Backend merged; desktop/phone pickers in the UI redesign |
-| Dark, flat UI with the Inter font on desktop and phone (`docs/DESIGN.md`) | In progress (two agents: Desktop, Remote.Web) |
-| Docs (ADMIN_GUIDE, SETUP, TROUBLESHOOTING, WINDOWS_TEST_CHECKLIST) for v2 | Pending until the UI lands |
-| Manual Windows CI run + new installer | Pending |
+| Categories many-to-many, assignable from a track or from a category | Merged (desktop: Categories… / Add tracks…; phone upload multi-select) |
+| Dark, flat UI with the Inter font on desktop and phone (`docs/DESIGN.md`) | Merged; Linux tests + Chromium iPhone screenshots; **Windows visuals and real iPhone unverified** |
+| Docs (ADMIN_GUIDE, SETUP, TROUBLESHOOTING, WINDOWS_TEST_CHECKLIST) for v2 | Done (b0c4fa8) |
+| Manual Windows CI run + new installer | Run 52 all green; `installer-0.1.52` published. Next: `docs/WINDOWS_TEST_CHECKLIST.md` v2 section on the sabha PC + iPhone |
 
 ## Completion summary (Step 8 criteria)
 See `docs/TESTING.md` → "Verification status of completion criteria" for evidence per item.
