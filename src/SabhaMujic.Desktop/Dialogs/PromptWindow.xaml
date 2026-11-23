@@ -1,19 +1,18 @@
 <Window x:Class="SabhaMujic.Desktop.Dialogs.PromptWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Width="420" SizeToContent="Height" ResizeMode="NoResize" WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
-        FontFamily="{StaticResource UiFont}" FontSize="15" Background="{StaticResource SurfaceBrush}">
-    <StackPanel Margin="20">
-        <TextBlock x:Name="LabelText" TextWrapping="Wrap" Margin="0,0,0,8" />
+        Style="{StaticResource DialogWindow}" Width="440" WindowStartupLocation="CenterOwner">
+    <StackPanel>
+        <TextBlock x:Name="LabelText" TextWrapping="Wrap" Style="{StaticResource FieldLabel}" Margin="0,0,0,6" />
         <TextBox x:Name="ValueBox" TextChanged="OnInputChanged" />
         <PasswordBox x:Name="SecretBox" PasswordChanged="OnInputChanged" Visibility="Collapsed" />
-        <TextBlock x:Name="ConfirmLabel" Text="Type it again to confirm:" Style="{StaticResource FieldLabel}" Visibility="Collapsed" />
+        <TextBlock x:Name="ConfirmLabel" Text="Type it again to confirm" Style="{StaticResource FieldLabel}" Visibility="Collapsed" />
         <PasswordBox x:Name="ConfirmBox" PasswordChanged="OnInputChanged" Visibility="Collapsed" AutomationProperties.Name="Confirm" />
-        <TextBlock x:Name="MismatchText" Text="The two entries don't match." Foreground="{StaticResource ErrorTextBrush}" Margin="0,6,0,0"
+        <TextBlock x:Name="MismatchText" Text="The two entries don't match." Style="{StaticResource ErrorText}" Margin="0,6,0,0"
                    Visibility="Collapsed" />
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
-            <Button x:Name="OkButton" Content="OK" Style="{StaticResource AccentButton}" IsDefault="True" MinWidth="90" Click="OnOk" />
-            <Button Content="Cancel" IsCancel="True" MinWidth="90" Margin="0" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
+            <Button Content="Cancel" IsCancel="True" MinWidth="96" />
+            <Button x:Name="OkButton" Content="OK" Style="{StaticResource PrimaryButton}" IsDefault="True" MinWidth="96" Margin="0" Click="OnOk" />
         </StackPanel>
     </StackPanel>
 </Window>

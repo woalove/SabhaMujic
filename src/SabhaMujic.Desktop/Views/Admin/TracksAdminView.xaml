@@ -39,17 +39,27 @@
                 <TextBlock Text="Artist" Style="{StaticResource FieldLabel}" />
                 <TextBox Text="{Binding EditArtist, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Artist" />
                 <TextBlock Text="Categories (tick all that apply)" Style="{StaticResource FieldLabel}" />
-                <ItemsControl ItemsSource="{Binding EditCategories}" AutomationProperties.Name="Categories">
+                <ItemsControl ItemsSource="{Binding EditCategories}" AutomationProperties.Name="Categories" Focusable="False">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <CheckBox Content="{Binding Name}" IsChecked="{Binding IsSelected}" Margin="0,2"
-                                      AutomationProperties.Name="{Binding Name}" />
+                            <CheckBox IsChecked="{Binding IsSelected}" Margin="0,2" AutomationProperties.Name="{Binding Name}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse Style="{StaticResource TagDot}" Margin="0,0,8,0" />
+                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </CheckBox>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+                <Button Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Margin="0,4,0,0" Command="{Binding NewCategoryCommand}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource Glyph}" Text="&#xE710;" FontSize="12" Margin="0,0,8,0" />
+                        <TextBlock Text="New category" />
+                    </StackPanel>
+                </Button>
                 <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                    <Button Content="Save" Style="{StaticResource AccentButton}" Command="{Binding SaveCommand}" />
-                    <Button Content="Delete track…" Command="{Binding DeleteCommand}" />
+                    <Button Content="Save" Style="{StaticResource PrimaryButton}" Command="{Binding SaveCommand}" />
+                    <Button Content="Delete track…" Style="{StaticResource DestructiveButton}" Command="{Binding DeleteCommand}" />
                 </StackPanel>
 
                 <TextBlock Text="Smart Loop" Style="{StaticResource SectionTitle}" Margin="0,20,0,4" />
@@ -77,10 +87,10 @@
                     </StackPanel>
                 </Grid>
                 <TextBlock Text="Numbers are applied when you leave a box." Style="{StaticResource MutedText}" FontSize="12" Margin="0,4,0,0" />
-                <TextBlock Text="{Binding LoopValidationError}" Foreground="{StaticResource ErrorTextBrush}" Margin="0,6,0,0" TextWrapping="Wrap"
+                <TextBlock Text="{Binding LoopValidationError}" Foreground="{DynamicResource DangerBrush}" Margin="0,6,0,0" TextWrapping="Wrap"
                            Visibility="{Binding LoopValidationError, Converter={StaticResource NullToVisibility}}" />
                 <WrapPanel Margin="0,12,0,0">
-                    <Button Content="Save manual loop" Style="{StaticResource AccentButton}" Command="{Binding SaveLoopCommand}" Margin="0,0,8,6" />
+                    <Button Content="Save manual loop" Style="{StaticResource PrimaryButton}" Command="{Binding SaveLoopCommand}" Margin="0,0,8,6" />
                     <Button Content="Use automatic loop" Command="{Binding UseAutomaticLoopCommand}" Margin="0,0,8,6" />
                     <Button Content="Re-analyze" Command="{Binding ReanalyzeCommand}" Margin="0,0,8,6" />
                 </WrapPanel>

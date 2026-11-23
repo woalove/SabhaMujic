@@ -12,11 +12,18 @@
             <!-- Sub-items are the playlists; their Click bubbles to OnAddToPlaylistClick (code-behind). -->
             <MenuItem Header="Add to playlist" ItemsSource="{Binding Owner.PlaylistTargets}" Click="OnAddToPlaylistClick">
                 <MenuItem.ItemContainerStyle>
-                    <Style TargetType="MenuItem">
+                    <Style TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
                         <Setter Property="Header" Value="{Binding Name}" />
                     </Style>
                 </MenuItem.ItemContainerStyle>
             </MenuItem>
+            <MenuItem Header="Categories…" Command="{Binding Owner.EditCategoriesCommand}" CommandParameter="{Binding}"
+                      Visibility="{Binding Owner.CanManageCategories, Converter={StaticResource BoolToVisibility}}" />
+        </ContextMenu>
+
+        <!-- Category tab menu (admin): choose the category's tracks. -->
+        <ContextMenu x:Key="CategoryTabMenu" x:Shared="False">
+            <MenuItem Header="Add tracks…" Click="OnAddTracksToCategoryClick" />
         </ContextMenu>
     </UserControl.Resources>
 
@@ -24,42 +31,61 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Title + search -->
-        <DockPanel Grid.Row="0" Margin="0,0,0,10">
-            <Grid DockPanel.Dock="Right" Width="300">
-                <TextBox x:Name="SearchBox" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Padding="34,5,34,5"
+        <!-- Two-tone page title (category qualifier) + search -->
+        <DockPanel Grid.Row="0" Margin="0,0,0,6">
+            <Grid DockPanel.Dock="Right" Width="300" VerticalAlignment="Center">
+                <TextBox x:Name="SearchBox" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Padding="36,6,36,6"
                          AutomationProperties.Name="Search tracks" ToolTip="Search titles and artists (Ctrl+F)">
                     <TextBox.InputBindings>
                         <KeyBinding Key="Enter" Command="{Binding SearchNowCommand}" />
                         <KeyBinding Key="Escape" Command="{Binding ClearSearchCommand}" />
                     </TextBox.InputBindings>
                 </TextBox>
-                <TextBlock Style="{StaticResource Glyph}" Text="&#xE721;" Margin="10,0,0,0" HorizontalAlignment="Left"
-                           Foreground="{StaticResource MutedTextBrush}" IsHitTestVisible="False" />
-                <TextBlock Text="Search…" Margin="34,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"
-                           Foreground="{StaticResource DisabledTextBrush}"
+                <TextBlock Style="{StaticResource Glyph}" Text="&#xE721;" Margin="13,0,0,0" HorizontalAlignment="Left"
+                           Foreground="{DynamicResource Text3Brush}" IsHitTestVisible="False" />
+                <TextBlock Text="Search" Margin="37,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"
+                           Foreground="{DynamicResource Text3Brush}"
                            Visibility="{Binding SearchText, Converter={StaticResource NullToVisibility}, ConverterParameter=Invert}" />
-                <Button Style="{StaticResource IconButton}" Content="&#xE711;" HorizontalAlignment="Right" Margin="0,0,2,0"
+                <Button Style="{StaticResource IconButton}" Content="&#xE711;" FontSize="11" Width="30" Height="30" MinHeight="30"
+                        HorizontalAlignment="Right" Margin="0,0,4,0"
                         Command="{Binding ClearSearchCommand}" ToolTip="Clear search" AutomationProperties.Name="Clear search"
                         Visibility="{Binding SearchText, Converter={StaticResource NullToVisibility}}" />
             </Grid>
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="Library" Style="{StaticResource PageTitle}" Margin="0" />
-                <TextBlock Text="{Binding SelectedCategory.Name, StringFormat=' · {0}'}" FontSize="24" Foreground="{StaticResource MutedTextBrush}" />
-            </StackPanel>
+            <TextBlock FontSize="26" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
+                <Run Text="Library" Foreground="{DynamicResource TextBrush}" /><Run Text="{Binding SelectedCategory.Name, Mode=OneWay, StringFormat=' {0}'}" Foreground="{DynamicResource Text2Brush}" />
+            </TextBlock>
         </DockPanel>
 
-        <ContentControl Grid.Row="1" Content="{Binding}" ContentTemplate="{StaticResource MessageStrip}" Focusable="False" />
+        <!-- Category tab row: "All" + each category with its coloured dot and track count -->
+        <Border Grid.Row="1" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Margin="0,4,0,12">
+            <ListBox x:Name="CategoryTabs" Style="{StaticResource TabRowList}" ItemsSource="{Binding Categories}"
+                     SelectedItem="{Binding SelectedCategory}" AutomationProperties.Name="Categories"
+                     PreviewMouseRightButtonDown="OnCategoryTabRightClick">
+                <ListBox.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:CategoryItemViewModel}">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Style="{StaticResource TagDot}" Margin="0,0,8,0"
+                                     Visibility="{Binding HasDot, Converter={StaticResource BoolToVisibility}}" />
+                            <TextBlock Text="{Binding Name}" />
+                            <TextBlock Text="{Binding TrackCount}" FontWeight="Bold" Foreground="{DynamicResource TextBrush}" Margin="7,0,0,0" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Border>
 
-        <!-- Track list -->
-        <ListBox Grid.Row="2" x:Name="TrackList" ItemsSource="{Binding Tracks}" SelectedItem="{Binding SelectedTrack}"
+        <ContentControl Grid.Row="2" Content="{Binding}" ContentTemplate="{StaticResource MessageStrip}" Focusable="False" />
+
+        <!-- Track list: timeline rows -->
+        <ListBox Grid.Row="3" x:Name="TrackList" ItemsSource="{Binding Tracks}" SelectedItem="{Binding SelectedTrack}"
                  MouseDoubleClick="OnTrackDoubleClick" AutomationProperties.Name="Tracks">
             <ListBox.ItemContainerStyle>
-                <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                <Style TargetType="ListBoxItem" BasedOn="{StaticResource TimelineItem}">
                     <Setter Property="ContextMenu" Value="{StaticResource TrackMenu}" />
                 </Style>
             </ListBox.ItemContainerStyle>
@@ -67,40 +93,71 @@
                 <DataTemplate DataType="{x:Type vm:TrackItemViewModel}">
                     <Grid>
                         <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="32" />
                             <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="130" />
-                            <ColumnDefinition Width="60" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding Artist}" Style="{StaticResource MutedText}"
-                                       Visibility="{Binding Artist, Converter={StaticResource NullToVisibility}}" />
+
+                        <!-- Gutter: vertical rule + node (filled accent on the playing track) -->
+                        <Rectangle Grid.Column="0" Style="{StaticResource TimelineRule}" />
+                        <Ellipse Grid.Column="0" Style="{StaticResource TimelineNode}" Margin="0,37,0,0" />
+
+                        <StackPanel Grid.Column="1" Margin="4,10,12,12">
+                            <TextBlock Text="{Binding TopLine}" Style="{StaticResource MetaText}" />
+                            <TextBlock Text="{Binding Title}" Style="{StaticResource TimelineTitle}" Margin="0,2,0,0" />
+                            <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                <TextBlock Style="{StaticResource Glyph}" Text="&#xE8EE;" FontSize="14" Foreground="{DynamicResource Text2Brush}"
+                                           Margin="0,0,6,0" />
+                                <TextBlock Text="{Binding AnalysisText}" Style="{StaticResource MetaText}" />
+                            </StackPanel>
+                            <WrapPanel Orientation="Horizontal" Margin="0,2,0,0">
+                                <ItemsControl ItemsSource="{Binding Pills}" Focusable="False">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Style="{StaticResource TagPill}">
+                                                <TextBlock Text="{Binding Name}" />
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Border Style="{StaticResource NeutralPill}" Visibility="{Binding HasSmartLoop, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Text="Smart Loop" />
+                                </Border>
+                            </WrapPanel>
                         </StackPanel>
-                        <TextBlock Grid.Column="1" Text="{Binding CategoryName}" Style="{StaticResource MutedText}" VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="2" Text="{Binding DurationText}" Style="{StaticResource MutedText}" VerticalAlignment="Center" />
-                        <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
-                            <Button Style="{StaticResource AccentButton}" Content="Play" Padding="12,4" MinHeight="32"
+
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Style="{StaticResource PrimaryButton}" Content="Play" Padding="14,5" MinHeight="32"
                                     Command="{Binding Owner.PlayNowCommand}" CommandParameter="{Binding}"
                                     ToolTip="Play now" AutomationProperties.Name="Play now" />
                             <Button Style="{StaticResource IconButton}" Content="&#xE8A5;" ToolTip="Play next"
                                     Command="{Binding Owner.PlayNextCommand}" CommandParameter="{Binding}" AutomationProperties.Name="Play next" />
                             <Button Style="{StaticResource IconButton}" Content="&#xE710;" ToolTip="Add to queue"
                                     Command="{Binding Owner.AddToQueueCommand}" CommandParameter="{Binding}" AutomationProperties.Name="Add to queue" />
+                            <Button Style="{StaticResource IconButton}" Content="&#xE8EC;" ToolTip="Categories…"
+                                    Command="{Binding Owner.EditCategoriesCommand}" CommandParameter="{Binding}" AutomationProperties.Name="Categories"
+                                    Visibility="{Binding Owner.CanManageCategories, Converter={StaticResource BoolToVisibility}}" />
+                            <Button Style="{StaticResource IconButton}" Content="&#xE76C;" FontSize="12" ToolTip="More"
+                                    Click="OnMoreClick" AutomationProperties.Name="More actions" />
                         </StackPanel>
                     </Grid>
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>
-        <TextBlock Grid.Row="2" Text="No tracks match." Style="{StaticResource MutedText}" HorizontalAlignment="Center" VerticalAlignment="Center"
+        <TextBlock Grid.Row="3" Text="No tracks match." Style="{StaticResource MutedText}" HorizontalAlignment="Center" VerticalAlignment="Center"
                    Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVisibility}}" IsHitTestVisible="False" />
 
         <!-- Paging -->
-        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
-            <Button Style="{StaticResource IconButton}" Content="&#xE76B;" Command="{Binding PreviousPageCommand}"
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button Style="{StaticResource IconButton}" Content="&#xE76B;" FontSize="12" Command="{Binding PreviousPageCommand}"
                     ToolTip="Previous page" AutomationProperties.Name="Previous page" />
-            <TextBlock Text="{Binding PageText}" VerticalAlignment="Center" Margin="8,0" />
-            <Button Style="{StaticResource IconButton}" Content="&#xE76C;" Command="{Binding NextPageCommand}"
+            <TextBlock Text="{Binding PageText}" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="8,0" />
+            <Button Style="{StaticResource IconButton}" Content="&#xE76C;" FontSize="12" Command="{Binding NextPageCommand}"
                     ToolTip="Next page" AutomationProperties.Name="Next page" />
         </StackPanel>
     </Grid>

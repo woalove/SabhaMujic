@@ -38,10 +38,13 @@ public partial class App : Application
             new WpfFilePicker(),
             new PhysicalFileSystem(),
             new WpfAppRestarter(this));
-        _shell = new ShellViewModel(_client, ui);
+        var settings = UiSettingsStore.ForCurrentUser();
+        var theme = new ThemeViewModel(settings);
+        ThemeManager.Follow(this, theme); // before the first window, so it never flashes the wrong theme
+        _shell = new ShellViewModel(_client, ui, theme);
 
         var demo = _client as DemoSabhaClient;
-        var window = new MainWindow(_shell, UiSettingsStore.ForCurrentUser(), demo is null ? null : demo.SimulateConnectionLoss);
+        var window = new MainWindow(_shell, settings, demo is null ? null : demo.SimulateConnectionLoss);
         MainWindow = window;
         window.Show();
         if (e.Args.Any(a => string.Equals(a, RecoveryViewModel.StartupArgument, StringComparison.OrdinalIgnoreCase)))
@@ -64,10 +67,6 @@ public partial class App : Application
     private static void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
         e.Handled = true;
-        MessageBox.Show(
-            ErrorMessages.For(e.Exception),
-            "SabhaMujic",
-            MessageBoxButton.OK,
-            MessageBoxImage.Warning);
+        WpfDialogService.ShowMessage("SabhaMujic", ErrorMessages.For(e.Exception));
     }
 }

@@ -3,9 +3,9 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="SabhaMujic mini player" Width="460" SizeToContent="Height" ResizeMode="CanMinimize"
         Icon="pack://application:,,,/Assets/SabhaMujic.ico"
-        WindowStyle="ToolWindow" ShowInTaskbar="True"
-        FontFamily="{StaticResource UiFont}" FontSize="15"
-        Background="{StaticResource PlayerBackgroundBrush}" Foreground="{StaticResource PlayerTextBrush}">
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent" ShowInTaskbar="True"
+        FontFamily="{StaticResource UiFont}" FontSize="15" Typography.NumeralAlignment="Tabular"
+        Foreground="{DynamicResource TextBrush}">
     <Window.Resources>
         <Style x:Key="PlayPauseGlyph" TargetType="TextBlock" BasedOn="{StaticResource Glyph}">
             <Setter Property="Text" Value="&#xE768;" />
@@ -23,59 +23,108 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+        <!-- "Keep on top" pin: accent while on. -->
+        <Style x:Key="PinToggle" TargetType="ToggleButton">
+            <Setter Property="FontFamily" Value="{StaticResource IconFont}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Width" Value="32" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="Foreground" Value="{DynamicResource Text2Brush}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="8" BorderBrush="Transparent" BorderThickness="1">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Surface2Brush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentLineBrush}" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
-    <StackPanel Margin="14,10">
-        <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-        <DockPanel Margin="0,0,0,6">
-            <Border DockPanel.Dock="Right" Background="{StaticResource AccentBrush}" CornerRadius="4" Padding="6,1"
-                    Visibility="{Binding IsCrossfading, Converter={StaticResource BoolToVisibility}}">
-                <TextBlock Text="Crossfading" FontSize="12" FontWeight="SemiBold" Foreground="White" />
-            </Border>
-            <TextBlock Text="{Binding Artist}" Foreground="{StaticResource PlayerMutedTextBrush}" TextTrimming="CharacterEllipsis" />
-        </DockPanel>
-        <TextBlock Text="{Binding PlaybackError}" Foreground="#FCA5A5" TextWrapping="Wrap"
-                   Visibility="{Binding HasPlaybackError, Converter={StaticResource BoolToVisibility}}" />
-        <TextBlock Text="{Binding ErrorMessage}" Foreground="#FCA5A5" TextWrapping="Wrap"
-                   Visibility="{Binding HasError, Converter={StaticResource BoolToVisibility}}" />
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="14"
+            Padding="16,12,12,14">
+        <StackPanel>
+            <!-- Title row (drag area) with pin, restore and close -->
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                    <ToggleButton x:Name="TopmostBox" Style="{StaticResource PinToggle}" Content="&#xE718;"
+                                  IsChecked="{Binding Topmost, RelativeSource={RelativeSource AncestorType=Window}}"
+                                  ToolTip="Keep the mini player above other windows" AutomationProperties.Name="Keep on top" />
+                    <Button Style="{StaticResource IconButton}" Width="32" Height="32" MinHeight="32" FontSize="13" Content="&#xE740;"
+                            Click="OnRestoreClick" ToolTip="Back to the full window" AutomationProperties.Name="Restore full window" />
+                    <Button Style="{StaticResource CaptionCloseButton}" Width="32" Height="32" Content="&#xE8BB;"
+                            Click="OnRestoreClick" ToolTip="Close the mini player" AutomationProperties.Name="Close the mini player" />
+                </StackPanel>
+                <StackPanel Margin="0,0,8,0">
+                    <TextBlock Text="{Binding Title}" FontSize="17" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Style="{StaticResource MetaText}">
+                        <Run Text="{Binding StatusText, Mode=OneWay}" /><Run Text="{Binding Artist, Mode=OneWay, StringFormat=' · {0}'}" />
+                    </TextBlock>
+                </StackPanel>
+            </DockPanel>
 
-        <Grid Margin="0,4,0,8">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <TextBlock Text="{Binding PositionText}" MinWidth="44" VerticalAlignment="Center" />
-            <Slider Grid.Column="1" x:Name="SeekSlider" Style="{StaticResource PlayerSlider}" Margin="6,0"
-                    Minimum="0" Maximum="{Binding Duration}" Value="{Binding SliderPosition}" IsEnabled="{Binding HasTrack}"
-                    AutomationProperties.Name="Seek" />
-            <TextBlock Grid.Column="2" Text="{Binding DurationText}" MinWidth="44" TextAlignment="Right" VerticalAlignment="Center" />
-        </Grid>
+            <WrapPanel>
+                <Border Style="{StaticResource AccentPill}" Visibility="{Binding IsCrossfading, Converter={StaticResource BoolToVisibility}}">
+                    <TextBlock Text="Crossfading" />
+                </Border>
+            </WrapPanel>
+            <TextBlock Text="{Binding PlaybackError}" Style="{StaticResource ErrorText}" FontSize="13"
+                       Visibility="{Binding HasPlaybackError, Converter={StaticResource BoolToVisibility}}" />
+            <TextBlock Text="{Binding ErrorMessage}" Style="{StaticResource ErrorText}" FontSize="13"
+                       Visibility="{Binding HasError, Converter={StaticResource BoolToVisibility}}" />
 
-        <DockPanel>
-            <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
-                <Button Style="{StaticResource TransportButton}" Width="44" Height="44" FontSize="18" Content="&#xE892;"
-                        Command="{Binding PreviousCommand}" ToolTip="Previous (Ctrl+←)" AutomationProperties.Name="Previous" />
-                <Button Style="{StaticResource PlayButton}" Width="56" Height="56" FontSize="24" Command="{Binding PlayPauseCommand}"
-                        ToolTip="Play / pause (Space)" AutomationProperties.Name="{Binding PlayPauseText}">
-                    <TextBlock Style="{StaticResource PlayPauseGlyph}" />
-                </Button>
-                <Button Style="{StaticResource TransportButton}" Width="44" Height="44" FontSize="18" Content="&#xE893;"
-                        Command="{Binding NextCommand}" ToolTip="Next (Ctrl+→)" AutomationProperties.Name="Next" />
-                <Button Style="{StaticResource TransportButton}" Width="36" Height="36" FontSize="14" Command="{Binding ToggleMuteCommand}"
-                        ToolTip="Mute / unmute" AutomationProperties.Name="Mute">
-                    <TextBlock Style="{StaticResource MuteGlyph}" />
-                </Button>
-                <Slider Style="{StaticResource PlayerSlider}" Width="80" Minimum="0" Maximum="1" Value="{Binding Volume}"
-                        AutomationProperties.Name="Volume" ToolTip="Volume" />
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                <CheckBox x:Name="TopmostBox" Content="On top" Foreground="{StaticResource PlayerTextBrush}" VerticalAlignment="Center"
-                          Margin="0,0,8,0" IsChecked="{Binding Topmost, RelativeSource={RelativeSource AncestorType=Window}}"
-                          ToolTip="Keep the mini player above other windows" />
-                <Button Style="{StaticResource TransportButton}" Width="36" Height="36" FontSize="14" Content="&#xE740;"
-                        Click="OnRestoreClick" ToolTip="Back to the full window" AutomationProperties.Name="Restore full window" />
-            </StackPanel>
-        </DockPanel>
-    </StackPanel>
+            <!-- Progress -->
+            <Grid Margin="0,8,4,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding PositionText}" Style="{StaticResource MetaText}" FontSize="13" MinWidth="40" VerticalAlignment="Center" />
+                <Slider Grid.Column="1" x:Name="SeekSlider" Style="{StaticResource ProgressSlider}" Margin="8,0"
+                        Minimum="0" Maximum="{Binding Duration}" Value="{Binding SliderPosition}" IsEnabled="{Binding HasTrack}"
+                        AutomationProperties.Name="Seek" />
+                <TextBlock Grid.Column="2" Text="{Binding DurationText}" Style="{StaticResource MetaText}" FontSize="13" MinWidth="40"
+                           TextAlignment="Right" VerticalAlignment="Center" />
+            </Grid>
+
+            <!-- Transport + volume -->
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Style="{StaticResource IconButton}" Width="32" Height="32" MinHeight="32" FontSize="13" Command="{Binding ToggleMuteCommand}"
+                            ToolTip="Mute / unmute" AutomationProperties.Name="Mute">
+                        <TextBlock Style="{StaticResource MuteGlyph}" />
+                    </Button>
+                    <Slider Style="{StaticResource VolumeSlider}" Width="90" Minimum="0" Maximum="1" Value="{Binding Volume}"
+                            AutomationProperties.Name="Volume" ToolTip="Volume" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <Button Style="{StaticResource TransportButton}" Content="&#xE892;"
+                            Command="{Binding PreviousCommand}" ToolTip="Previous (Ctrl+←)" AutomationProperties.Name="Previous" />
+                    <Button Style="{StaticResource PlayCircleButton}" Width="48" Height="48" FontSize="18" Command="{Binding PlayPauseCommand}"
+                            ToolTip="Play / pause (Space)" AutomationProperties.Name="{Binding PlayPauseText}">
+                        <TextBlock Style="{StaticResource PlayPauseGlyph}" />
+                    </Button>
+                    <Button Style="{StaticResource TransportButton}" Content="&#xE893;"
+                            Command="{Binding NextCommand}" ToolTip="Next (Ctrl+→)" AutomationProperties.Name="Next" />
+                </StackPanel>
+            </DockPanel>
+        </StackPanel>
+    </Border>
 </Window>

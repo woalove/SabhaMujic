@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Automation;
+using SabhaMujic.Desktop.Services;
 
 namespace SabhaMujic.Desktop.Dialogs;
 
@@ -11,6 +12,7 @@ public partial class PromptWindow : Window
     public PromptWindow(string title, string label, string initialValue, bool isSecret)
     {
         InitializeComponent();
+        DialogChrome.Attach(this);
         Title = title;
         LabelText.Text = label;
         AutomationProperties.SetName(ValueBox, label);

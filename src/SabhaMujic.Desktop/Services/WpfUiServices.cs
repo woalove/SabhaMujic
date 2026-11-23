@@ -55,32 +55,63 @@ public sealed class DispatcherScheduler(Dispatcher dispatcher) : IScheduler
     }
 }
 
+/// <summary>All dialogs are the app's own flat, themed windows (no Windows message boxes).</summary>
 public sealed class WpfDialogService : IDialogService
 {
     public Task<bool> ConfirmAsync(string title, string message, string confirmText = "OK")
     {
-        var owner = ActiveWindow();
-        var result = owner is null
-            ? MessageBox.Show(message, title, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel)
-            : MessageBox.Show(owner, message, title, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel);
-        return Task.FromResult(result == MessageBoxResult.OK);
+        var dialog = new ConfirmWindow(title, message, confirmText);
+        SetOwner(dialog);
+        return Task.FromResult(dialog.ShowDialog() == true);
     }
 
     public Task<string?> PromptTextAsync(string title, string label, string initialValue = "")
     {
-        var dialog = new PromptWindow(title, label, initialValue, isSecret: false) { Owner = ActiveWindow() };
+        var dialog = new PromptWindow(title, label, initialValue, isSecret: false);
+        SetOwner(dialog);
         return Task.FromResult(dialog.ShowDialog() == true ? dialog.Value : null);
     }
 
     public Task<string?> PromptSecretAsync(string title, string label)
     {
-        var dialog = new PromptWindow(title, label, "", isSecret: true) { Owner = ActiveWindow() };
+        var dialog = new PromptWindow(title, label, "", isSecret: true);
+        SetOwner(dialog);
         return Task.FromResult(dialog.ShowDialog() == true ? dialog.Value : null);
     }
 
+    public Task<bool> ShowSheetAsync(SheetViewModel sheet)
+    {
+        ArgumentNullException.ThrowIfNull(sheet);
+        var dialog = new SheetWindow(sheet);
+        SetOwner(dialog);
+        dialog.ShowDialog();
+        return Task.FromResult(dialog.Saved);
+    }
+
+    /// <summary>A plain message with an OK button (used for unexpected errors).</summary>
+    public static void ShowMessage(string title, string message)
+    {
+        var dialog = new ConfirmWindow(title, message, "OK", cancelText: null);
+        SetOwner(dialog);
+        dialog.ShowDialog();
+    }
+
     internal static Window? ActiveWindow() =>
-        Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive)
-        ?? Application.Current?.MainWindow;
+        Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive && w.IsVisible)
+        ?? Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w.IsVisible && w is MainWindow or MiniPlayerWindow);
+
+    private static void SetOwner(Window dialog)
+    {
+        var owner = ActiveWindow();
+        if (owner is not null && !ReferenceEquals(owner, dialog))
+        {
+            dialog.Owner = owner;
+        }
+        else
+        {
+            dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        }
+    }
 }
 
 public sealed class WpfFilePicker : IFilePicker

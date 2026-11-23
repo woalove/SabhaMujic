@@ -19,54 +19,62 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+        <!-- Loop pill: accent ("on") unless the loop mode is Off. -->
+        <Style x:Key="LoopPill" TargetType="Button" BasedOn="{StaticResource AccentPillButton}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding LoopMode}" Value="Off">
+                    <Setter Property="Background" Value="{DynamicResource Surface2Brush}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </UserControl.Resources>
 
-    <Border Background="{StaticResource PlayerBackgroundBrush}" Padding="16,10" TextElement.Foreground="{StaticResource PlayerTextBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0"
+            Padding="20,10,20,12" Typography.NumeralAlignment="Tabular">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" MinWidth="150" />
+                <ColumnDefinition Width="*" MinWidth="160" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <!-- Track info -->
-            <StackPanel Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0">
-                <TextBlock Text="{Binding Title}" FontSize="19" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+            <!-- Title + meta + state pills + messages -->
+            <StackPanel Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                <TextBlock Text="{Binding Title}" FontSize="17" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
                            AutomationProperties.Name="Now playing" />
-                <TextBlock Text="{Binding Artist}" Foreground="{StaticResource PlayerMutedTextBrush}" TextTrimming="CharacterEllipsis"
-                           Visibility="{Binding Artist, Converter={StaticResource NullToVisibility}}" />
-                <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
-                    <Border Background="{StaticResource AccentBrush}" CornerRadius="4" Padding="6,1" Margin="0,0,8,0"
-                            Visibility="{Binding IsCrossfading, Converter={StaticResource BoolToVisibility}}">
-                        <TextBlock Text="Crossfading" FontSize="12" FontWeight="SemiBold" Foreground="White" />
+                <TextBlock Style="{StaticResource MetaText}">
+                    <Run Text="{Binding StatusText, Mode=OneWay}" /><Run Text="{Binding Artist, Mode=OneWay, StringFormat=' · {0}'}" /><Run Text="{Binding NextTitle, Mode=OneWay, StringFormat=' · Up next: {0}'}" />
+                </TextBlock>
+                <WrapPanel>
+                    <Border Style="{StaticResource AccentPill}" Visibility="{Binding IsCrossfading, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="Crossfading" />
                     </Border>
-                    <TextBlock Text="{Binding StatusText}" FontSize="12" Foreground="{StaticResource PlayerMutedTextBrush}" Margin="0,0,8,0" />
-                    <TextBlock Text="{Binding NextTitle, StringFormat='Up next: {0}'}" FontSize="12" Foreground="{StaticResource PlayerMutedTextBrush}"
-                               TextTrimming="CharacterEllipsis"
-                               Visibility="{Binding NextTitle, Converter={StaticResource NullToVisibility}}" />
-                </StackPanel>
-                <TextBlock Text="{Binding PlaybackError}" Foreground="#FCA5A5" TextWrapping="Wrap" FontWeight="SemiBold"
-                           Visibility="{Binding HasPlaybackError, Converter={StaticResource BoolToVisibility}}" />
-                <DockPanel Visibility="{Binding HasError, Converter={StaticResource BoolToVisibility}}">
-                    <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE711;" Foreground="{StaticResource PlayerTextBrush}"
-                            Command="{Binding DismissMessageCommand}" ToolTip="Dismiss" AutomationProperties.Name="Dismiss message" />
-                    <TextBlock Text="{Binding ErrorMessage}" Foreground="#FCA5A5" TextWrapping="Wrap" VerticalAlignment="Center" />
+                    <Border Style="{StaticResource ErrorBanner}" Margin="0,4,0,0" Padding="8,2"
+                            Visibility="{Binding HasPlaybackError, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="{Binding PlaybackError}" TextWrapping="Wrap" FontSize="13" />
+                    </Border>
+                </WrapPanel>
+                <DockPanel Visibility="{Binding HasError, Converter={StaticResource BoolToVisibility}}" Margin="0,2,0,0">
+                    <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Width="26" Height="26" MinHeight="26" FontSize="10"
+                            Content="&#xE711;" Command="{Binding DismissMessageCommand}" ToolTip="Dismiss" AutomationProperties.Name="Dismiss message" />
+                    <TextBlock Text="{Binding ErrorMessage}" Style="{StaticResource ErrorText}" FontSize="13" VerticalAlignment="Center" />
                 </DockPanel>
-                <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource PlayerMutedTextBrush}" TextWrapping="Wrap"
+                <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource MetaText}" FontSize="13" TextWrapping="Wrap"
                            Visibility="{Binding HasStatus, Converter={StaticResource BoolToVisibility}}" />
             </StackPanel>
 
-            <!-- Transport -->
-            <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
+            <!-- Transport: the primary play/pause is a filled accent circle -->
+            <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                 <Button Style="{StaticResource TransportButton}" Content="&#xE892;" Command="{Binding PreviousCommand}"
                         ToolTip="Previous (Ctrl+←)" AutomationProperties.Name="Previous" />
-                <Button Style="{StaticResource TransportButton}" Content="&#xE71A;" Command="{Binding StopCommand}"
+                <Button Style="{StaticResource TransportButton}" Content="&#xE71A;" FontSize="14" Command="{Binding StopCommand}"
                         ToolTip="Stop" AutomationProperties.Name="Stop" />
-                <Button Style="{StaticResource PlayButton}" Command="{Binding PlayPauseCommand}"
+                <Button Style="{StaticResource PlayCircleButton}" Command="{Binding PlayPauseCommand}"
                         ToolTip="Play / pause (Space)" AutomationProperties.Name="{Binding PlayPauseText}">
                     <TextBlock Style="{StaticResource PlayPauseGlyph}" />
                 </Button>
@@ -74,17 +82,18 @@
                         ToolTip="Next (Ctrl+→)" AutomationProperties.Name="Next" />
             </StackPanel>
 
-            <!-- Volume -->
-            <StackPanel Grid.Row="0" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                <Button Style="{StaticResource TransportButton}" Width="40" Height="40" FontSize="16" Command="{Binding ToggleMuteCommand}"
-                        ToolTip="Mute / unmute" AutomationProperties.Name="Mute">
+            <!-- Volume + mini player -->
+            <StackPanel Grid.Row="0" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
+                <Button Style="{StaticResource IconButton}" Command="{Binding ToggleMuteCommand}" ToolTip="Mute / unmute" AutomationProperties.Name="Mute">
                     <TextBlock Style="{StaticResource MuteGlyph}" />
                 </Button>
-                <Slider Style="{StaticResource PlayerSlider}" Width="120" Minimum="0" Maximum="1" SmallChange="0.05" LargeChange="0.1"
-                        Value="{Binding Volume}" ToolTip="Volume" AutomationProperties.Name="Volume" />
+                <Slider Style="{StaticResource VolumeSlider}" Width="96" Minimum="0" Maximum="1" SmallChange="0.05" LargeChange="0.1"
+                        Value="{Binding Volume}" ToolTip="Volume" AutomationProperties.Name="Volume" Margin="0,0,8,0" />
+                <Button Style="{StaticResource IconButton}" Content="&#xE73F;" Click="OnMiniPlayerClick"
+                        ToolTip="Mini player" AutomationProperties.Name="Mini player" />
             </StackPanel>
 
-            <!-- Seek + loop + crossfade + mini player -->
+            <!-- Progress: thin line track with accent fill, times, loop and crossfade pills -->
             <Grid Grid.Row="1" Grid.ColumnSpan="3" Margin="0,8,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -92,25 +101,43 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="{Binding PositionText}" MinWidth="48" VerticalAlignment="Center" />
-                <Slider Grid.Column="1" x:Name="SeekSlider" Style="{StaticResource PlayerSlider}" Margin="6,0"
+                <TextBlock Grid.Column="0" Text="{Binding PositionText}" Style="{StaticResource MetaText}" FontSize="13" MinWidth="44"
+                           VerticalAlignment="Center" />
+                <Slider Grid.Column="1" x:Name="SeekSlider" Style="{StaticResource ProgressSlider}" Margin="8,0"
                         Minimum="0" Maximum="{Binding Duration}" Value="{Binding SliderPosition}" IsEnabled="{Binding HasTrack}"
                         AutomationProperties.Name="Seek" ToolTip="Drag to seek" />
-                <TextBlock Grid.Column="2" Text="{Binding DurationText}" MinWidth="48" VerticalAlignment="Center" TextAlignment="Right" />
-                <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center">
-                    <Button Style="{StaticResource PlayerTextButton}" Command="{Binding CycleLoopModeCommand}" MinWidth="130"
+                <TextBlock Grid.Column="2" Text="{Binding DurationText}" Style="{StaticResource MetaText}" FontSize="13" MinWidth="44"
+                           VerticalAlignment="Center" TextAlignment="Right" />
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="14,0,0,0" VerticalAlignment="Center">
+                    <Button Style="{StaticResource LoopPill}" Command="{Binding CycleLoopModeCommand}" MinWidth="124" Margin="0,0,8,0"
                             ToolTip="Loop mode: Off → Smart Loop → Repeat queue" AutomationProperties.Name="Loop mode">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Style="{StaticResource Glyph}" Text="&#xE8EE;" Margin="0,0,6,0" />
+                            <TextBlock Style="{StaticResource Glyph}" Text="&#xE8EE;" FontSize="12" Margin="0,0,6,0" />
                             <TextBlock Text="{Binding LoopModeText}" />
                         </StackPanel>
                     </Button>
-                    <TextBlock Text="Crossfade" VerticalAlignment="Center" Foreground="{StaticResource PlayerMutedTextBrush}" Margin="4,0,6,0" />
-                    <Slider Style="{StaticResource PlayerSlider}" Width="90" Minimum="0" Maximum="12" TickFrequency="1" IsSnapToTickEnabled="True"
-                            Value="{Binding CrossfadeSeconds}" AutomationProperties.Name="Crossfade seconds" ToolTip="Crossfade between tracks (0–12 s)" />
-                    <TextBlock Text="{Binding CrossfadeSeconds, StringFormat='{}{0:0} s'}" MinWidth="34" VerticalAlignment="Center" Margin="6,0,8,0" />
-                    <Button Style="{StaticResource TransportButton}" Width="40" Height="40" FontSize="16" Content="&#xE73F;"
-                            Click="OnMiniPlayerClick" ToolTip="Mini player" AutomationProperties.Name="Mini player" />
+                    <ToggleButton x:Name="CrossfadeToggle" Style="{StaticResource PillButton}"
+                                  IsHitTestVisible="{Binding IsOpen, ElementName=CrossfadePopup, Converter={StaticResource InverseBool}}"
+                                  ToolTip="Crossfade between tracks (0–12 s)" AutomationProperties.Name="Crossfade">
+                        <TextBlock Text="{Binding CrossfadeSeconds, StringFormat='{}Crossfade {0:0} s'}" />
+                    </ToggleButton>
+                    <Popup x:Name="CrossfadePopup" PlacementTarget="{Binding ElementName=CrossfadeToggle}" Placement="Top" VerticalOffset="-6"
+                           StaysOpen="False" AllowsTransparency="True" PopupAnimation="None"
+                           IsOpen="{Binding IsChecked, ElementName=CrossfadeToggle, Mode=TwoWay}">
+                        <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="10" Padding="14,10" Width="240"
+                                TextElement.FontFamily="{StaticResource UiFont}" TextElement.Foreground="{DynamicResource TextBrush}">
+                            <StackPanel>
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding CrossfadeSeconds, StringFormat='{}{0:0} s'}" FontWeight="SemiBold"
+                                               Typography.NumeralAlignment="Tabular" />
+                                    <TextBlock Text="Crossfade between tracks" Foreground="{DynamicResource Text2Brush}" FontSize="13" />
+                                </DockPanel>
+                                <Slider Minimum="0" Maximum="12" TickFrequency="1" IsSnapToTickEnabled="True" Margin="0,6,0,0"
+                                        Value="{Binding CrossfadeSeconds}" AutomationProperties.Name="Crossfade seconds" />
+                            </StackPanel>
+                        </Border>
+                    </Popup>
                 </StackPanel>
             </Grid>
         </Grid>

@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -6,6 +7,48 @@ using System.Windows.Media;
 using SabhaMujic.Desktop.ViewModels;
 
 namespace SabhaMujic.Desktop;
+
+/// <summary>
+/// Custom window chrome support. A maximised <see cref="System.Windows.Shell.WindowChrome"/> window extends past the
+/// monitor by the sizing frame on every side; <see cref="MaximizedOverhang"/> returns that amount so the window can pad
+/// its content and nothing (caption buttons, the now-playing bar) is cut off.
+/// </summary>
+internal static class WindowFrame
+{
+    private const int SmCxSizeFrame = 32;
+    private const int SmCySizeFrame = 33;
+    private const int SmCxPaddedBorder = 92;
+
+    public static Thickness MaximizedOverhang(Visual visual)
+    {
+        var dpi = VisualTreeHelper.GetDpi(visual);
+        int frameX, frameY, padded;
+        try
+        {
+            var dpiValue = (uint)Math.Round(dpi.PixelsPerInchX);
+            frameX = GetSystemMetricsForDpi(SmCxSizeFrame, dpiValue);
+            frameY = GetSystemMetricsForDpi(SmCySizeFrame, dpiValue);
+            padded = GetSystemMetricsForDpi(SmCxPaddedBorder, dpiValue);
+        }
+        catch (EntryPointNotFoundException)
+        {
+            // Before Windows 10 1607: system-DPI metrics.
+            frameX = GetSystemMetrics(SmCxSizeFrame);
+            frameY = GetSystemMetrics(SmCySizeFrame);
+            padded = GetSystemMetrics(SmCxPaddedBorder);
+        }
+
+        var x = (frameX + padded) / dpi.DpiScaleX;
+        var y = (frameY + padded) / dpi.DpiScaleY;
+        return new Thickness(x, y, x, y);
+    }
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int index);
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetricsForDpi(int index, uint dpi);
+}
 
 internal static class WindowPlacement
 {

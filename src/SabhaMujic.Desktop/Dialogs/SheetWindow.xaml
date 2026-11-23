@@ -1,0 +1,90 @@
+<Window x:Class="SabhaMujic.Desktop.Dialogs.SheetWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:admin="clr-namespace:SabhaMujic.Desktop.ViewModels.Admin;assembly=SabhaMujic.Desktop.ViewModels"
+        Style="{StaticResource DialogWindow}" Width="540" WindowStartupLocation="CenterOwner"
+        Title="{Binding Title}">
+    <Window.Resources>
+        <!-- Track → "Categories…" -->
+        <DataTemplate DataType="{x:Type admin:TrackCategoriesSheet}">
+            <StackPanel>
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource MessageStrip}" Focusable="False" />
+                <TextBlock Text="Tick every category this track belongs to." Style="{StaticResource MutedText}" TextWrapping="Wrap" />
+                <ScrollViewer MaxHeight="340" Margin="0,10,0,0" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding Choices}" AutomationProperties.Name="Categories" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type admin:CategoryChoice}">
+                                <CheckBox IsChecked="{Binding IsSelected}" Margin="0,3" AutomationProperties.Name="{Binding Name}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Ellipse Style="{StaticResource TagDot}" Margin="0,0,8,0" />
+                                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </CheckBox>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+                <Button Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Margin="0,8,0,0" Command="{Binding NewCategoryCommand}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource Glyph}" Text="&#xE710;" FontSize="12" Margin="0,0,8,0" />
+                        <TextBlock Text="New category" />
+                    </StackPanel>
+                </Button>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+                    <Button Content="Cancel" MinWidth="96" Command="{Binding CancelCommand}" />
+                    <Button Content="Save" Style="{StaticResource PrimaryButton}" IsDefault="True" MinWidth="96" Margin="0"
+                            Command="{Binding SaveCommand}" />
+                </StackPanel>
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- Category → "Add tracks…" -->
+        <DataTemplate DataType="{x:Type admin:CategoryTracksSheet}">
+            <StackPanel>
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource MessageStrip}" Focusable="False" />
+                <TextBlock Text="Tick the tracks that belong in this category. Their other categories are kept."
+                           Style="{StaticResource MutedText}" TextWrapping="Wrap" />
+                <Grid Margin="0,10,0,8">
+                    <TextBox x:Name="SheetSearch" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Padding="34,6,10,6"
+                             AutomationProperties.Name="Search tracks" />
+                    <TextBlock Style="{StaticResource Glyph}" Text="&#xE721;" Margin="12,0,0,0" HorizontalAlignment="Left"
+                               Foreground="{DynamicResource Text3Brush}" IsHitTestVisible="False" />
+                    <TextBlock Text="Search titles and artists" Margin="35,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"
+                               Foreground="{DynamicResource Text3Brush}"
+                               Visibility="{Binding SearchText, Converter={StaticResource NullToVisibility}, ConverterParameter=Invert}" />
+                </Grid>
+                <ListBox ItemsSource="{Binding VisibleTracks}" Height="340" AutomationProperties.Name="Library tracks">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                            <Setter Property="Padding" Value="8,4" />
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="{x:Type admin:TrackChoice}">
+                            <CheckBox IsChecked="{Binding IsSelected}" AutomationProperties.Name="{Binding Title}">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding DurationText}" Style="{StaticResource MetaText}" Margin="12,0,0,0" />
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Artist}" Style="{StaticResource MetaText}" FontSize="13"
+                                                   Visibility="{Binding Artist, Converter={StaticResource NullToVisibility}}" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </CheckBox>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <DockPanel Margin="0,18,0,0">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                        <Button Content="Cancel" MinWidth="96" Command="{Binding CancelCommand}" />
+                        <Button Content="Save" Style="{StaticResource PrimaryButton}" IsDefault="True" MinWidth="96" Margin="0"
+                                Command="{Binding SaveCommand}" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding SelectionText}" Style="{StaticResource MutedText}" VerticalAlignment="Center" />
+                </DockPanel>
+            </StackPanel>
+        </DataTemplate>
+    </Window.Resources>
+
+    <ContentControl Content="{Binding}" Focusable="False" />
+</Window>

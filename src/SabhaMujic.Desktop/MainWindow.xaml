@@ -4,11 +4,22 @@
         xmlns:vm="clr-namespace:SabhaMujic.Desktop.ViewModels;assembly=SabhaMujic.Desktop.ViewModels"
         xmlns:admin="clr-namespace:SabhaMujic.Desktop.ViewModels.Admin;assembly=SabhaMujic.Desktop.ViewModels"
         xmlns:views="clr-namespace:SabhaMujic.Desktop.Views"
+        xmlns:controls="clr-namespace:SabhaMujic.Desktop.Controls"
         Title="SabhaMujic" Height="720" Width="1180" MinHeight="480" MinWidth="760"
         Icon="pack://application:,,,/Assets/SabhaMujic.ico"
         ResizeMode="CanResize" WindowStartupLocation="CenterScreen"
-        FontFamily="{StaticResource UiFont}" FontSize="15"
-        Foreground="{StaticResource TextBrush}" Background="{StaticResource AppBackgroundBrush}">
+        FontFamily="{StaticResource UiFont}" FontSize="15" Typography.NumeralAlignment="Tabular"
+        Foreground="{DynamicResource TextBrush}" Background="{DynamicResource BgBrush}">
+    <!--
+        Custom chrome: no system caption. The app header (64 px) is the title bar and drag area; interactive header
+        elements opt out with WindowChrome.IsHitTestVisibleInChrome. ResizeMode stays CanResize, so Aero Snap,
+        double-click-to-maximise and the resize border keep working.
+    -->
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="64" ResizeBorderThickness="6" GlassFrameThickness="0" CornerRadius="0"
+                      UseAeroCaptionButtons="False" />
+    </WindowChrome.WindowChrome>
+
     <Window.Resources>
         <!-- Centre content: one view per page view model. -->
         <DataTemplate DataType="{x:Type vm:LibraryViewModel}">
@@ -26,47 +37,203 @@
         <DataTemplate DataType="{x:Type admin:AdminViewModel}">
             <views:AdminView />
         </DataTemplate>
+
+        <!-- Account chip menu (signed in). -->
+        <ContextMenu x:Key="AccountMenu" Placement="Bottom">
+            <MenuItem Header="{Binding UserDisplayText}" IsEnabled="False" />
+            <Separator />
+            <MenuItem Header="Sign out" Command="{Binding LogoutCommand}" />
+        </ContextMenu>
+
+        <!-- Account chip: rounded-square avatar (initial, or a key when signed out), the name, and a chevron. -->
+        <Style x:Key="AccountChip" TargetType="Button">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="Transparent" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="12" Padding="4,4,12,4" Height="40">
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Surface2Brush}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Header status pill dot: accent when live, amber (pulsing) while connecting, danger when lost. -->
+        <Style x:Key="StatusDot" TargetType="Ellipse">
+            <Setter Property="Width" Value="8" />
+            <Setter Property="Height" Value="8" />
+            <Setter Property="Fill" Value="{DynamicResource AccentBrush}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding ConnectionState}" Value="Connecting">
+                    <Setter Property="Fill" Value="{DynamicResource AmberBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ConnectionState}" Value="Reconnecting">
+                    <Setter Property="Fill" Value="{DynamicResource AmberBrush}" />
+                    <DataTrigger.EnterActions>
+                        <BeginStoryboard x:Name="Pulse">
+                            <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity" From="1" To="0.35" Duration="0:0:0.9" />
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </DataTrigger.EnterActions>
+                    <DataTrigger.ExitActions>
+                        <StopStoryboard BeginStoryboardName="Pulse" />
+                    </DataTrigger.ExitActions>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ConnectionState}" Value="Disconnected">
+                    <Setter Property="Fill" Value="{DynamicResource DangerBrush}" />
+                </DataTrigger>
+                <!-- A terminal connection error (e.g. incompatible service version). -->
+                <DataTrigger Binding="{Binding ConnectionStatusText}" Value="Not connected">
+                    <Setter Property="Fill" Value="{DynamicResource DangerBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
-    <Grid>
+    <Grid x:Name="RootGrid">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="64" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Demo mode badge -->
-        <Border Grid.Row="0" x:Name="DemoBanner" Visibility="Collapsed" Background="{StaticResource InfoBackgroundBrush}" Padding="12,6">
-            <TextBlock Foreground="{StaticResource InfoTextBrush}" TextWrapping="Wrap">
-                <Run FontWeight="SemiBold" Text="DEMO MODE" />
-                <Run Text="— in-memory sample data, no audio, nothing is saved. Accounts: admin / 1234 (Admin), sevak / 1111 (Volunteer). Ctrl+Shift+R simulates a lost connection." />
-            </TextBlock>
+        <!-- ===================================================== Header (title bar) -->
+        <Border Grid.Row="0" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- App mark: outlined rounded square -->
+                <Button Grid.Column="0" Style="{StaticResource OutlineIconButton}" Margin="20,0,14,0" Content="&#xEC4F;"
+                        Foreground="{DynamicResource AccentBrush}" WindowChrome.IsHitTestVisibleInChrome="True"
+                        Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:NavPage.Library}"
+                        ToolTip="Library" AutomationProperties.Name="SabhaMujic: go to the library" />
+
+                <!-- Two-tone title over the uppercase subtitle -->
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock FontSize="26" FontWeight="Normal" LineHeight="30" LineStackingStrategy="BlockLineHeight">
+                        <Run Text="Sabha" Foreground="{DynamicResource TextBrush}" /><Run Text="Mujic" Foreground="{DynamicResource Text2Brush}" />
+                    </TextBlock>
+                    <controls:LetterSpacedText x:Name="Subtitle" Text="SABHA MUSIC · PLAYBACK" FontSize="11" FontWeight="Medium" Spacing="0.12"
+                                               Foreground="{DynamicResource Text2Brush}" Margin="1,2,0,0" />
+                </StackPanel>
+
+                <!-- Connection status pill -->
+                <Border Grid.Column="3" Style="{StaticResource NeutralPill}" Margin="0,0,12,0" VerticalAlignment="Center" Padding="10,4"
+                        ToolTip="{Binding ConnectionBannerText}">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse Style="{StaticResource StatusDot}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding ConnectionStatusText}" Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center"
+                                   AutomationProperties.LiveSetting="Polite" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Theme toggle (sun in dark mode, moon in light mode) -->
+                <Button Grid.Column="4" Style="{StaticResource OutlineIconButton}" Margin="0,0,10,0"
+                        WindowChrome.IsHitTestVisibleInChrome="True"
+                        Command="{Binding Theme.ToggleCommand}" ToolTip="{Binding Theme.ToggleToolTip}"
+                        AutomationProperties.Name="{Binding Theme.ToggleToolTip}">
+                    <TextBlock>
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource Glyph}">
+                                <Setter Property="Text" Value="&#xE708;" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Theme.IsDark}" Value="True">
+                                        <Setter Property="Text" Value="&#xE706;" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Button>
+
+                <!-- Account chip: "Admin sign-in" (signed out) or the administrator with a sign-out menu -->
+                <Button Grid.Column="5" x:Name="AccountChip" Style="{StaticResource AccountChip}" Margin="0,0,16,0" VerticalAlignment="Center"
+                        Click="OnAccountChipClick" AutomationProperties.Name="{Binding AccountName}"
+                        AutomationProperties.HelpText="Sign in as an administrator to manage the library, accounts and phones.">
+                    <StackPanel Orientation="Horizontal">
+                        <Border Width="30" Height="30" CornerRadius="8" Background="{DynamicResource AccentSoftBrush}"
+                                BorderBrush="{DynamicResource AccentLineBrush}" BorderThickness="1" Margin="0,0,10,0">
+                            <Grid>
+                                <TextBlock Text="{Binding AccountInitial}" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource AccentBrush}" />
+                                <TextBlock Style="{StaticResource Glyph}" Text="&#xE192;" FontSize="13" HorizontalAlignment="Center"
+                                           Foreground="{DynamicResource AccentBrush}"
+                                           Visibility="{Binding IsSignedIn, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}" />
+                            </Grid>
+                        </Border>
+                        <TextBlock Text="{Binding AccountName}" FontWeight="Medium" VerticalAlignment="Center" />
+                        <TextBlock Style="{StaticResource Glyph}" Text="&#xE70D;" FontSize="10" Margin="10,0,0,0" Foreground="{DynamicResource Text2Brush}"
+                                   Visibility="{Binding IsSignedIn, Converter={StaticResource BoolToVisibility}}" />
+                    </StackPanel>
+                </Button>
+
+                <!-- Caption buttons -->
+                <StackPanel Grid.Column="6" Orientation="Horizontal" VerticalAlignment="Top" WindowChrome.IsHitTestVisibleInChrome="True">
+                    <Button Style="{StaticResource CaptionButton}" Content="&#xE921;" Click="OnMinimize" ToolTip="Minimise"
+                            AutomationProperties.Name="Minimise" WindowChrome.IsHitTestVisibleInChrome="True" />
+                    <Button x:Name="MaximizeButton" Style="{StaticResource CaptionButton}" Content="&#xE922;" Click="OnMaximizeRestore"
+                            ToolTip="Maximise" AutomationProperties.Name="Maximise" WindowChrome.IsHitTestVisibleInChrome="True" />
+                    <Button Style="{StaticResource CaptionCloseButton}" Content="&#xE8BB;" Click="OnCloseWindow" ToolTip="Close"
+                            AutomationProperties.Name="Close" WindowChrome.IsHitTestVisibleInChrome="True" />
+                </StackPanel>
+            </Grid>
         </Border>
 
-        <!-- Connection banner: Connecting / Reconnecting / Disconnected -->
-        <Border Grid.Row="1" Padding="12,8"
-                Visibility="{Binding IsConnectionBannerVisible, Converter={StaticResource BoolToVisibility}}">
-            <Border.Style>
-                <Style TargetType="Border">
-                    <Setter Property="Background" Value="{StaticResource WarningBackgroundBrush}" />
-                    <Setter Property="TextElement.Foreground" Value="{StaticResource WarningTextBrush}" />
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding IsConnectionProblem}" Value="True">
-                            <Setter Property="Background" Value="{StaticResource ErrorBackgroundBrush}" />
-                            <Setter Property="TextElement.Foreground" Value="{StaticResource ErrorTextBrush}" />
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </Border.Style>
-            <StackPanel Orientation="Horizontal">
-                <TextBlock Style="{StaticResource Glyph}" Text="&#xE701;" FontSize="18" Margin="0,0,10,0" />
-                <TextBlock Text="{Binding ConnectionBannerText}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"
-                           VerticalAlignment="Center" AutomationProperties.LiveSetting="Assertive" />
-            </StackPanel>
-        </Border>
+        <!-- ===================================================== Banners -->
+        <StackPanel Grid.Row="1" Margin="20,10,20,0">
+            <Border x:Name="DemoBanner" Visibility="Collapsed" Style="{StaticResource InfoBanner}">
+                <TextBlock TextWrapping="Wrap">
+                    <Run FontWeight="SemiBold" Text="Demo mode" />
+                    <Run Foreground="{DynamicResource Text2Brush}" Text="— in-memory sample data, no audio, nothing is saved. Admin sign-in: admin / demo-admin. Ctrl+Shift+R simulates a lost connection." />
+                </TextBlock>
+            </Border>
+            <Border Visibility="{Binding IsConnectionBannerVisible, Converter={StaticResource BoolToVisibility}}">
+                <Border.Style>
+                    <Style TargetType="Border" BasedOn="{StaticResource WarningBanner}">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsConnectionProblem}" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource DangerSoftBrush}" />
+                                <Setter Property="BorderBrush" Value="{DynamicResource DangerLineBrush}" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <TextBlock Text="{Binding ConnectionBannerText}" FontWeight="SemiBold" TextWrapping="Wrap"
+                           AutomationProperties.LiveSetting="Assertive" />
+            </Border>
+            <Border Style="{StaticResource InfoBanner}" Visibility="{Binding HasStatus, Converter={StaticResource BoolToVisibility}}">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Width="28" Height="28" MinHeight="28" FontSize="11"
+                            Content="&#xE711;" ToolTip="Dismiss" AutomationProperties.Name="Dismiss message" Command="{Binding DismissMessageCommand}" />
+                    <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                </DockPanel>
+            </Border>
+        </StackPanel>
 
-        <!-- Forms over the player: administrator sign-in (on request), first-run setup, recovery -->
+        <!-- ===================================================== Forms over the player: admin sign-in (on request), first-run setup, recovery -->
         <views:LoginView Grid.Row="2" DataContext="{Binding Login}"
                          Visibility="{Binding DataContext.IsLoginVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibility}}" />
         <views:SetupView Grid.Row="2" DataContext="{Binding Setup}"
@@ -74,102 +241,70 @@
         <views:RecoveryView Grid.Row="2" DataContext="{Binding Recovery}"
                             Visibility="{Binding DataContext.IsRecoveryVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibility}}" />
 
-        <!-- The player (open use, no sign-in needed): sidebar | content | queue panel -->
+        <!-- ===================================================== The player (open use): nav rail | content | queue panel -->
         <Grid Grid.Row="2" Visibility="{Binding IsMainVisible, Converter={StaticResource BoolToVisibility}}">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="220" />
+                <ColumnDefinition Width="88" />
                 <ColumnDefinition Width="*" MinWidth="300" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <!-- Sidebar: navigation + categories -->
-            <Border Grid.Column="0" Background="{StaticResource SidebarBrush}" Padding="10,12">
+            <!-- Left nav rail -->
+            <Border Grid.Column="0" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,1,0" Padding="0,14">
                 <DockPanel>
-                    <StackPanel DockPanel.Dock="Top">
-                        <TextBlock Text="SabhaMujic" FontSize="22" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" Margin="6,0,0,10" />
-                        <RadioButton Style="{StaticResource NavButton}" GroupName="Nav"
+                    <StackPanel DockPanel.Dock="Top" HorizontalAlignment="Center">
+                        <RadioButton Style="{StaticResource NavRailButton}" GroupName="Nav" AutomationProperties.Name="Library"
                                      Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:NavPage.Library}"
                                      IsChecked="{Binding CurrentPage, Mode=OneWay, Converter={StaticResource EnumEquals}, ConverterParameter=Library}">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Glyph}" Text="&#xE8F1;" Margin="0,0,10,0" />
-                                <TextBlock Text="Library" />
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource Glyph}" Text="&#xE8F1;" FontSize="22" HorizontalAlignment="Center" />
+                                <TextBlock Text="Library" HorizontalAlignment="Center" Margin="0,6,0,0" />
                             </StackPanel>
                         </RadioButton>
-                        <RadioButton Style="{StaticResource NavButton}" GroupName="Nav"
-                                     Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:NavPage.Playlists}"
-                                     IsChecked="{Binding CurrentPage, Mode=OneWay, Converter={StaticResource EnumEquals}, ConverterParameter=Playlists}">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Glyph}" Text="&#xE90B;" Margin="0,0,10,0" />
-                                <TextBlock Text="Playlists" />
-                            </StackPanel>
-                        </RadioButton>
-                        <RadioButton Style="{StaticResource NavButton}" GroupName="Nav"
+                        <RadioButton Style="{StaticResource NavRailButton}" GroupName="Nav" AutomationProperties.Name="Queue"
                                      Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:NavPage.Queue}"
                                      IsChecked="{Binding CurrentPage, Mode=OneWay, Converter={StaticResource EnumEquals}, ConverterParameter=Queue}">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Glyph}" Text="&#xE8FD;" Margin="0,0,10,0" />
-                                <TextBlock Text="Queue" />
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource Glyph}" Text="&#xE8FD;" FontSize="22" HorizontalAlignment="Center" />
+                                <TextBlock Text="Queue" HorizontalAlignment="Center" Margin="0,6,0,0" />
                             </StackPanel>
                         </RadioButton>
-                        <RadioButton Style="{StaticResource NavButton}" GroupName="Nav"
+                        <RadioButton Style="{StaticResource NavRailButton}" GroupName="Nav" AutomationProperties.Name="Playlists"
+                                     Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:NavPage.Playlists}"
+                                     IsChecked="{Binding CurrentPage, Mode=OneWay, Converter={StaticResource EnumEquals}, ConverterParameter=Playlists}">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource Glyph}" Text="&#xE93C;" FontSize="22" HorizontalAlignment="Center" />
+                                <TextBlock Text="Playlists" HorizontalAlignment="Center" Margin="0,6,0,0" />
+                            </StackPanel>
+                        </RadioButton>
+                        <RadioButton Style="{StaticResource NavRailButton}" GroupName="Nav" AutomationProperties.Name="Admin"
                                      Visibility="{Binding IsAdminVisible, Converter={StaticResource BoolToVisibility}}"
                                      Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:NavPage.Admin}"
                                      IsChecked="{Binding CurrentPage, Mode=OneWay, Converter={StaticResource EnumEquals}, ConverterParameter=Admin}">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Glyph}" Text="&#xE713;" Margin="0,0,10,0" />
-                                <TextBlock Text="Admin" />
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource Glyph}" Text="&#xE713;" FontSize="22" HorizontalAlignment="Center" />
+                                <TextBlock Text="Admin" HorizontalAlignment="Center" Margin="0,6,0,0" />
                             </StackPanel>
                         </RadioButton>
                     </StackPanel>
 
-                    <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
-                        <Button Command="{Binding ToggleQueuePanelCommand}" HorizontalContentAlignment="Left" Margin="0,0,0,6"
-                                ToolTip="Show or hide the queue panel">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Glyph}" Text="&#xE8A0;" Margin="0,0,8,0" />
-                                <TextBlock Text="Queue panel" />
-                            </StackPanel>
-                        </Button>
-                        <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="4,6,0,4"
-                                   Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibility}}" />
-                        <Button Content="Admin sign-in" Command="{Binding OpenAdminSignInCommand}" HorizontalAlignment="Left"
-                                Visibility="{Binding IsAdminSignInAvailable, Converter={StaticResource BoolToVisibility}}"
-                                AutomationProperties.HelpText="Sign in as an administrator to manage the library, accounts and phones." />
-                        <TextBlock Text="{Binding UserDisplayText}" Style="{StaticResource MutedText}" Margin="4,6,0,4"
-                                   Visibility="{Binding IsSignedIn, Converter={StaticResource BoolToVisibility}}" />
-                        <Button Content="Sign out" Command="{Binding LogoutCommand}" HorizontalAlignment="Left"
-                                Visibility="{Binding IsSignedIn, Converter={StaticResource BoolToVisibility}}" />
-                    </StackPanel>
-
-                    <DockPanel Margin="0,16,0,0">
-                        <TextBlock DockPanel.Dock="Top" Text="CATEGORIES" FontSize="12" FontWeight="SemiBold"
-                                   Foreground="{StaticResource MutedTextBrush}" Margin="6,0,0,6" />
-                        <ListBox x:Name="CategoryList" DataContext="{Binding Library}" ItemsSource="{Binding Categories}"
-                                 SelectedItem="{Binding SelectedCategory}" Background="Transparent" BorderThickness="0"
-                                 SelectionChanged="OnCategorySelected" AutomationProperties.Name="Categories">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate DataType="{x:Type vm:CategoryItemViewModel}">
-                                    <DockPanel>
-                                        <TextBlock DockPanel.Dock="Right" Text="{Binding TrackCount}" Style="{StaticResource MutedText}" />
-                                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-                                    </DockPanel>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-                    </DockPanel>
+                    <Button DockPanel.Dock="Bottom" Style="{StaticResource IconButton}" Width="48" Height="48" FontSize="18"
+                            VerticalAlignment="Bottom" Content="&#xE8A0;" Command="{Binding ToggleQueuePanelCommand}"
+                            ToolTip="Show or hide the queue panel" AutomationProperties.Name="Show or hide the queue panel" />
+                    <Border />
                 </DockPanel>
             </Border>
 
             <!-- Centre content -->
-            <ContentControl Grid.Column="1" x:Name="PageHost" Content="{Binding CurrentContent}" Margin="20,16,20,12" Focusable="False" />
+            <ContentControl Grid.Column="1" x:Name="PageHost" Content="{Binding CurrentContent}" Margin="28,18,28,12" Focusable="False" />
 
             <!-- Right: collapsible queue panel -->
-            <Border Grid.Column="2" Width="340" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}"
-                    BorderThickness="1,0,0,0" Padding="12"
+            <Border Grid.Column="2" Width="340" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
+                    BorderThickness="1,0,0,0" Padding="16,14,12,12"
                     Visibility="{Binding IsQueuePanelOpen, Converter={StaticResource BoolToVisibility}}">
                 <DockPanel>
                     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-                        <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE711;"
+                        <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" FontSize="12" Content="&#xE711;"
                                 Command="{Binding ToggleQueuePanelCommand}" ToolTip="Hide queue panel" AutomationProperties.Name="Hide queue panel" />
                         <TextBlock Text="Up next" Style="{StaticResource SectionTitle}" Margin="0" VerticalAlignment="Center" />
                     </DockPanel>
@@ -178,7 +313,7 @@
             </Border>
         </Grid>
 
-        <!-- Bottom: now playing -->
+        <!-- ===================================================== Bottom: now playing -->
         <views:NowPlayingBar Grid.Row="3" x:Name="NowPlayingBar" DataContext="{Binding NowPlaying}"
                              MiniPlayerRequested="OnMiniPlayerRequested"
                              Visibility="{Binding DataContext.IsMainVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibility}}" />

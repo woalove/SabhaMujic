@@ -13,6 +13,10 @@
   <ItemGroup>
     <!-- Also a WPF resource, so windows can use it as their title-bar icon (pack://application:,,,/Assets/SabhaMujic.ico). -->
     <Resource Include="Assets\SabhaMujic.ico" />
+    <!-- Inter 4.1 (SIL Open Font License 1.1), embedded so the app looks the same on every PC and works offline.
+         Referenced as ../Assets/Fonts/#Inter from Themes/Controls.xaml. The licence ships next to the exe. -->
+    <Resource Include="Assets\Fonts\*.ttf" />
+    <None Include="Assets\Fonts\LICENSE.txt" Link="Fonts\Inter-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../SabhaMujic.Client/SabhaMujic.Client.csproj" />

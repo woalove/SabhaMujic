@@ -5,16 +5,18 @@
     <DockPanel>
         <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,10">
             <Button Content="Add files…" Command="{Binding AddFilesCommand}" Margin="0,0,8,6" />
-            <Button Content="Start import" Style="{StaticResource AccentButton}" Command="{Binding StartCommand}" Margin="0,0,8,6" />
+            <Button Content="Start import" Style="{StaticResource PrimaryButton}" Command="{Binding StartCommand}" Margin="0,0,8,6" />
             <Button Content="Cancel" Command="{Binding CancelCommand}" Margin="0,0,8,6" />
-            <Button Content="Clear finished" Command="{Binding ClearFinishedCommand}" Margin="0,0,16,6" />
-            <TextBlock Text="Category for new files:" VerticalAlignment="Center" Margin="0,0,6,6" />
-            <ComboBox Width="180" Margin="0,0,0,6" ItemsSource="{Binding CategoryOptions}" SelectedItem="{Binding DefaultCategory}"
-                      DisplayMemberPath="Name" AutomationProperties.Name="Category for new files" />
+            <Button Content="Clear finished" Style="{StaticResource GhostButton}" Command="{Binding ClearFinishedCommand}" Margin="0,0,16,6" />
+            <TextBlock Text="Categories for new files" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,0,8,6" />
+            <ContentControl Width="220" Margin="0,0,8,6" Content="{Binding DefaultCategories}" ContentTemplate="{StaticResource CategoryPicker}"
+                            Focusable="False" AutomationProperties.Name="Categories for new files" />
+            <Button Content="Apply to all" Style="{StaticResource GhostButton}" Command="{Binding ApplyDefaultCategoriesToAllCommand}" Margin="0,0,0,6"
+                    ToolTip="Give every file that hasn't been uploaded yet these categories" />
         </WrapPanel>
         <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10" Visibility="{Binding IsImporting, Converter={StaticResource BoolToVisibility}}">
             <TextBlock Text="Uploading…" Style="{StaticResource MutedText}" />
-            <ProgressBar Value="{Binding OverallPercent, Mode=OneWay}" Maximum="100" Height="10" />
+            <ProgressBar Value="{Binding OverallPercent, Mode=OneWay}" Maximum="100" Margin="0,6,0,0" />
         </StackPanel>
         <ContentControl DockPanel.Dock="Top" Content="{Binding}" ContentTemplate="{StaticResource MessageStrip}" Focusable="False" />
         <TextBlock DockPanel.Dock="Bottom" FontSize="12" Style="{StaticResource MutedText}" Margin="0,6,0,0" TextWrapping="Wrap"
@@ -28,7 +30,7 @@
                             <ColumnDefinition Width="2*" MinWidth="140" />
                             <ColumnDefinition Width="2*" />
                             <ColumnDefinition Width="1.5*" />
-                            <ColumnDefinition Width="150" />
+                            <ColumnDefinition Width="190" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
@@ -47,24 +49,24 @@
                                  Margin="0,0,6,0" ToolTip="Title" AutomationProperties.Name="Title" />
                         <TextBox Grid.Column="2" Text="{Binding Artist, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding IsEditable}"
                                  Margin="0,0,6,0" ToolTip="Artist (optional)" AutomationProperties.Name="Artist" />
-                        <ComboBox Grid.Column="3" ItemsSource="{Binding Owner.CategoryOptions}" SelectedItem="{Binding Category}"
-                                  DisplayMemberPath="Name" IsEnabled="{Binding IsEditable}" AutomationProperties.Name="Category" />
+                        <ContentControl Grid.Column="3" Content="{Binding Categories}" ContentTemplate="{StaticResource CategoryPicker}"
+                                        IsEnabled="{Binding IsEditable}" Focusable="False" AutomationProperties.Name="Categories" />
                         <Button Grid.Column="4" Style="{StaticResource IconButton}" Content="&#xE711;" ToolTip="Remove from list"
                                 Command="{Binding Owner.RemoveFileCommand}" CommandParameter="{Binding}" AutomationProperties.Name="Remove from list" />
 
-                        <ProgressBar Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,6,6,0" Maximum="100"
+                        <ProgressBar Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,8,6,0" Maximum="100"
                                      Value="{Binding Percent, Mode=OneWay}" />
                         <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="5" Text="{Binding Message}" TextWrapping="Wrap" Margin="0,4,0,0"
                                    Visibility="{Binding Message, Converter={StaticResource NullToVisibility}}">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
-                                    <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource Text2Brush}" />
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding IsError}" Value="True">
-                                            <Setter Property="Foreground" Value="{StaticResource ErrorTextBrush}" />
+                                            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding IsInfo}" Value="True">
-                                            <Setter Property="Foreground" Value="{StaticResource InfoTextBrush}" />
+                                            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
