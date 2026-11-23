@@ -167,7 +167,8 @@ public sealed class PipeSoakClient : IAsyncDisposable
 
     public bool IsAdmin { get; }
 
-    public bool IsConnected => Client.State == ConnectionState.Connected && Client.Session is not null;
+    /// <summary>Connected (and, for the admin, signed in; volunteers use the desktop without signing in).</summary>
+    public bool IsConnected => Client.State == ConnectionState.Connected && (!IsAdmin || Client.Session is not null);
 
     public static async Task<PipeSoakClient> ConnectAsync(string pipeName, string name, string? user, string? secret, bool isAdmin,
         Action<string, string> violation, Action<double> lag, CancellationToken ct)
@@ -188,6 +189,10 @@ public sealed class PipeSoakClient : IAsyncDisposable
             if (user is not null)
             {
                 await client.Auth.LoginAsync(user, secret!, ct).ConfigureAwait(false);
+            }
+
+            if (user is not null || !isAdmin)
+            {
                 view.Seed(await client.Playback.GetStateAsync(ct).ConfigureAwait(false), await client.Playback.GetQueueAsync(ct).ConfigureAwait(false));
             }
         }
@@ -207,7 +212,7 @@ public sealed class PipeSoakClient : IAsyncDisposable
     public ValueTask DisposeAsync() => Client.DisposeAsync();
 }
 
-/// <summary>A paired phone: a SignalR hub connection authenticated with a device token.</summary>
+/// <summary>An administrator's phone: a SignalR hub connection authenticated with a remembered-device session token.</summary>
 public sealed class RemoteSoakClient : IAsyncDisposable
 {
     private RemoteSoakClient(HubConnection hub, ClientView view, string token)

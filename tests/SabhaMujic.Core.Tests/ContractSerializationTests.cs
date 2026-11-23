@@ -25,9 +25,13 @@ public class ContractSerializationTests
         var back = JsonSerializer.Deserialize<QueueDto>(JsonSerializer.Serialize(queue, Web), Web)!;
         Assert.Equal(queue.Items, back.Items);
 
-        var track = new TrackDto(Guid.NewGuid(), "Dhun", null, null, 245.2, AnalysisStatus.Ready,
+        var track = new TrackDto(Guid.NewGuid(), "Dhun", null, [Guid.NewGuid(), Guid.NewGuid()], 245.2, AnalysisStatus.Ready,
             new LoopRegionDto(10, 70, 0.2, 0.9, false), DateTimeOffset.UnixEpoch);
-        Assert.Equal(track, JsonSerializer.Deserialize<TrackDto>(JsonSerializer.Serialize(track, Web), Web));
+        var json = JsonSerializer.Serialize(track, Web);
+        Assert.Contains("\"categoryIds\":[", json);
+        var trackBack = JsonSerializer.Deserialize<TrackDto>(json, Web)!;
+        Assert.Equal(track.CategoryIds, trackBack.CategoryIds); // lists compare by reference in record equality
+        Assert.Equal(track with { CategoryIds = [] }, trackBack with { CategoryIds = [] });
     }
 
     [Fact]

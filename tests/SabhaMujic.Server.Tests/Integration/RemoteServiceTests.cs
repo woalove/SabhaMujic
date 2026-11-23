@@ -14,12 +14,12 @@ namespace SabhaMujic.Server.Tests.Integration;
 
 /// <summary>
 /// The whole service with the remote enabled (decision #25 composition): real <c>SabhaHost</c>, real engine, the
-/// <c>RemoteHost</c> component on loopback, and a SignalR client as a paired phone.
+/// <c>RemoteHost</c> component on loopback, and a SignalR client as an administrator's phone.
 /// </summary>
 public sealed class RemoteServiceTests
 {
     [Fact]
-    public async Task A_paired_phone_controls_the_real_engine_and_playback_survives_losing_every_hub_connection()
+    public async Task A_signed_in_phone_controls_the_real_engine_and_playback_survives_losing_every_hub_connection()
     {
         await using var h = await HostHarness.StartAsync(speed: 10, remote: true);
         var remote = h.Host.Remote!;
@@ -38,21 +38,24 @@ public sealed class RemoteServiceTests
 
         var track = (await admin.CompleteImportAsync(upload, new ImportMetadata("Long tone", null, null))).TrackId;
 
-        // Pairing codes point at the bootstrap site and carry the CA fingerprint for comparison on the PC.
-        var code = await admin.CreatePairingCodeAsync(Role.Volunteer);
-        Assert.Equal(remote.Authority.Sha256Fingerprint, code.CaFingerprint);
-        Assert.Equal($"http://127.0.0.1:{https.BootstrapPort}/#code={code.Code}", code.PairingUrl);
+        // "Set up a phone" points at the bootstrap site and shows the CA fingerprint for comparison on the PC.
+        var setup = await admin.GetPhoneSetupInfoAsync();
+        Assert.Equal(remote.Authority.Sha256Fingerprint, setup.CaFingerprint);
+        Assert.Equal($"http://127.0.0.1:{https.BootstrapPort}/", setup.BootstrapUrl);
+        Assert.Equal($"https://127.0.0.1:{https.HttpsPort}/", setup.RemoteUrl);
+        Assert.True(setup.IsRemoteRunning);
 
-        // Pair over HTTPS (trusting exactly this CA) and open the hub as that phone.
+        // Sign in over HTTPS (trusting exactly this CA) and open the hub as that phone.
         using var http = new HttpClient(new HttpClientHandler
         {
             UseCookies = false,
             ServerCertificateCustomValidationCallback = (_, cert, _, errors) => Trusted(remote.Authority.Certificate, cert, errors),
         })
         { BaseAddress = new Uri($"https://localhost:{https.HttpsPort}/") };
-        using var pair = new HttpRequestMessage(HttpMethod.Post, "/api/pair")
+        using var pair = new HttpRequestMessage(HttpMethod.Post, "/api/login")
         {
-            Content = JsonContent.Create(new { code = code.Code, deviceName = "Sevak iPhone" }, options: RemoteJson.Options),
+            Content = JsonContent.Create(new { userName = "admin", password = "admin-pin", rememberDevice = true, deviceName = "Sevak iPhone" },
+                options: RemoteJson.Options),
         };
         pair.Headers.Add(RemoteAuth.CsrfHeader, "1");
         using var paired = await http.SendAsync(pair);

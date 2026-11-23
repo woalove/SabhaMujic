@@ -32,7 +32,7 @@
  * @property {string} id
  * @property {string} title
  * @property {string | null} artist
- * @property {string | null} categoryId
+ * @property {string[]} categoryIds
  * @property {number} durationSeconds
  * @property {string} addedAt
  */

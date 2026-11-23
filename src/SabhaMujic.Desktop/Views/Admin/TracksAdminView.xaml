@@ -38,9 +38,15 @@
                 <TextBox Text="{Binding EditTitle, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Title" />
                 <TextBlock Text="Artist" Style="{StaticResource FieldLabel}" />
                 <TextBox Text="{Binding EditArtist, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Artist" />
-                <TextBlock Text="Category" Style="{StaticResource FieldLabel}" />
-                <ComboBox ItemsSource="{Binding CategoryOptions}" SelectedItem="{Binding EditCategory}" DisplayMemberPath="Name"
-                          AutomationProperties.Name="Category" />
+                <TextBlock Text="Categories (tick all that apply)" Style="{StaticResource FieldLabel}" />
+                <ItemsControl ItemsSource="{Binding EditCategories}" AutomationProperties.Name="Categories">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <CheckBox Content="{Binding Name}" IsChecked="{Binding IsSelected}" Margin="0,2"
+                                      AutomationProperties.Name="{Binding Name}" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
                 <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                     <Button Content="Save" Style="{StaticResource AccentButton}" Command="{Binding SaveCommand}" />
                     <Button Content="Delete track…" Command="{Binding DeleteCommand}" />

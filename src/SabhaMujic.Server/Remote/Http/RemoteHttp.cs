@@ -58,8 +58,9 @@ public static class RemoteJson
 }
 
 /// <summary>
-/// Remote authentication and request hygiene. The device token lives only in an HttpOnly, Secure, SameSite=Strict
-/// <c>__Host-</c> cookie (never readable by script); <c>Authorization: Bearer</c> is accepted for non-browser clients
+/// Remote authentication and request hygiene. The session token lives only in an HttpOnly, Secure, SameSite=Strict
+/// <c>__Host-</c> cookie (never readable by script): persistent (<see cref="CookieLifetime"/>) for a remembered phone,
+/// a browser-session cookie otherwise; <c>Authorization: Bearer</c> is accepted for non-browser clients
 /// (tests). State-changing API requests need the <see cref="CsrfHeader"/> header and, when present, a same-origin
 /// <c>Origin</c>.
 /// </summary>
@@ -67,7 +68,8 @@ public static class RemoteAuth
 {
     public const string CookieName = "__Host-SabhaMujic";
     public const string CsrfHeader = "X-SabhaMujic";
-    public static readonly TimeSpan CookieLifetime = TimeSpan.FromDays(400); // browsers cap cookie lifetime at ~400 days
+    /// <summary>A remembered phone's cookie; matches its sliding server-side session (180 days).</summary>
+    public static readonly TimeSpan CookieLifetime = TimeSpan.FromDays(180);
 
     public static string? GetToken(HttpContext context)
     {
@@ -81,14 +83,16 @@ public static class RemoteAuth
         return context.Request.Cookies.TryGetValue(CookieName, out var cookie) && cookie.Length is > 0 and <= 512 ? cookie : null;
     }
 
-    public static void SetCookie(HttpContext context, string token) =>
+    /// <param name="persistent">True for a remembered phone (Max-Age <see cref="CookieLifetime"/>); false gives a cookie
+    /// that ends with the browser session (the server-side session ends after 12 hours either way).</param>
+    public static void SetCookie(HttpContext context, string token, bool persistent) =>
         context.Response.Cookies.Append(CookieName, token, new CookieOptions
         {
             HttpOnly = true,
             Secure = true,
             SameSite = SameSiteMode.Strict,
             Path = "/",
-            MaxAge = CookieLifetime,
+            MaxAge = persistent ? CookieLifetime : null,
             IsEssential = true,
         });
 
@@ -128,7 +132,7 @@ public static class RemoteAuth
     /// <summary>State-changing requests must carry <c>X-SabhaMujic: 1</c> (a simple cross-site form cannot add it).</summary>
     public static bool HasCsrfHeader(HttpContext context) => context.Request.Headers[CsrfHeader] == "1";
 
-    /// <summary>The transport principal used for audit and per-caller pairing rate limits.</summary>
+    /// <summary>The transport principal used for audit.</summary>
     public static string Principal(HttpContext context) => "remote:" + (context.Connection.RemoteIpAddress?.ToString() ?? "unknown");
 
     /// <summary>

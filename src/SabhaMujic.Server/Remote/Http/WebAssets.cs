@@ -7,7 +7,7 @@ namespace SabhaMujic.Server.Remote.Http;
 
 /// <summary>
 /// The mobile web app, embedded in this assembly (<c>RemoteWeb/…</c> resources from <c>SabhaMujic.Remote.Web/wwwroot</c>)
-/// and served from memory: nothing is built or unpacked at install time. App routes (<c>/</c>, <c>/pair</c>) serve
+/// and served from memory: nothing is built or unpacked at install time. App routes (<c>/</c>, <c>/login</c>) serve
 /// <c>index.html</c>. Responses carry a content hash ETag and <c>Cache-Control: no-cache</c> so updates apply at once.
 /// </summary>
 public sealed class WebAssets
@@ -27,7 +27,7 @@ public sealed class WebAssets
         [".ico"] = "image/x-icon",
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
-    private static readonly FrozenSet<string> AppRoutes = new[] { "/", "/pair" }.ToFrozenSet(StringComparer.Ordinal);
+    private static readonly FrozenSet<string> AppRoutes = new[] { "/", "/login" }.ToFrozenSet(StringComparer.Ordinal);
 
     private readonly FrozenDictionary<string, Asset> _assets;
 

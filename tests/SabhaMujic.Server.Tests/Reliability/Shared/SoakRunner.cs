@@ -248,11 +248,6 @@ public sealed class SoakRunner : IAsyncDisposable
         _admin = await PipeSoakClient.ConnectAsync(_pipeName, "admin", null, null, isAdmin: true, Violation, OnLag, ct).ConfigureAwait(false);
         await _admin.Client.Auth.CompleteInitialSetupAsync(AdminUser, AdminSecret, ct).ConfigureAwait(false);
         await _admin.ReseedAsync(ct).ConfigureAwait(false);
-        for (var i = 1; i <= Math.Max(1, _o.PipeClients); i++)
-        {
-            await _admin.Client.Admin.CreateUserAsync(VolunteerName(i), Role.Volunteer, VolunteerSecret(i), ct).ConfigureAwait(false);
-        }
-
         // The library: lengths spread over [min, max], kinds rotated, shuffled with the seed.
         var lengths = Enumerable.Range(0, _o.TrackCount)
             .Select(i => _o.MinTrackSeconds + (_o.MaxTrackSeconds - _o.MinTrackSeconds) * (_o.TrackCount == 1 ? 0 : i / (double)(_o.TrackCount - 1)))
@@ -289,7 +284,7 @@ public sealed class SoakRunner : IAsyncDisposable
         {
             for (var i = 0; i < _o.RemoteClients; i++)
             {
-                _deviceTokens.Add(await _remote.PairAsync(H, AdminUser, AdminSecret, Role.Volunteer, $"Soak phone {i}", ct).ConfigureAwait(false));
+                _deviceTokens.Add(await _remote.SignInAsync(AdminUser, AdminSecret, $"Soak phone {i}", ct).ConfigureAwait(false));
                 await AddPhoneAsync(i, ct).ConfigureAwait(false);
             }
         }
@@ -303,10 +298,6 @@ public sealed class SoakRunner : IAsyncDisposable
         SetIntent(Intent.Playing);
     }
 
-    private static string VolunteerName(int i) => $"sevak{i}";
-
-    private static string VolunteerSecret(int i) => $"sevak-pin-{i}";
-
     private async Task<Guid> ImportAsync(SoakTrackKind kind, double seconds, string title, Guid? categoryId, CancellationToken ct)
     {
         var bytes = SoakWav.Create(kind, seconds, Interlocked.Increment(ref _trackSeed));
@@ -317,7 +308,7 @@ public sealed class SoakRunner : IAsyncDisposable
             await admin.Admin.UploadChunkAsync(id, offset, bytes[offset..Math.Min(bytes.Length, offset + AdminLimits.MaxChunkBytes)], ct).ConfigureAwait(false);
         }
 
-        var result = await admin.Admin.CompleteImportAsync(id, new ImportMetadata(title, "Soak", categoryId), ct).ConfigureAwait(false);
+        var result = await admin.Admin.CompleteImportAsync(id, new ImportMetadata(title, "Soak", categoryId is { } c ? [c] : null), ct).ConfigureAwait(false);
         lock (_library)
         {
             _library.Add(new LibraryTrack(result.TrackId, seconds, kind));
@@ -404,8 +395,8 @@ public sealed class SoakRunner : IAsyncDisposable
     private async Task AddVolunteerAsync(CancellationToken ct)
     {
         var n = Interlocked.Increment(ref _volunteerCounter);
-        var user = (n - 1) % Math.Max(1, _o.PipeClients) + 1;
-        var client = await PipeSoakClient.ConnectAsync(_pipeName, $"pipe-{n}", VolunteerName(user), VolunteerSecret(user), isAdmin: false, Violation, OnLag, ct)
+        // Volunteers use the desktop without signing in (open use, contract v2).
+        var client = await PipeSoakClient.ConnectAsync(_pipeName, $"pipe-{n}", null, null, isAdmin: false, Violation, OnLag, ct)
             .ConfigureAwait(false);
         lock (_volunteers)
         {
@@ -1058,6 +1049,12 @@ public sealed class SoakRunner : IAsyncDisposable
     {
         if (_admin is { } admin)
         {
+            if (admin.Client.State == ConnectionState.Connected && admin.Client.Session is null)
+            {
+                // The desktop admin session ends after 15 idle minutes (contract v2): sign in again, as a person would.
+                await admin.Client.Auth.LoginAsync(AdminUser, AdminSecret, ct).ConfigureAwait(false);
+            }
+
             return admin;
         }
 

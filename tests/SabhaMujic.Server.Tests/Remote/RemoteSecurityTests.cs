@@ -8,7 +8,7 @@ using SabhaMujic.Server.Remote.Network;
 
 namespace SabhaMujic.Server.Tests.Remote;
 
-/// <summary>Transport security of the remote: peer filter, headers, pairing cookie, CSRF, rate limits, revocation.</summary>
+/// <summary>Transport security of the remote: peer filter, headers, sign-in cookie, CSRF, rate limits, revocation.</summary>
 public sealed class RemoteSecurityTests : IAsyncLifetime
 {
     private RemoteTestHost _host = null!;
@@ -41,7 +41,7 @@ public sealed class RemoteSecurityTests : IAsyncLifetime
     [InlineData("2001:db8::7")]
     public async Task Public_peers_get_403_on_every_endpoint_of_both_sites(string peer)
     {
-        var phone = await _host.PairAsync(Role.Admin);
+        var phone = await _host.PhoneAsync(Role.Admin);
         foreach (var path in new[] { "/", "/api/me", "/js/app.js", "/hub/negotiate?negotiateVersion=1" })
         {
             using var request = new HttpRequestMessage(path.StartsWith("/hub", StringComparison.Ordinal) ? HttpMethod.Post : HttpMethod.Get, path);
@@ -92,8 +92,8 @@ public sealed class RemoteSecurityTests : IAsyncLifetime
         Assert.DoesNotContain("onclick", html, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("style=", html, StringComparison.OrdinalIgnoreCase);
 
-        using var pair = await http.GetAsync("/pair");
-        Assert.Equal(html, await pair.Content.ReadAsStringAsync());
+        using var login = await http.GetAsync("/login");
+        Assert.Equal(html, await login.Content.ReadAsStringAsync());
 
         foreach (var (path, type) in new[]
         {
@@ -119,62 +119,134 @@ public sealed class RemoteSecurityTests : IAsyncLifetime
         }
     }
 
-    [Fact]
-    public async Task Pairing_sets_an_httponly_secure_samesite_strict_cookie_and_never_returns_the_token()
+    private static HttpRequestMessage Login(string userName, string password, bool remember, string? deviceName = "Sevak phone", string? peer = null)
     {
-        var code = await _host.NewPairingCodeAsync(Role.Volunteer);
-        using var response = await _host.Http().SendAsync(RemoteTestHost.Api(HttpMethod.Post, "/api/pair", new { code, deviceName = "Sevak phone" }));
+        var request = RemoteTestHost.Api(HttpMethod.Post, "/api/login", new { userName, password, rememberDevice = remember, deviceName });
+        if (peer is not null)
+        {
+            request.Headers.Add(RemoteTestHost.PeerHeader, peer);
+        }
+
+        return request;
+    }
+
+    private static List<string> CookieAttributes(HttpResponseMessage response) =>
+        response.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith(RemoteAuth.CookieName + "=", StringComparison.Ordinal))
+            .Split(';').Select(a => a.Trim().ToLowerInvariant()).ToList();
+
+    [Fact]
+    public async Task Remembered_sign_in_sets_a_persistent_httponly_secure_samesite_strict_cookie_and_lists_the_device()
+    {
+        using var response = await _host.Http().SendAsync(Login(TestServer.AdminName, TestServer.AdminSecret, remember: true));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var cookie = response.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith(RemoteAuth.CookieName + "=", StringComparison.Ordinal));
-        var attributes = cookie.Split(';').Select(a => a.Trim().ToLowerInvariant()).ToList();
+        var attributes = CookieAttributes(response);
+        Assert.StartsWith("__host-", attributes[0]);
         Assert.Contains("httponly", attributes);
         Assert.Contains("secure", attributes);
         Assert.Contains("samesite=strict", attributes);
         Assert.Contains("path=/", attributes);
         Assert.DoesNotContain(attributes, a => a.StartsWith("domain", StringComparison.Ordinal));
-        Assert.Contains(attributes, a => a.StartsWith("max-age=", StringComparison.Ordinal) && long.Parse(a[8..]) > 300 * 86400);
+        Assert.Contains(attributes, a => a.StartsWith("max-age=", StringComparison.Ordinal) && long.Parse(a[8..]) >= 170 * 86400);
 
         var token = RemoteTestHost.CookieToken(response)!;
         var body = await response.Content.ReadAsStringAsync();
         Assert.DoesNotContain(token, body);
         var me = (await response.Content.ReadFromJsonAsync<MeResponse>(RemoteJson.Options))!;
-        Assert.Equal("Sevak phone", me.Name);
-        Assert.Equal(Role.Volunteer, me.Role);
+        Assert.Equal((TestServer.AdminName, Role.Admin), (me.Name, me.Role));
+        var device = Assert.Single(await _host.Server.App.Devices.ListAsync());
+        Assert.Equal(("Sevak phone", Role.Admin), (device.Name, device.Role));
 
-        // The cookie authenticates (as a browser would send it).
+        // The cookie authenticates (as a browser would send it), and /api/me slides the browser-side expiry.
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/me");
         request.Headers.Add("Cookie", $"{RemoteAuth.CookieName}={token}");
         using var meResponse = await _host.Http().SendAsync(request);
         Assert.Equal(HttpStatusCode.OK, meResponse.StatusCode);
-
-        // A used code fails.
-        using var reuse = await _host.Http().SendAsync(RemoteTestHost.Api(HttpMethod.Post, "/api/pair", new { code, deviceName = "Second" }));
-        Assert.Equal(HttpStatusCode.Unauthorized, reuse.StatusCode);
-        Assert.Equal(ErrorCode.Unauthenticated, (await RemoteErrors.FromHttpAsync(reuse)).Code);
-        Assert.Single(await _host.Server.App.Devices.ListAsync());
+        Assert.Contains(CookieAttributes(meResponse), a => a.StartsWith("max-age=", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task Pairing_is_rate_limited_per_peer()
+    public async Task Sign_in_without_remember_sets_a_session_cookie_and_lists_no_device()
+    {
+        using var response = await _host.Http().SendAsync(Login(TestServer.AdminName, TestServer.AdminSecret, remember: false));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var attributes = CookieAttributes(response);
+        Assert.Contains("httponly", attributes);
+        Assert.Contains("secure", attributes);
+        Assert.Contains("samesite=strict", attributes);
+        Assert.DoesNotContain(attributes, a => a.StartsWith("max-age", StringComparison.Ordinal) || a.StartsWith("expires", StringComparison.Ordinal));
+        Assert.Empty(await _host.Server.App.Devices.ListAsync());
+
+        var token = RemoteTestHost.CookieToken(response)!;
+        using var me = await _host.Http(token).GetAsync("/api/me");
+        Assert.Equal(HttpStatusCode.OK, me.StatusCode);
+        Assert.False(me.Headers.Contains("Set-Cookie")); // nothing to slide: it ends 12 h after sign-in
+
+        _host.Server.Clock.Advance(TimeSpan.FromHours(12) + TimeSpan.FromMinutes(1));
+        using var expired = await _host.Http(token).GetAsync("/api/me");
+        Assert.Equal(HttpStatusCode.Unauthorized, expired.StatusCode);
+    }
+
+    [Fact]
+    public async Task Wrong_passwords_and_volunteer_accounts_get_no_cookie()
+    {
+        using var wrong = await _host.Http().SendAsync(Login(TestServer.AdminName, "not-the-password", remember: true));
+        Assert.Equal(HttpStatusCode.Unauthorized, wrong.StatusCode);
+        Assert.False(wrong.Headers.Contains("Set-Cookie"));
+
+        using var volunteer = await _host.Http().SendAsync(Login(TestServer.VolunteerName, TestServer.VolunteerSecret, remember: true));
+        Assert.Equal(HttpStatusCode.Forbidden, volunteer.StatusCode);
+        var error = await RemoteErrors.FromHttpAsync(volunteer);
+        Assert.Equal(ErrorCode.Forbidden, error.Code);
+        Assert.Contains("administrators", error.Message);
+        Assert.False(volunteer.Headers.Contains("Set-Cookie"));
+        Assert.Empty(await _host.Server.App.Devices.ListAsync());
+
+        // A phone paired as a volunteer before v2 is refused everywhere but stays listed for the admin to forget.
+        var legacy = await _host.PhoneAsync(Role.Volunteer);
+        using var me = await _host.Http(legacy.Token).GetAsync("/api/me");
+        Assert.Equal(HttpStatusCode.Forbidden, me.StatusCode);
+        var hub = _host.Hub(legacy.Token);
+        var refused = await Assert.ThrowsAsync<HttpRequestException>(() => hub.StartAsync());
+        Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+        Assert.Contains(legacy.DeviceId, (await _host.Server.App.Devices.ListAsync()).Select(d => d.Id));
+    }
+
+    [Fact]
+    public async Task Sign_in_is_rate_limited()
     {
         var http = _host.Http();
-        async Task<HttpStatusCode> Pair(string code, string peer)
+        for (var i = 0; i < _host.Server.App.Options.LoginMaxFailuresPerUser; i++)
         {
-            var request = RemoteTestHost.Api(HttpMethod.Post, "/api/pair", new { code, deviceName = "phone" });
-            request.Headers.Add(RemoteTestHost.PeerHeader, peer);
-            using var response = await http.SendAsync(request);
-            return response.StatusCode;
+            using var failed = await http.SendAsync(Login(TestServer.AdminName, "wrong-pass-" + i, remember: true, peer: "10.9.9.9"));
+            Assert.Equal(HttpStatusCode.Unauthorized, failed.StatusCode);
         }
 
-        for (var i = 0; i < _host.Server.App.Options.PairingMaxFailuresPerCaller; i++)
-        {
-            Assert.Equal(HttpStatusCode.Unauthorized, await Pair("000000", "10.9.9.9"));
-        }
+        // Even the right password is refused while limited, from any phone.
+        using var limited = await http.SendAsync(Login(TestServer.AdminName, TestServer.AdminSecret, remember: true, peer: "10.9.9.10"));
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        Assert.Equal(ErrorCode.RateLimited, (await RemoteErrors.FromHttpAsync(limited)).Code);
+        Assert.False(limited.Headers.Contains("Set-Cookie"));
+        Assert.Empty(await _host.Server.App.Devices.ListAsync());
 
-        var valid = await _host.NewPairingCodeAsync(Role.Volunteer);
-        Assert.Equal(HttpStatusCode.TooManyRequests, await Pair(valid, "10.9.9.9"));
-        Assert.Equal(HttpStatusCode.OK, await Pair(valid, "10.9.9.10"));
+        _host.Server.Clock.Advance(TimeSpan.FromMinutes(5));
+        using var later = await http.SendAsync(Login(TestServer.AdminName, TestServer.AdminSecret, remember: true, peer: "10.9.9.10"));
+        Assert.Equal(HttpStatusCode.OK, later.StatusCode);
+    }
+
+    [Fact]
+    public async Task Pairing_endpoints_no_longer_exist()
+    {
+        var http = _host.Http();
+        using var pair = await http.SendAsync(RemoteTestHost.Api(HttpMethod.Post, "/api/pair", new { code = "123456", deviceName = "x" }));
+        Assert.Equal(HttpStatusCode.NotFound, pair.StatusCode);
+        using var pairPage = await http.GetAsync("/pair");
+        Assert.Equal(HttpStatusCode.NotFound, pairPage.StatusCode);
+        Assert.DoesNotContain(RemoteApiEndpoints.All, e => e.Route.Contains("pair", StringComparison.OrdinalIgnoreCase));
+        using var loginPage = await http.GetAsync("/login");
+        Assert.Equal(HttpStatusCode.OK, loginPage.StatusCode);
+        Assert.Empty(await _host.Server.App.Devices.ListAsync());
     }
 
     [Theory]
@@ -184,7 +256,7 @@ public sealed class RemoteSecurityTests : IAsyncLifetime
     [InlineData("null", true)]                         // opaque origin
     public async Task State_changing_requests_need_the_csrf_header_and_a_same_origin(string? origin, bool withHeader)
     {
-        var admin = await _host.PairAsync(Role.Admin);
+        var admin = await _host.PhoneAsync(Role.Admin);
         var request = new HttpRequestMessage(HttpMethod.Post, "/api/uploads")
         {
             Content = JsonContent.Create(new { fileName = "a.wav", totalBytes = 10 }),
@@ -217,7 +289,7 @@ public sealed class RemoteSecurityTests : IAsyncLifetime
     [Fact]
     public async Task Hub_rejects_cross_origin_and_tokenless_connections()
     {
-        var phone = await _host.PairAsync(Role.Volunteer);
+        var phone = await _host.PhoneAsync(Role.Admin);
         using var crossOrigin = new HttpRequestMessage(HttpMethod.Post, "/hub/negotiate?negotiateVersion=1");
         crossOrigin.Headers.Add("Origin", "https://evil.example");
         crossOrigin.Headers.Authorization = new("Bearer", phone.Token);
@@ -233,10 +305,10 @@ public sealed class RemoteSecurityTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Logout_unpairs_the_device_and_clears_the_cookie()
+    public async Task Logout_forgets_the_remembered_phone_and_clears_the_cookie()
     {
-        var phone = await _host.PairAsync(Role.Volunteer);
-        var other = await _host.PairAsync(Role.Volunteer);
+        var phone = await _host.PhoneAsync(Role.Admin);
+        var other = await _host.PhoneAsync(Role.Admin);
         var hub = await _host.ConnectHubAsync(phone.Token);
         var ended = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         hub.On<string>(nameof(IClientEvents.SessionEnded), reason => ended.TrySetResult(reason));
@@ -286,7 +358,7 @@ public sealed class RemoteSecurityTests : IAsyncLifetime
     [Fact]
     public async Task Revoking_a_device_ends_its_live_hub_connection_and_later_requests_get_401()
     {
-        var phone = await _host.PairAsync(Role.Volunteer);
+        var phone = await _host.PhoneAsync(Role.Admin);
         var hub = await _host.ConnectHubAsync(phone.Token);
         var ended = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -2,7 +2,7 @@ namespace SabhaMujic.Server.Application;
 
 /// <summary>
 /// Sliding-window failure counter per key (thread-safe, in memory). A key is limited once it has
-/// <c>maxFailures</c> failures inside the window. Used for login and pairing attempts.
+/// <c>maxFailures</c> failures inside the window. Used for sign-in and recovery attempts.
 /// </summary>
 public sealed class FailureRateLimiter
 {

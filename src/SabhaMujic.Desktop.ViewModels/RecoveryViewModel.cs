@@ -7,7 +7,7 @@ using SabhaMujic.Desktop.ViewModels.Infrastructure;
 namespace SabhaMujic.Desktop.ViewModels;
 
 /// <summary>
-/// "Forgot admin PIN?": sets a new PIN for an administrator (or creates a new administrator with that name) and signs in.
+/// "Forgot admin password?": sets a new password for an administrator (or creates a new administrator with that name) and signs in.
 /// Like first-run setup, the service only allows it for this app started with "Run as administrator"; when it refuses,
 /// the view offers "Restart as administrator", which relaunches the app through UAC straight back to this screen
 /// (<see cref="StartupArgument"/>). Secrets are cleared after every attempt.
@@ -19,17 +19,17 @@ public sealed partial class RecoveryViewModel : ViewModelBase
 
     public const int MinSecretLength = SetupViewModel.MinSecretLength;
 
-    public const string Title = "Reset an administrator PIN";
+    public const string Title = "Reset an administrator password";
 
     public const string Introduction =
-        "Use this when no one can sign in as an administrator. Enter the administrator's user name and choose a new PIN. " +
+        "Use this when no one can sign in as an administrator. Enter the administrator's user name and choose a new password. " +
         "If no account has that name, a new administrator is created. This needs Windows administrator rights on this PC.";
 
     public const string RunAsAdministratorMessage =
-        "Close the app, then right-click SabhaMujic and choose 'Run as administrator' to reset an administrator PIN.";
+        "Close the app, then right-click SabhaMujic and choose 'Run as administrator' to reset an administrator password.";
 
     public const string ElevationNeededMessage =
-        "Resetting an administrator PIN needs Windows administrator rights. Choose ‘Restart as administrator’ and confirm the Windows prompt.";
+        "Resetting an administrator password needs Windows administrator rights. Choose ‘Restart as administrator’ and confirm the Windows prompt.";
 
     public const string RestartCancelledMessage =
         "The Windows prompt was cancelled, so SabhaMujic is still running without administrator rights. " +
@@ -50,7 +50,7 @@ public sealed partial class RecoveryViewModel : ViewModelBase
         _restarter = restarter;
     }
 
-    /// <summary>Raised after the PIN was reset (or the administrator created); the app is then signed in with this session.</summary>
+    /// <summary>Raised after the password was reset (or the administrator created); the app is then signed in with this session.</summary>
     public event Action<SessionDto>? RecoveryCompleted;
 
     /// <summary>Raised by "Back to sign in".</summary>
@@ -93,7 +93,7 @@ public sealed partial class RecoveryViewModel : ViewModelBase
     /// <summary>Inline guidance while typing (null when the form is fine or still empty).</summary>
     public string? ValidationHint =>
         Secret.Length == 0 ? null
-        : Secret.Length < MinSecretLength ? $"The new PIN or password must have at least {MinSecretLength} characters."
+        : Secret.Length < MinSecretLength ? $"The new password must have at least {MinSecretLength} characters."
         : ConfirmSecret.Length > 0 && ConfirmSecret != Secret ? "The two entries do not match."
         : null;
 

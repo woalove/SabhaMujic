@@ -74,7 +74,8 @@ public class ImportViewModelTests
         Assert.All(chunks, c => Assert.Equal(file.UploadId, c.Args[0]));
 
         var meta = (ImportMetadata)_client.CallsTo("CompleteImportAsync").Single().Args[1]!;
-        Assert.Equal(new ImportMetadata("Morning Dhun", "Choir", category.Id), meta);
+        Assert.Equal(("Morning Dhun", "Choir"), (meta.Title, meta.Artist));
+        Assert.Equal([category.Id], meta.CategoryIds!);
         Assert.Equal(ImportFileStatus.Imported, file.Status);
         Assert.Equal(100, file.Percent);
         Assert.Equal(100, vm.OverallPercent);
@@ -205,7 +206,7 @@ public class ImportViewModelTests
         var meta = (ImportMetadata)_client.CallsTo("CompleteImportAsync").Single().Args[1]!;
         Assert.Equal("Evening Aarti", meta.Title);
         Assert.Null(meta.Artist);
-        Assert.Null(meta.CategoryId);
+        Assert.Null(meta.CategoryIds);
     }
 
     [Fact]

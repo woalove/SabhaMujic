@@ -10,8 +10,8 @@ namespace SabhaMujic.Server.Remote.Http;
 /// <summary>
 /// The plain-HTTP bootstrap site. It serves exactly four things and 404s everything else: the setup page (<c>/</c>), the
 /// CA as an Apple profile (<c>/sabhamujic-ca.mobileconfig</c>) and as DER (<c>/sabhamujic-ca.cer</c>), and <c>/health</c>.
-/// No API, no cookies, no authentication. The page's only script copies the <c>#code=</c> fragment (never sent to any
-/// server) into the HTTPS <c>/pair#code=</c> link; it is allowed by a CSP hash, not by <c>unsafe-inline</c>.
+/// No API, no cookies, no authentication. The page's only script points the Continue link at the HTTPS remote on the
+/// host the phone used; it is allowed by a CSP hash, not by <c>unsafe-inline</c>.
 /// </summary>
 public sealed class BootstrapSite
 {
@@ -25,9 +25,7 @@ public sealed class BootstrapSite
     private const string Script =
         "(function(){var a=document.getElementById('continue');var p=a.getAttribute('data-port');" +
         "var h=location.hostname;if(h.indexOf(':')>=0&&h.charAt(0)!=='['){h='['+h+']';}" +
-        "var m=/^#code=([0-9]{6})$/.exec(location.hash);" +
-        "a.href='https://'+h+':'+p+'/pair'+(m?'#code='+m[1]:'');" +
-        "if(m){document.getElementById('code').textContent=m[1];document.getElementById('codebox').hidden=false;}})();";
+        "a.href='https://'+h+':'+p+'/';})();";
 
     private const string Style =
         ":root{color-scheme:light dark;--bg:#f6f4ef;--fg:#1d1b18;--muted:#5d5850;--card:#fff;--accent:#b4531f;--line:#e2ddd3}" +
@@ -38,7 +36,7 @@ public sealed class BootstrapSite
         ".btn{display:block;text-align:center;text-decoration:none;font-weight:600;border-radius:12px;padding:14px 16px;margin:10px 0;min-height:48px;" +
         "border:2px solid var(--accent);color:var(--accent)}.btn.primary{background:var(--accent);color:#fff}" +
         "code,.fp{font-family:ui-monospace,Menlo,monospace;font-size:.8rem;word-break:break-all;color:var(--muted)}" +
-        ".code{font-size:2rem;letter-spacing:.3rem;font-weight:700}small{color:var(--muted)}";
+        "small{color:var(--muted)}";
 
     private readonly LocalCertificateAuthority _ca;
     private readonly Func<int> _httpsPort;
@@ -111,7 +109,7 @@ public sealed class BootstrapSite
     {
         var port = _httpsPort().ToString(CultureInfo.InvariantCulture);
         var host = _defaultHost();
-        var fallback = $"https://{(host.Contains(':') ? "[" + host + "]" : host)}:{port}/pair";
+        var fallback = $"https://{(host.Contains(':') ? "[" + host + "]" : host)}:{port}/";
         var e = (string s) => WebUtility.HtmlEncode(s);
         return $$"""
             <!doctype html>
@@ -126,11 +124,8 @@ public sealed class BootstrapSite
             <body>
             <main>
             <h1>Set up the SabhaMujic remote</h1>
-            <p>Do this once per iPhone. It lets Safari trust this PC's secure connection on the local Wi-Fi.</p>
-            <div class="card" id="codebox" hidden>
-            <small>Your pairing code</small>
-            <div class="code" id="code"></div>
-            </div>
+            <p>Do this once per iPhone. It lets Safari trust this PC's secure connection on the local Wi-Fi. The remote is
+            for SabhaMujic administrators: you will sign in with your administrator name and password.</p>
             <div class="card">
             <h2>1. Install the certificate profile</h2>
             <a class="btn primary" id="profile" href="{{ProfilePath}}">Download profile</a>
@@ -148,7 +143,7 @@ public sealed class BootstrapSite
             </div>
             <div class="card">
             <h2>3. Continue in Safari</h2>
-            <p>Come back to Safari and tap Continue. You will be asked for a device name.</p>
+            <p>Come back to Safari and tap Continue, then sign in with your administrator name and password.</p>
             <a class="btn primary" id="continue" data-port="{{port}}" href="{{e(fallback)}}">Continue</a>
             </div>
             <div class="card">

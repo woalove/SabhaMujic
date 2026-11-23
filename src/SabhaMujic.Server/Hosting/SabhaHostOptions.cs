@@ -69,7 +69,7 @@ public sealed class SabhaHostOptions
     public ICallerIdentity? CallerIdentity { get; init; }
 
     /// <summary>
-    /// Overrides the pairing URLs. Default: the remote's <c>RemoteUrlProvider</c> when <see cref="Remote"/> is set, else
+    /// Overrides the phone-setup URLs. Default: the remote's <c>RemoteUrlProvider</c> when <see cref="Remote"/> is set, else
     /// <see cref="LocalRemoteUrlProvider"/>.
     /// </summary>
     public IRemoteUrlProvider? RemoteUrls { get; init; }
@@ -87,8 +87,8 @@ public sealed class SabhaHostOptions
     /// <summary>Handshake deadline for pipe connections (<see cref="Pipe.PipeServerOptions.HelloTimeout"/>).</summary>
     public TimeSpan? PipeHelloTimeout { get; init; } = TimeSpan.FromSeconds(10);
 
-    /// <summary>Sign-in deadline for pipe connections (<see cref="Pipe.PipeServerOptions.AuthenticationTimeout"/>).</summary>
-    public TimeSpan? PipeAuthenticationTimeout { get; init; } = TimeSpan.FromSeconds(60);
+    /// <summary>Sign-in deadline for pipe connections (<see cref="Pipe.PipeServerOptions.AuthenticationTimeout"/>); off by default (open desktop use).</summary>
+    public TimeSpan? PipeAuthenticationTimeout { get; init; }
 
     public PlaybackEngineOptions? Engine { get; init; }
 
@@ -113,12 +113,12 @@ public sealed class SabhaHostOptions
     public ILoggerFactory LoggerFactory { get; init; } = NullLoggerFactory.Instance;
 }
 
-/// <summary>Pairing/bootstrap URLs on this machine's host name, used when the remote is not enabled.</summary>
+/// <summary>Phone-setup URLs on this machine's host name, used when the remote is not enabled (informational only).</summary>
 public sealed class LocalRemoteUrlProvider(string? host = null) : IRemoteUrlProvider
 {
     private readonly string _host = host ?? Environment.MachineName.ToLowerInvariant() + ".local";
 
-    public string GetPairingUrl(string code) => $"http://{_host}:{Endpoints.BootstrapHttpPort}/#code={Uri.EscapeDataString(code)}";
-
     public string GetBootstrapUrl() => $"http://{_host}:{Endpoints.BootstrapHttpPort}/";
+
+    public string GetRemoteUrl() => $"https://{_host}:{Endpoints.RemoteHttpsPort}/";
 }

@@ -30,7 +30,7 @@ public sealed class ContractAdditionsTests : IAsyncLifetime
 
         var found = await client.Library.GetTracksByIdsAsync([b.Id, Guid.NewGuid(), a.Id, b.Id]);
         Assert.Equal([b.Id, a.Id], found.Select(t => t.Id));
-        Assert.Equal(a, found[1]);
+        AssertEx.SameTrack(a, found[1]);
         Assert.Empty(await client.Library.GetTracksByIdsAsync([]));
 
         var tooMany = Enumerable.Range(0, LibraryLimits.MaxBatchLookup + 1).Select(_ => Guid.NewGuid()).ToArray();
@@ -87,10 +87,10 @@ public sealed class ContractAdditionsTests : IAsyncLifetime
         admin.Events.LibraryChangeReceived += adminSaw.Enqueue;
         volunteer.Events.LibraryChangeReceived += volunteerSaw.Enqueue;
 
-        var user = await admin.Admin.CreateUserAsync("asha", Role.Volunteer, "asha-pass");
-        var code = await admin.Admin.CreatePairingCodeAsync(Role.Volunteer);
-        var paired = await _server.App.CreateSession(ClientKind.Remote, "phone").PairAsync(code.Code, "Phone");
-        await admin.Admin.RevokeDeviceAsync(paired.Device.Id);
+        var user = await admin.Admin.CreateUserAsync("asha", Role.Admin, "asha-pass");
+        await _server.App.CreateSession(ClientKind.Remote, "phone").RemoteLoginAsync(TestServer.AdminName, TestServer.AdminSecret, true, "Phone");
+        var device = Assert.Single(await admin.Admin.GetDevicesAsync());
+        await admin.Admin.RevokeDeviceAsync(device.Id);
         await admin.Admin.DeleteUserAsync(user.Id);
         var category = await admin.Admin.CreateCategoryAsync("Marker"); // a change everyone sees, to order the check
 
@@ -100,8 +100,8 @@ public sealed class ContractAdditionsTests : IAsyncLifetime
         Assert.Equal(
             [
                 (LibraryChangeKind.UsersChanged, (Guid?)user.Id),
-                (LibraryChangeKind.DevicesChanged, paired.Device.Id),
-                (LibraryChangeKind.DevicesChanged, paired.Device.Id),
+                (LibraryChangeKind.DevicesChanged, device.Id),
+                (LibraryChangeKind.DevicesChanged, device.Id),
                 (LibraryChangeKind.UsersChanged, user.Id),
             ],
             adminSaw.Where(c => c.Kind is LibraryChangeKind.UsersChanged or LibraryChangeKind.DevicesChanged).Select(c => (c.Kind, c.EntityId)));

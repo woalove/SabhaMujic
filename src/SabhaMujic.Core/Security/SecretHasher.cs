@@ -4,7 +4,7 @@ using System.Text;
 namespace SabhaMujic.Core.Security;
 
 /// <summary>
-/// PBKDF2-SHA256 password/PIN hashing. Format: <c>pbkdf2-sha256$iterations$saltB64$hashB64</c>.
+/// PBKDF2-SHA256 password hashing. Format: <c>pbkdf2-sha256$iterations$saltB64$hashB64</c>.
 /// </summary>
 public static class SecretHasher
 {
@@ -58,9 +58,6 @@ public static class Tokens
 
     public static string HashToken(string token) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
-
-    /// <summary>Six-digit numeric pairing code from a CSPRNG.</summary>
-    public static string NewPairingCode() => RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
 
     private static string Base64Url(byte[] bytes) =>
         Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');

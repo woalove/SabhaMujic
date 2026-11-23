@@ -93,27 +93,36 @@ public interface IAnalysisQueue
 /// <summary>Where to send import progress for an analysis that belongs to an upload.</summary>
 public sealed record ImportProgressTarget(string SessionId, Guid UploadId, string FileName, long TotalBytes);
 
-/// <summary>Builds the URLs shown with a pairing code (QR content and the CA bootstrap page). M5 supplies the real one.</summary>
+/// <summary>The addresses the desktop's "Set up a phone" panel shows (see <see cref="PhoneSetupInfoDto"/>).</summary>
 public interface IRemoteUrlProvider
 {
-    string GetPairingUrl(string code);
-
+    /// <summary>The plain-HTTP setup page (certificate profile and instructions).</summary>
     string GetBootstrapUrl();
 
-    /// <summary>Fingerprint of the local CA phones must trust (see <see cref="PairingCodeDto.CaFingerprint"/>); null without a remote.</summary>
+    /// <summary>The remote's HTTPS address (sign-in page).</summary>
+    string GetRemoteUrl();
+
+    /// <summary>Fingerprint of the local CA phones must trust (see <see cref="PhoneSetupInfoDto.CaFingerprint"/>); null without a remote.</summary>
     string? CaFingerprint => null;
+
+    /// <summary>True while the remote is listening.</summary>
+    bool IsRemoteRunning => false;
 }
 
 /// <summary>Tunables for the application layer. Defaults are the production values.</summary>
 public sealed class ServerOptions
 {
-    public TimeSpan DesktopSessionLifetime { get; init; } = TimeSpan.FromHours(12);
+    /// <summary>
+    /// Desktop sign-ins (administrators): an idle timeout. Sliding: each recorded activity (at most one write per
+    /// <see cref="SessionTouchInterval"/>) moves the end to now + this. The pipe ends the session when it passes.
+    /// </summary>
+    public TimeSpan DesktopSessionLifetime { get; init; } = TimeSpan.FromMinutes(15);
 
-    /// <summary>User logins made from the remote (not paired device tokens).</summary>
+    /// <summary>Remote sign-ins without "Remember this phone": fixed, counted from the sign-in.</summary>
     public TimeSpan RemoteSessionLifetime { get; init; } = TimeSpan.FromHours(12);
 
-    /// <summary>Paired device tokens; effectively valid until revoked, still sliding.</summary>
-    public TimeSpan DeviceSessionLifetime { get; init; } = TimeSpan.FromDays(3650);
+    /// <summary>Remembered phones: sliding, until revoked or unused this long.</summary>
+    public TimeSpan DeviceSessionLifetime { get; init; } = TimeSpan.FromDays(180);
 
     /// <summary>Minimum time between last-seen/expiry updates of a session (limits DB writes).</summary>
     public TimeSpan SessionTouchInterval { get; init; } = TimeSpan.FromMinutes(1);
@@ -124,19 +133,11 @@ public sealed class ServerOptions
 
     public TimeSpan LoginFailureWindow { get; init; } = TimeSpan.FromMinutes(5);
 
-    public int PairingMaxFailuresPerCaller { get; init; } = 5;
-
-    /// <summary>Global cap: with 10^6 possible codes this keeps brute force impractical.</summary>
-    public int PairingMaxFailuresGlobal { get; init; } = 20;
-
-    public TimeSpan PairingFailureWindow { get; init; } = TimeSpan.FromMinutes(5);
-
-    public TimeSpan PairingCodeLifetime { get; init; } = TimeSpan.FromMinutes(5);
-
     /// <summary>PBKDF2 iterations for new secrets (tests lower it).</summary>
     public int SecretHashIterations { get; init; } = SecretHasher.DefaultIterations;
 
-    public int MinSecretLength { get; init; } = 4;
+    /// <summary>Minimum password length (administrator passwords).</summary>
+    public int MinSecretLength { get; init; } = 8;
 
     public int MaxSecretLength { get; init; } = 256;
 

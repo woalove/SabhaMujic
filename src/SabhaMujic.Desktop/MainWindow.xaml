@@ -66,7 +66,7 @@
             </StackPanel>
         </Border>
 
-        <!-- Signed out: login, or first-run setup on a fresh install -->
+        <!-- Forms over the player: administrator sign-in (on request), first-run setup, recovery -->
         <views:LoginView Grid.Row="2" DataContext="{Binding Login}"
                          Visibility="{Binding DataContext.IsLoginVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibility}}" />
         <views:SetupView Grid.Row="2" DataContext="{Binding Setup}"
@@ -74,8 +74,8 @@
         <views:RecoveryView Grid.Row="2" DataContext="{Binding Recovery}"
                             Visibility="{Binding DataContext.IsRecoveryVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibility}}" />
 
-        <!-- Signed in: sidebar | content | queue panel -->
-        <Grid Grid.Row="2" Visibility="{Binding IsSignedIn, Converter={StaticResource BoolToVisibility}}">
+        <!-- The player (open use, no sign-in needed): sidebar | content | queue panel -->
+        <Grid Grid.Row="2" Visibility="{Binding IsMainVisible, Converter={StaticResource BoolToVisibility}}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="220" />
                 <ColumnDefinition Width="*" MinWidth="300" />
@@ -130,8 +130,15 @@
                                 <TextBlock Text="Queue panel" />
                             </StackPanel>
                         </Button>
-                        <TextBlock Text="{Binding UserDisplayText}" Style="{StaticResource MutedText}" Margin="4,6,0,4" />
-                        <Button Content="Sign out" Command="{Binding LogoutCommand}" HorizontalAlignment="Left" />
+                        <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="4,6,0,4"
+                                   Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibility}}" />
+                        <Button Content="Admin sign-in" Command="{Binding OpenAdminSignInCommand}" HorizontalAlignment="Left"
+                                Visibility="{Binding IsAdminSignInAvailable, Converter={StaticResource BoolToVisibility}}"
+                                AutomationProperties.HelpText="Sign in as an administrator to manage the library, accounts and phones." />
+                        <TextBlock Text="{Binding UserDisplayText}" Style="{StaticResource MutedText}" Margin="4,6,0,4"
+                                   Visibility="{Binding IsSignedIn, Converter={StaticResource BoolToVisibility}}" />
+                        <Button Content="Sign out" Command="{Binding LogoutCommand}" HorizontalAlignment="Left"
+                                Visibility="{Binding IsSignedIn, Converter={StaticResource BoolToVisibility}}" />
                     </StackPanel>
 
                     <DockPanel Margin="0,16,0,0">
@@ -174,6 +181,6 @@
         <!-- Bottom: now playing -->
         <views:NowPlayingBar Grid.Row="3" x:Name="NowPlayingBar" DataContext="{Binding NowPlaying}"
                              MiniPlayerRequested="OnMiniPlayerRequested"
-                             Visibility="{Binding DataContext.IsSignedIn, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibility}}" />
+                             Visibility="{Binding DataContext.IsMainVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibility}}" />
     </Grid>
 </Window>

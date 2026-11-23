@@ -6,7 +6,12 @@ namespace SabhaMujic.Contracts;
 /// </summary>
 public static class ContractVersion
 {
-    public const int Current = 1;
+    /// <summary>
+    /// 2: open desktop use (anonymous desktop = volunteer), admin-only remote with password sign-in (pairing codes
+    /// removed: <c>GetPhoneSetupInfoAsync</c> replaces <c>CreatePairingCodeAsync</c>), passwords instead of PINs, and
+    /// tags (several categories per track: <c>CategoryIds</c> on tracks, imports and updates).
+    /// </summary>
+    public const int Current = 2;
 }
 
 /// <summary>Well-known transport constants shared by the service and clients.</summary>

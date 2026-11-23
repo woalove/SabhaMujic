@@ -3,6 +3,9 @@ namespace SabhaMujic.Contracts;
 // RPC surface exposed by the service. The desktop uses these over the named pipe (StreamJsonRpc);
 // the remote uses equivalent HTTP endpoints/SignalR methods backed by the same application services.
 // Pipe connections are stateful: LoginAsync binds the session to the connection.
+// Access (contract v2): on the desktop pipe anyone may use the player (library, playback, queue, playlists) without
+// signing in; administration needs an administrator sign-in, which ends after 15 minutes without activity. The iPhone
+// remote is for administrators only: every remote operation needs an administrator session.
 // Limits: chunk sizes and upload sizes are enforced server-side (see AdminLimits).
 
 public interface IAuthApi
@@ -10,6 +13,11 @@ public interface IAuthApi
     /// <summary>Handshake. Throws <see cref="ErrorCode.IncompatibleClient"/> when contract versions differ.</summary>
     Task<HelloResponse> HelloAsync(int clientContractVersion, CancellationToken ct = default);
 
+    /// <summary>
+    /// Signs in with a user name and password (desktop: binds the session to the connection, and it ends after 15 minutes
+    /// without activity). <see cref="ErrorCode.Unauthenticated"/> for a wrong name or password,
+    /// <see cref="ErrorCode.RateLimited"/> after repeated failures.
+    /// </summary>
     Task<SessionDto> LoginAsync(string userName, string secret, CancellationToken ct = default);
 
     /// <summary>Re-attach an existing session (e.g. after the desktop reconnects).</summary>
@@ -17,23 +25,23 @@ public interface IAuthApi
 
     Task LogoutAsync(CancellationToken ct = default);
 
-    /// <summary>True while no user accounts exist (fresh install). Anonymous.</summary>
+    /// <summary>True while no administrator accounts exist (fresh install). Anonymous.</summary>
     Task<bool> IsSetupRequiredAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Creates the first administrator account and signs in as it. Only succeeds while no accounts exist AND the
-    /// caller is a local Windows administrator connected over the desktop pipe (never from the remote).
-    /// Otherwise <see cref="ErrorCode.Forbidden"/> / <see cref="ErrorCode.Conflict"/>.
+    /// Creates the first administrator account (password of at least 8 characters) and signs in as it. Only succeeds
+    /// while no accounts exist AND the caller is a local Windows administrator connected over the desktop pipe (never
+    /// from the remote). Otherwise <see cref="ErrorCode.Forbidden"/> / <see cref="ErrorCode.Conflict"/>.
     /// </summary>
     Task<SessionDto> CompleteInitialSetupAsync(string adminUserName, string secret, CancellationToken ct = default);
 
     /// <summary>
-    /// Local recovery when every administrator PIN is forgotten. Same gate as first-run setup: the caller must be a local
-    /// Windows administrator running elevated on the desktop pipe (never the remote), otherwise
-    /// <see cref="ErrorCode.Forbidden"/>. Sets a new PIN for the administrator <paramref name="adminUserName"/> (all of
-    /// that account's sessions are signed out), or creates a new administrator with that name when no account has it, and
-    /// signs in as it. <see cref="ErrorCode.Conflict"/> when the name belongs to a non-administrator account;
-    /// <see cref="ErrorCode.RateLimited"/> after repeated attempts. Audited.
+    /// Local recovery when every administrator password is forgotten. Same gate as first-run setup: the caller must be a
+    /// local Windows administrator running elevated on the desktop pipe (never the remote), otherwise
+    /// <see cref="ErrorCode.Forbidden"/>. Sets a new password (at least 8 characters) for the administrator
+    /// <paramref name="adminUserName"/> (all of that account's sessions are signed out), or creates a new administrator
+    /// with that name when no account has it, and signs in as it. <see cref="ErrorCode.Conflict"/> when the name belongs
+    /// to a non-administrator account; <see cref="ErrorCode.RateLimited"/> after repeated attempts. Audited.
     /// </summary>
     Task<SessionDto> ResetAdministratorAsync(string adminUserName, string newSecret, CancellationToken ct = default);
 }
@@ -142,7 +150,14 @@ public interface IAdminApi
 
     Task ReorderCategoriesAsync(IReadOnlyList<Guid> orderedCategoryIds, CancellationToken ct = default);
 
-    /// <summary>Deletes the category; its tracks become uncategorized.</summary>
+    /// <summary>
+    /// Sets which tracks have this category (tag): exactly <paramref name="trackIds"/> afterwards. Each track's other
+    /// categories are left alone. <see cref="ErrorCode.NotFound"/> for an unknown category,
+    /// <see cref="ErrorCode.InvalidArgument"/> when a track id is unknown (nothing changes then).
+    /// </summary>
+    Task<CategoryDto> SetCategoryTracksAsync(Guid categoryId, IReadOnlyList<Guid> trackIds, CancellationToken ct = default);
+
+    /// <summary>Deletes the category (tag); it is removed from every track that had it.</summary>
     Task DeleteCategoryAsync(Guid categoryId, CancellationToken ct = default);
 
     Task<TrackDto> UpdateTrackAsync(TrackUpdateDto update, CancellationToken ct = default);
@@ -154,20 +169,28 @@ public interface IAdminApi
 
     Task ReanalyzeTrackAsync(Guid trackId, CancellationToken ct = default);
 
-    // Accounts.
+    // Accounts (administrators; volunteers need no account in contract v2).
     Task<IReadOnlyList<UserDto>> GetUsersAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// Creates an administrator with a password of at least 8 characters. <paramref name="role"/> must be
+    /// <see cref="Role.Admin"/> (<see cref="ErrorCode.InvalidArgument"/> otherwise).
+    /// </summary>
     Task<UserDto> CreateUserAsync(string userName, Role role, string secret, CancellationToken ct = default);
 
+    /// <summary>Sets a new password (at least 8 characters); the account's other sessions are signed out.</summary>
     Task SetUserSecretAsync(Guid userId, string secret, CancellationToken ct = default);
 
     Task DeleteUserAsync(Guid userId, CancellationToken ct = default);
 
-    // Remote devices.
+    // Phones (remote).
+    /// <summary>Phones remembered at remote sign-in ("Remember this phone").</summary>
     Task<IReadOnlyList<DeviceDto>> GetDevicesAsync(CancellationToken ct = default);
 
-    Task<PairingCodeDto> CreatePairingCodeAsync(Role role, CancellationToken ct = default);
+    /// <summary>What the desktop's "Set up a phone" panel shows: setup page, remote address, CA fingerprint.</summary>
+    Task<PhoneSetupInfoDto> GetPhoneSetupInfoAsync(CancellationToken ct = default);
 
+    /// <summary>Forgets a remembered phone; it is signed out at once.</summary>
     Task RevokeDeviceAsync(Guid deviceId, CancellationToken ct = default);
 }
 
@@ -188,7 +211,10 @@ public interface IClientEvents
 
     void ImportProgress(ImportProgressDto progress);
 
-    /// <summary>The session was revoked or expired; the client must log in again.</summary>
+    /// <summary>
+    /// The session was revoked or expired (a desktop administrator session after 15 minutes without activity). The
+    /// connection continues signed out: on the desktop that is open (volunteer) use; the remote must sign in again.
+    /// </summary>
     void SessionEnded(string reason);
 }
 

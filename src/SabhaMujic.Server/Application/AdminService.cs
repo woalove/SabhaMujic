@@ -16,7 +16,6 @@ public sealed class AdminService
     private readonly IUserRepository _users;
     private readonly ISessionRepository _sessions;
     private readonly IDeviceRepository _devices;
-    private readonly IPairingCodeRepository _pairingCodes;
     private readonly ProtectedStore _store;
     private readonly IPlaybackBackend _playback;
     private readonly IAnalysisQueue _analysisQueue;
@@ -29,7 +28,7 @@ public sealed class AdminService
     private readonly ILogger _logger;
 
     public AdminService(ICategoryRepository categories, ITrackRepository tracks, ITrackAnalysisRepository analysis, IUserRepository users,
-        ISessionRepository sessions, IDeviceRepository devices, IPairingCodeRepository pairingCodes, ProtectedStore store,
+        ISessionRepository sessions, IDeviceRepository devices, ProtectedStore store,
         IPlaybackBackend playback, IAnalysisQueue analysisQueue, IRemoteUrlProvider urls, AuthService auth, EventBroadcaster events,
         AuditWriter audit, ServerOptions options, TimeProvider clock, ILogger<AdminService> logger)
     {
@@ -39,7 +38,6 @@ public sealed class AdminService
         _users = users;
         _sessions = sessions;
         _devices = devices;
-        _pairingCodes = pairingCodes;
         _store = store;
         _playback = playback;
         _analysisQueue = analysisQueue;
@@ -73,6 +71,27 @@ public sealed class AdminService
         Errors.RequireNotNull(orderedCategoryIds, "orderedCategoryIds");
         await _categories.ReorderAsync(orderedCategoryIds, ct).ConfigureAwait(false);
         await CategoriesChangedAsync(caller, "category.reorder", null, null).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Sets the category's tracks (other tags of those tracks stay). Every track whose tags changed gets a
+    /// <see cref="LibraryChangeKind.TrackUpdated"/>, like <see cref="UpdateTrackAsync"/>, plus one
+    /// <see cref="LibraryChangeKind.CategoriesChanged"/> for the new count. Tags do not affect playback, so the engine is
+    /// not involved.
+    /// </summary>
+    public async Task<CategoryDto> SetCategoryTracksAsync(CallerContext caller, Guid categoryId, IReadOnlyList<Guid> trackIds, CancellationToken ct)
+    {
+        Errors.RequireNotNull(trackIds, "trackIds");
+        var (category, changed) = await _categories.SetTracksAsync(categoryId, trackIds, ct).ConfigureAwait(false)
+            ?? throw Errors.CategoryNotFound();
+        foreach (var trackId in changed)
+        {
+            _events.PublishLibraryChanged(new LibraryChangedDto(LibraryChangeKind.TrackUpdated, trackId));
+        }
+
+        await CategoriesChangedAsync(caller, "category.set_tracks", categoryId, $"tracks={category.TrackCount} changed={changed.Count}")
+            .ConfigureAwait(false);
+        return category;
     }
 
     public async Task DeleteCategoryAsync(CallerContext caller, Guid categoryId, CancellationToken ct)
@@ -145,11 +164,13 @@ public sealed class AdminService
 
     public Task<IReadOnlyList<UserDto>> GetUsersAsync(CallerContext caller, CancellationToken ct) => _users.ListAsync(ct);
 
+    /// <summary>Creates an administrator (contract v2: volunteers need no account, so <see cref="Role.Volunteer"/> is refused).</summary>
     public async Task<UserDto> CreateUserAsync(CallerContext caller, string userName, Role role, string secret, CancellationToken ct)
     {
-        if (!Enum.IsDefined(role))
+        if (role != Role.Admin)
         {
-            throw new SabhaMujicException(ErrorCode.InvalidArgument, "Unknown role.");
+            throw new SabhaMujicException(ErrorCode.InvalidArgument,
+                "Only administrator accounts can be created: volunteers use the SabhaMujic app without signing in.");
         }
 
         var user = await _users.CreateAsync(userName, role, _auth.HashSecret(secret), ct).ConfigureAwait(false);
@@ -159,8 +180,8 @@ public sealed class AdminService
     }
 
     /// <summary>
-    /// Changes a password/PIN. Every session of that user is revoked (they must sign in again), except the caller's own
-    /// session when users change their own PIN.
+    /// Changes a password. Every session of that user is revoked (they must sign in again), except the caller's own
+    /// session when users change their own password.
     /// </summary>
     public async Task SetUserSecretAsync(CallerContext caller, Guid userId, string secret, CancellationToken ct)
     {
@@ -207,20 +228,8 @@ public sealed class AdminService
 
     public Task<IReadOnlyList<DeviceDto>> GetDevicesAsync(CallerContext caller, CancellationToken ct) => _devices.ListAsync(false, ct);
 
-    public async Task<PairingCodeDto> CreatePairingCodeAsync(CallerContext caller, Role role, CancellationToken ct)
-    {
-        if (!Enum.IsDefined(role))
-        {
-            throw new SabhaMujicException(ErrorCode.InvalidArgument, "Unknown role.");
-        }
-
-        var code = await _pairingCodes.CreateAsync(role, _clock.GetUtcNow() + _options.PairingCodeLifetime, caller.UserId, ct).ConfigureAwait(false);
-        await _audit.WriteAsync(caller, "device.pairing_code", null, "role=" + role).ConfigureAwait(false);
-        return new PairingCodeDto(code.Code, _urls.GetPairingUrl(code.Code), _urls.GetBootstrapUrl(), code.Role, code.ExpiresAt)
-        {
-            CaFingerprint = _urls.CaFingerprint,
-        };
-    }
+    public Task<PhoneSetupInfoDto> GetPhoneSetupInfoAsync(CallerContext caller, CancellationToken ct) =>
+        Task.FromResult(new PhoneSetupInfoDto(_urls.GetBootstrapUrl(), _urls.GetRemoteUrl(), _urls.CaFingerprint, _urls.IsRemoteRunning));
 
     public async Task RevokeDeviceAsync(CallerContext caller, Guid deviceId, CancellationToken ct)
     {

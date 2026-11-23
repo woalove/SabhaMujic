@@ -46,7 +46,7 @@ public interface ISessionRepository
 
     Task<int> RevokeAllForUserAsync(Guid userId, CancellationToken ct = default);
 
-    /// <summary>Revokes every session of the user except <paramref name="keepSessionId"/> (e.g. the one changing its own PIN).</summary>
+    /// <summary>Revokes every session of the user except <paramref name="keepSessionId"/> (e.g. the one changing its own password).</summary>
     Task<int> RevokeAllForUserExceptAsync(Guid userId, Guid keepSessionId, CancellationToken ct = default);
 
     Task<int> RevokeAllForDeviceAsync(Guid deviceId, CancellationToken ct = default);

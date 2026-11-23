@@ -64,10 +64,16 @@ export class E2EHost {
     this.process?.stdin.write(command + '\n');
   }
 
-  /** @param {'Admin' | 'Volunteer'} role */
-  async pairingCode(role) {
-    this.send(`code ${role}`);
-    return this.next('code');
+  /** What the desktop's "Set up a phone" panel shows. */
+  async phoneSetup() {
+    this.send('setup');
+    return this.next('setup');
+  }
+
+  /** @returns {Promise<string[]>} the remembered phones' names */
+  async devices() {
+    this.send('devices');
+    return (await this.next('devices')).names;
   }
 
   async stop() {

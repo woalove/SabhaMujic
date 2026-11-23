@@ -7,11 +7,11 @@ using SabhaMujic.Desktop.ViewModels.Infrastructure;
 
 namespace SabhaMujic.Desktop.ViewModels.Admin;
 
-/// <summary>Admin: list, create, reset PIN/password, delete app accounts.</summary>
+/// <summary>Admin: list, create, reset password, delete administrator accounts (volunteers need no account).</summary>
 public sealed partial class UsersAdminViewModel : ViewModelBase
 {
     /// <summary>Client-side minimum; the service applies its own policy too.</summary>
-    public const int MinSecretLength = 4;
+    public const int MinSecretLength = 8;
 
     private readonly ISabhaClient _client;
     private readonly UiServices _ui;
@@ -24,7 +24,8 @@ public sealed partial class UsersAdminViewModel : ViewModelBase
 
     public ObservableCollection<UserDto> Users { get; } = [];
 
-    public IReadOnlyList<Role> Roles { get; } = [Role.Volunteer, Role.Admin];
+    /// <summary>Only administrators get accounts (contract v2); volunteers use the app without signing in.</summary>
+    public IReadOnlyList<Role> Roles { get; } = [Role.Admin];
 
     [ObservableProperty]
     public partial UserDto? SelectedUser { get; set; }
@@ -34,7 +35,7 @@ public sealed partial class UsersAdminViewModel : ViewModelBase
     public partial string NewUserName { get; set; } = "";
 
     [ObservableProperty]
-    public partial Role NewUserRole { get; set; } = Role.Volunteer;
+    public partial Role NewUserRole { get; set; } = Role.Admin;
 
     /// <summary>Set from a PasswordBox by the view.</summary>
     [ObservableProperty]
@@ -53,7 +54,7 @@ public sealed partial class UsersAdminViewModel : ViewModelBase
     {
         if (NewUserSecret.Length < MinSecretLength)
         {
-            ErrorMessage = $"The PIN/password must be at least {MinSecretLength} characters.";
+            ErrorMessage = $"The password must be at least {MinSecretLength} characters.";
             return Task.CompletedTask;
         }
 
@@ -66,7 +67,7 @@ public sealed partial class UsersAdminViewModel : ViewModelBase
             {
                 await _client.Admin.CreateUserAsync(name, role, secret).ConfigureAwait(true);
                 NewUserName = "";
-                NewUserRole = Role.Volunteer;
+                NewUserRole = Role.Admin;
                 StatusMessage = $"Created {name} ({role}).";
                 await ReloadAsync().ConfigureAwait(true);
             }
@@ -87,7 +88,7 @@ public sealed partial class UsersAdminViewModel : ViewModelBase
             return;
         }
 
-        var secret = await _ui.Dialogs.PromptSecretAsync("Reset PIN", $"New PIN/password for {user.UserName}:").ConfigureAwait(true);
+        var secret = await _ui.Dialogs.PromptSecretAsync("Reset password", $"New password for {user.UserName}:").ConfigureAwait(true);
         if (secret is null)
         {
             return;
@@ -95,14 +96,14 @@ public sealed partial class UsersAdminViewModel : ViewModelBase
 
         if (secret.Length < MinSecretLength)
         {
-            ErrorMessage = $"The PIN/password must be at least {MinSecretLength} characters.";
+            ErrorMessage = $"The password must be at least {MinSecretLength} characters.";
             return;
         }
 
         await TryAsync(async () =>
         {
             await _client.Admin.SetUserSecretAsync(user.Id, secret).ConfigureAwait(true);
-            StatusMessage = $"PIN/password for {user.UserName} was changed.";
+            StatusMessage = $"The password for {user.UserName} was changed.";
         }).ConfigureAwait(true);
     }
 

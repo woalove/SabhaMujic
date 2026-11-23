@@ -47,7 +47,7 @@ public static class ErrorMessages
     /// <summary>Message for a failed sign-in, which is friendlier than the generic mapping.</summary>
     public static string ForLogin(Exception exception) => exception switch
     {
-        SabhaMujicException { Code: ErrorCode.Unauthenticated } => "Incorrect user name or PIN/password.",
+        SabhaMujicException { Code: ErrorCode.Unauthenticated } => "Incorrect user name or password.",
         SabhaMujicException { Code: ErrorCode.RateLimited } => "Too many sign-in attempts. Please wait a minute and try again.",
         _ => For(exception),
     };

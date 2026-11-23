@@ -29,7 +29,7 @@ public sealed class SabhaRemoteOptions
     /// <summary>LAN identity (addresses for the certificate and URLs). Default: the machine's network interfaces.</summary>
     public INetworkAddressProvider? Network { get; init; }
 
-    /// <summary>Fixed host for pairing/bootstrap URLs (tests); null uses the primary private IPv4.</summary>
+    /// <summary>Fixed host for the phone setup URLs (tests); null uses the primary private IPv4.</summary>
     public string? UrlHostOverride { get; init; }
 
     /// <summary>Machine name used in the CA subject. Default: <see cref="Environment.MachineName"/>.</summary>
@@ -39,7 +39,7 @@ public sealed class SabhaRemoteOptions
 /// <summary>
 /// The <see cref="RemoteHost"/> as an <see cref="IHostedComponent"/>. The CA and server certificate are loaded (or created)
 /// in <c>&lt;DataRoot&gt;\certs</c>, which is secured with the host's <see cref="IStoreAcl"/>, before the application is
-/// built, so pairing codes carry the CA fingerprint and point at the bootstrap site from the start.
+/// built, so the "Set up a phone" panel shows the CA fingerprint and the bootstrap site from the start.
 /// </summary>
 public sealed class RemoteComponent : IHostedComponent, IDisposable
 {
@@ -58,7 +58,7 @@ public sealed class RemoteComponent : IHostedComponent, IDisposable
         Urls = urls;
     }
 
-    /// <summary>Pairing/bootstrap URLs and the CA fingerprint for the application layer.</summary>
+    /// <summary>Phone setup URLs and the CA fingerprint for the application layer.</summary>
     public RemoteUrlProvider Urls { get; }
 
     public LocalCertificateAuthority Authority => _ca;

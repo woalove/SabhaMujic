@@ -22,7 +22,7 @@ public sealed class BootstrapTests(RemoteFixture fixture) : IClassFixture<Remote
             Assert.False(response.Headers.Contains("Set-Cookie"), path);
         }
 
-        string[] refused = ["/api/me", "/api/pair", "/pair", "/index.html", "/js/app.js", "/hub/negotiate", "/sabhamujic-ca.mobileconfig/x",
+        string[] refused = ["/api/me", "/api/pair", "/api/login", "/pair", "/login", "/index.html", "/js/app.js", "/hub/negotiate", "/sabhamujic-ca.mobileconfig/x",
             "/HEALTH", "/../ca.key", "/favicon.ico"];
         foreach (var path in refused)
         {
@@ -34,6 +34,8 @@ public sealed class BootstrapTests(RemoteFixture fixture) : IClassFixture<Remote
         Assert.Equal(HttpStatusCode.NotFound, post.StatusCode);
         using var pair = await http.PostAsync("/api/pair", new StringContent("{}"));
         Assert.Equal(HttpStatusCode.NotFound, pair.StatusCode);
+        using var login = await http.PostAsync("/api/login", new StringContent("{}"));
+        Assert.Equal(HttpStatusCode.NotFound, login.StatusCode);
     }
 
     [Fact]
@@ -45,7 +47,8 @@ public sealed class BootstrapTests(RemoteFixture fixture) : IClassFixture<Remote
         Assert.Contains("VPN &amp; Device Management", html);
         Assert.Contains("Certificate Trust Settings", html);
         Assert.Contains($"data-port=\"{Host.Remote.HttpsPort}\"", html);
-        Assert.Contains("location.hash", html); // the fragment carries the code, never the server
+        Assert.Contains("administrator name and password", html);
+        Assert.DoesNotContain("location.hash", html); // no pairing codes any more (contract v2)
 
         var csp = response.Headers.GetValues("Content-Security-Policy").Single();
         Assert.Contains("default-src 'none'", csp);
@@ -86,17 +89,20 @@ public sealed class BootstrapTests(RemoteFixture fixture) : IClassFixture<Remote
     }
 
     [Fact]
-    public void Pairing_url_keeps_the_code_in_the_fragment_on_the_primary_lan_address()
+    public void Phone_setup_urls_use_the_primary_lan_address()
     {
         var network = new FakeNetwork { Addresses = [IPAddress.Parse("192.168.1.20"), IPAddress.Parse("10.0.0.7")] };
         var urls = new RemoteUrlProvider(network);
         Assert.Equal("http://192.168.1.20:8080/", urls.GetBootstrapUrl());
-        Assert.Equal("http://192.168.1.20:8080/#code=123456", urls.GetPairingUrl("123456"));
+        Assert.Equal("https://192.168.1.20:8443/", urls.GetRemoteUrl());
+        Assert.False(urls.IsRemoteRunning);
 
         network.Addresses = [];
         Assert.Equal("http://sabha-pc.local:8080/", urls.GetBootstrapUrl());
         urls.BootstrapPort = 18080;
-        Assert.Equal("http://sabha-pc.local:18080/#code=000001", urls.GetPairingUrl("000001"));
+        urls.HttpsPort = 18443;
+        Assert.Equal("http://sabha-pc.local:18080/", urls.GetBootstrapUrl());
+        Assert.Equal("https://sabha-pc.local:18443/", urls.GetRemoteUrl());
     }
 
     /// <summary>Plist dict → key → value element.</summary>

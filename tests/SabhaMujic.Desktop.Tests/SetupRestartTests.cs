@@ -40,8 +40,8 @@ public class SetupRestartTests
     private static async Task SubmitAsync(SetupViewModel setup)
     {
         setup.AdminName = "admin";
-        setup.Secret = "4321";
-        setup.ConfirmSecret = "4321";
+        setup.Secret = "pass-4321";
+        setup.ConfirmSecret = "pass-4321";
         await setup.CompleteSetupCommand.ExecuteAsync(null);
     }
 

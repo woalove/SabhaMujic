@@ -33,7 +33,7 @@ public interface IDialogService
     /// <summary>Asks for a single line of text. Returns null when cancelled.</summary>
     Task<string?> PromptTextAsync(string title, string label, string initialValue = "");
 
-    /// <summary>Asks for a secret (PIN/password) with confirmation. Returns null when cancelled.</summary>
+    /// <summary>Asks for a password with confirmation. Returns null when cancelled.</summary>
     Task<string?> PromptSecretAsync(string title, string label);
 }
 

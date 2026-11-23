@@ -4,7 +4,9 @@
     <Grid>
         <Border Style="{StaticResource Card}" Width="400" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="28">
             <StackPanel>
-                <TextBlock Text="Sign in" Style="{StaticResource PageTitle}" />
+                <TextBlock Text="Admin sign-in" Style="{StaticResource PageTitle}" />
+                <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,12"
+                           Text="Playing music needs no sign-in. Administrators sign in to manage the library, accounts and phones." />
 
                 <Border Style="{StaticResource WarningBanner}" Visibility="{Binding Notice, Converter={StaticResource NullToVisibility}}">
                     <TextBlock Text="{Binding Notice}" TextWrapping="Wrap" />
@@ -17,17 +19,19 @@
                 <TextBox x:Name="UserNameBox" Text="{Binding UserName, UpdateSourceTrigger=PropertyChanged}"
                          AutomationProperties.Name="User name" />
 
-                <TextBlock Text="PIN or password" Style="{StaticResource FieldLabel}" />
-                <PasswordBox x:Name="SecretBox" PasswordChanged="OnPasswordChanged" AutomationProperties.Name="PIN or password" />
+                <TextBlock Text="Password" Style="{StaticResource FieldLabel}" />
+                <PasswordBox x:Name="SecretBox" PasswordChanged="OnPasswordChanged" AutomationProperties.Name="Password" />
 
                 <Button Content="Sign in" Style="{StaticResource AccentButton}" IsDefault="True" Margin="0,18,0,0"
                         HorizontalAlignment="Stretch" MinHeight="44" FontSize="16" Command="{Binding LoginCommand}" />
+                <Button Content="Back" Margin="0,10,0,0" HorizontalAlignment="Stretch" MinHeight="40" IsCancel="True"
+                        Command="{Binding CloseCommand}" />
 
                 <TextBlock HorizontalAlignment="Center" Margin="0,14,0,0" FontSize="14">
                     <Hyperlink Command="{Binding ForgotAdminPinCommand}" Foreground="{StaticResource AccentBrush}"
-                               AutomationProperties.Name="Forgot admin PIN?"
-                               AutomationProperties.HelpText="Reset an administrator PIN on this PC. Needs Windows administrator rights.">
-                        <Run Text="Forgot admin PIN?" />
+                               AutomationProperties.Name="Forgot admin password?"
+                               AutomationProperties.HelpText="Reset an administrator password on this PC. Needs Windows administrator rights.">
+                        <Run Text="Forgot admin password?" />
                     </Hyperlink>
                 </TextBlock>
 

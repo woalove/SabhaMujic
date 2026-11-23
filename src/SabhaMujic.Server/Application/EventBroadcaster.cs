@@ -109,19 +109,25 @@ public sealed class EventBroadcaster
         return subscription;
     }
 
-    public void PublishPlaybackState(PlaybackStateDto state) => Publish(new PlaybackStateEvent(state), s => s.IsAuthenticated);
+    // Who receives what is decided by the same matrix as the calls (Authorizer): e.g. anyone on the desktop gets playback
+    // events (open use), on the remote only administrators do.
+    public void PublishPlaybackState(PlaybackStateDto state) =>
+        Publish(new PlaybackStateEvent(state), s => Authorizer.IsAllowed(s, Operation.ReadPlayback));
 
-    public void PublishQueue(QueueDto queue) => Publish(new QueueEvent(queue), s => s.IsAuthenticated);
+    public void PublishQueue(QueueDto queue) => Publish(new QueueEvent(queue), s => Authorizer.IsAllowed(s, Operation.ReadPlayback));
 
     /// <summary><see cref="LibraryChangeKind.UsersChanged"/> and <see cref="LibraryChangeKind.DevicesChanged"/> go to admin sessions only.</summary>
     public void PublishLibraryChanged(LibraryChangedDto change) =>
-        Publish(new LibraryEvent(change), change.Kind is LibraryChangeKind.UsersChanged or LibraryChangeKind.DevicesChanged
-            ? s => s.Role == Role.Admin
-            : s => s.IsAuthenticated);
+        Publish(new LibraryEvent(change), change.Kind switch
+        {
+            LibraryChangeKind.UsersChanged => s => Authorizer.IsAllowed(s, Operation.ManageUsers),
+            LibraryChangeKind.DevicesChanged => s => Authorizer.IsAllowed(s, Operation.ManageDevices),
+            _ => s => Authorizer.IsAllowed(s, Operation.BrowseLibrary),
+        });
 
     /// <summary>Import progress goes only to the session that owns the upload.</summary>
     public void PublishImportProgress(string sessionId, ImportProgressDto progress) =>
-        Publish(new ImportProgressEvent(progress), s => s.IsAuthenticated && s.SessionId == sessionId);
+        Publish(new ImportProgressEvent(progress), s => s.SessionId == sessionId && Authorizer.IsAllowed(s, Operation.ImportTracks));
 
     /// <summary>
     /// Sends <see cref="IClientEvents.SessionEnded"/> to every subscriber whose caller matches, then raises their

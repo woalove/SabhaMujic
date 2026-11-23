@@ -22,11 +22,11 @@
                 <TextBox x:Name="AdminNameBox" Text="{Binding AdminName, UpdateSourceTrigger=PropertyChanged}"
                          AutomationProperties.Name="Administrator name" />
 
-                <TextBlock Text="PIN or password (at least 4 characters)" Style="{StaticResource FieldLabel}" />
-                <PasswordBox x:Name="SecretBox" PasswordChanged="OnSecretChanged" AutomationProperties.Name="PIN or password" />
+                <TextBlock Text="Password (at least 8 characters)" Style="{StaticResource FieldLabel}" />
+                <PasswordBox x:Name="SecretBox" PasswordChanged="OnSecretChanged" AutomationProperties.Name="Password" />
 
-                <TextBlock Text="Repeat PIN or password" Style="{StaticResource FieldLabel}" />
-                <PasswordBox x:Name="ConfirmBox" PasswordChanged="OnConfirmChanged" AutomationProperties.Name="Repeat PIN or password" />
+                <TextBlock Text="Repeat password" Style="{StaticResource FieldLabel}" />
+                <PasswordBox x:Name="ConfirmBox" PasswordChanged="OnConfirmChanged" AutomationProperties.Name="Repeat password" />
 
                 <TextBlock Text="{Binding ValidationHint}" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,6,0,0"
                            Visibility="{Binding ValidationHint, Converter={StaticResource NullToVisibility}}" />

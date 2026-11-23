@@ -281,7 +281,8 @@ public sealed partial class LibraryViewModel : ViewModelBase
         foreach (var track in result.Items)
         {
             _tracks.Put(track);
-            var categoryName = track.CategoryId is { } c && _categoryNames.TryGetValue(c, out var n) ? n : null;
+            var names = track.CategoryIds.Select(c => _categoryNames.TryGetValue(c, out var n) ? n : null).OfType<string>().ToArray();
+            var categoryName = names.Length == 0 ? null : string.Join(", ", names);
             Tracks.Add(new TrackItemViewModel(this, track, categoryName));
         }
 

@@ -4,12 +4,11 @@ using SabhaMujic.Data.Storage;
 
 namespace SabhaMujic.Server.Application;
 
-public sealed record MaintenanceReport(int SessionsPurged, int PairingCodesPurged, int UploadsExpired);
+public sealed record MaintenanceReport(int SessionsPurged, int UploadsExpired);
 
-/// <summary>Startup recovery and periodic clean-up (expired sessions, pairing codes, abandoned uploads).</summary>
+/// <summary>Startup recovery and periodic clean-up (expired sessions, abandoned uploads).</summary>
 public sealed class MaintenanceService(
     ISessionRepository sessions,
-    IPairingCodeRepository pairingCodes,
     ITrackAnalysisRepository analysis,
     UploadStaging uploads,
     IAnalysisQueue analysisQueue,
@@ -39,9 +38,8 @@ public sealed class MaintenanceService(
     {
         var report = new MaintenanceReport(
             await sessions.PurgeExpiredAsync(ct).ConfigureAwait(false),
-            await pairingCodes.PurgeAsync(ct).ConfigureAwait(false),
             uploads.ExpireAbandoned());
-        if (report != new MaintenanceReport(0, 0, 0))
+        if (report != new MaintenanceReport(0, 0))
         {
             logger.LogInformation("Maintenance: {Report}.", report);
         }

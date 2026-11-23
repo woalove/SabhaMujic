@@ -13,11 +13,11 @@ let browser;
 /** @type {import('playwright').BrowserContext} */
 let adminContext;
 /** @type {import('playwright').BrowserContext} */
-let volunteerContext;
+let helperContext;
 /** @type {import('playwright').Page} */
 let admin;
 /** @type {import('playwright').Page} */
-let volunteer;
+let helper;
 /** @type {string} */
 let origin;
 /** @type {string[]} */
@@ -108,7 +108,7 @@ before(async () => {
   origin = `https://127.0.0.1:${ready.httpsPort}`;
   browser = await chromium.launch();
   ({ context: adminContext, page: admin } = await newPhone('admin'));
-  ({ context: volunteerContext, page: volunteer } = await newPhone('volunteer'));
+  ({ context: helperContext, page: helper } = await newPhone('helper'));
 });
 
 after(async () => {
@@ -116,55 +116,88 @@ after(async () => {
   await host.stop();
 });
 
-test('admin pairs through the bootstrap page and the #code fragment', { timeout: 60000 }, async () => {
-  const { code, pairingUrl, caFingerprint } = await host.pairingCode('Admin');
-  assert.match(pairingUrl, new RegExp(`^http://127\\.0\\.0\\.1:${host.ready.bootstrapPort}/#code=${code}$`));
-  // The PC shows the same CA fingerprint as the phone's setup page.
-  assert.equal(caFingerprint, host.ready.fingerprint);
+/**
+ * Signs in on the sign-in view.
+ * @param {import('playwright').Page} page @param {string} user @param {string} password @param {boolean} remember
+ */
+async function signIn(page, user, password, remember) {
+  await page.locator('#view-login').waitFor({ state: 'visible' });
+  await page.locator('#login-user').fill(user);
+  await page.locator('#login-password').fill(password);
+  await page.locator('#login-remember').setChecked(remember);
+  await page.locator('#login-submit').click();
+}
 
-  await admin.goto(pairingUrl);
+test('the bootstrap page leads to the sign-in page; the PC shows the same fingerprint', { timeout: 60000 }, async () => {
+  const setup = await host.phoneSetup();
+  assert.equal(setup.bootstrapUrl, `http://127.0.0.1:${host.ready.bootstrapPort}/`);
+  assert.equal(setup.remoteUrl, `https://127.0.0.1:${host.ready.httpsPort}/`);
+  assert.equal(setup.caFingerprint, host.ready.fingerprint);
+  assert.equal(setup.isRemoteRunning, true);
+
+  await admin.goto(setup.bootstrapUrl);
   await admin.locator('#fingerprint', { hasText: host.ready.fingerprint }).waitFor();
-  assert.equal(await admin.locator('#code').textContent(), code);
+  assert.equal(await admin.locator('#code').count(), 0, 'no pairing code on the setup page');
   const href = await admin.locator('#continue').getAttribute('href');
-  assert.equal(href, `${origin}/pair#code=${code}`);
+  assert.equal(href, `${origin}/`);
 
   await admin.locator('#continue').click();
-  await admin.waitForURL(`${origin}/pair*`);
-  await admin.locator('#view-pair').waitFor({ state: 'visible' });
-  assert.equal(await admin.locator('#pair-code').inputValue(), code);
-  await admin.locator('#pair-name').fill('Admin iPhone');
-  await admin.locator('#pair-submit').click();
+  await admin.waitForURL(`${origin}/`);
+  await admin.locator('#view-login').waitFor({ state: 'visible' });
+  assert.equal(await admin.locator('#tabbar').isVisible(), false);
+});
 
+test('an administrator signs in and remembers the phone (persistent HttpOnly cookie, listed on the PC)', { timeout: 60000 }, async () => {
+  await signIn(admin, 'admin', 'admin-pass', true);
   await admin.locator('#view-now').waitFor({ state: 'visible' });
   await expectConnected(admin);
   assert.equal(new URL(admin.url()).pathname, '/');
   assert.equal(await admin.locator('#tab-admin').isVisible(), true);
 
-  // The device token is an HttpOnly, Secure, SameSite=Strict cookie and never visible to script.
-  const cookies = await adminContext.cookies(origin);
-  const cookie = cookies.find((c) => c.name === '__Host-SabhaMujic');
-  assert.ok(cookie, 'device cookie set');
+  // The session token is an HttpOnly, Secure, SameSite=Strict cookie and never visible to script; remembered → persistent.
+  const cookie = (await adminContext.cookies(origin)).find((c) => c.name === '__Host-SabhaMujic');
+  assert.ok(cookie, 'session cookie set');
   assert.equal(cookie.httpOnly, true);
   assert.equal(cookie.secure, true);
   assert.equal(cookie.sameSite, 'Strict');
+  assert.ok(cookie.expires > Date.now() / 1000 + 170 * 24 * 3600, `persistent for about 180 days (expires ${cookie.expires})`);
   assert.equal(await admin.evaluate(() => document.cookie), '');
-
-  // The code is single-use.
-  await volunteer.goto(`${origin}/pair#code=${code}`);
-  await volunteer.locator('#pair-name').fill('Reuse attempt');
-  await volunteer.locator('#pair-submit').click();
-  await volunteer.locator('#pair-error', { hasText: 'invalid or has expired' }).waitFor();
+  assert.ok((await host.devices()).length >= 1, 'the remembered phone is listed for administrators');
 });
 
-test('volunteer pairs and gets no Admin tab', { timeout: 60000 }, async () => {
-  const { code } = await host.pairingCode('Volunteer');
-  await volunteer.goto(`${origin}/pair#code=${code}`);
-  await volunteer.locator('#pair-name').fill('Sevak iPhone');
-  await volunteer.locator('#pair-submit').click();
-  await volunteer.locator('#view-now').waitFor({ state: 'visible' });
-  await expectConnected(volunteer);
-  assert.equal(await volunteer.locator('#tab-admin').isVisible(), false);
-  assert.equal(await volunteer.locator('#tabbar button[data-tab]:visible').count(), 4);
+test('without "Remember this phone" the cookie ends with the browser session and no device is listed', { timeout: 60000 }, async () => {
+  const before = await host.devices();
+  await helper.goto(`${origin}/`);
+  await signIn(helper, 'helper', 'helper-pass', false);
+  await helper.locator('#view-now').waitFor({ state: 'visible' });
+  await expectConnected(helper);
+  const cookie = (await helperContext.cookies(origin)).find((c) => c.name === '__Host-SabhaMujic');
+  assert.ok(cookie, 'session cookie set');
+  assert.equal(cookie.expires, -1, 'a browser-session cookie');
+  assert.deepEqual(await host.devices(), before);
+});
+
+test('wrong passwords and volunteer accounts cannot sign in', { timeout: 60000 }, async () => {
+  const { context, page } = await newPhone('outsider');
+  await page.goto(`${origin}/`);
+  await signIn(page, 'admin', 'wrong-password', false);
+  await page.locator('#login-error', { hasText: 'incorrect' }).waitFor();
+  await signIn(page, 'sevak', 'sevak-pass', false);
+  await page.locator('#login-error', { hasText: 'Only administrators' }).waitFor();
+  assert.equal(await page.locator('#view-login').isVisible(), true);
+
+  // Without a session every API call is refused.
+  const result = await page.evaluate(async () => {
+    const response = await fetch('/api/uploads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-SabhaMujic': '1' },
+      body: JSON.stringify({ fileName: 'x.wav', totalBytes: 10 }),
+    });
+    return { status: response.status, body: await response.json() };
+  });
+  assert.equal(result.status, 401);
+  assert.equal(result.body.code, 'Unauthenticated');
+  await context.close();
 });
 
 test('play, pause and next reflect live on both phones', { timeout: 60000 }, async () => {
@@ -172,7 +205,7 @@ test('play, pause and next reflect live on both phones', { timeout: 60000 }, asy
   await libraryAction(admin, 'Shanti Path', 'Add to queue');
   await openTab(admin, 'now');
 
-  for (const page of [admin, volunteer]) {
+  for (const page of [admin, helper]) {
     await expectTitle(page, 'Morning Aarti');
     await expectStatus(page, 'Playing');
   }
@@ -180,31 +213,31 @@ test('play, pause and next reflect live on both phones', { timeout: 60000 }, asy
   await admin.waitForFunction(() => document.getElementById('np-pos')?.textContent !== '0:00');
 
   await admin.locator('#np-play').click(); // pause
-  for (const page of [admin, volunteer]) await expectStatus(page, 'Paused');
+  for (const page of [admin, helper]) await expectStatus(page, 'Paused');
 
-  await volunteer.locator('#np-play').click(); // resume from the other phone
-  for (const page of [admin, volunteer]) await expectStatus(page, 'Playing');
+  await helper.locator('#np-play').click(); // resume from the other phone
+  for (const page of [admin, helper]) await expectStatus(page, 'Playing');
 
   await admin.locator('#np-next').click();
-  for (const page of [admin, volunteer]) await expectTitle(page, 'Shanti Path');
+  for (const page of [admin, helper]) await expectTitle(page, 'Shanti Path');
 
-  await openTab(volunteer, 'queue');
-  await volunteer.locator('#queue-list li[aria-current="true"]', { hasText: 'Shanti Path' }).waitFor();
-  assert.equal(await volunteer.locator('#queue-list li').count(), 2);
+  await openTab(helper, 'queue');
+  await helper.locator('#queue-list li[aria-current="true"]', { hasText: 'Shanti Path' }).waitFor();
+  assert.equal(await helper.locator('#queue-list li').count(), 2);
 
   // Settings round-trip through the hub and show on the other phone.
   await admin.locator('[data-loop="SmartLoop"]').click();
-  await openTab(volunteer, 'now');
-  await volunteer.locator('[data-loop="SmartLoop"][aria-pressed="true"]').waitFor();
+  await openTab(helper, 'now');
+  await helper.locator('[data-loop="SmartLoop"][aria-pressed="true"]').waitFor();
 });
 
-test('admin uploads a WAV with visible progress; duplicates are reported', { timeout: 90000 }, async () => {
+test('admin uploads a WAV with several categories and visible progress; duplicates are reported', { timeout: 90000 }, async () => {
   await openTab(admin, 'admin');
   const file = { name: 'test-tone.wav', mimeType: 'audio/wav', buffer: wav(8) }; // ~1.4 MB → 3 chunks
   await admin.locator('#up-files').setInputFiles(file);
   const item = admin.locator('#up-list li').last();
   await item.getByLabel('Title').fill('E2E Tone');
-  await item.getByLabel('Category').selectOption({ label: 'Dhun' });
+  await item.getByLabel('Categories').selectOption([{ label: 'Dhun' }, { label: 'Kirtan' }]);
 
   await admin.evaluate(() => {
     const seen = /** @type {number[]} */ ([]);
@@ -221,10 +254,14 @@ test('admin uploads a WAV with visible progress; duplicates are reported', { tim
   assert.ok(values.some((v) => v > 0 && v < max), `intermediate progress seen: ${values.join(', ')}`);
   assert.equal(values.at(-1), max);
 
-  // The new track is in the library for everyone (LibraryChanged push).
-  await openTab(volunteer, 'library');
-  await volunteer.locator('#lib-search').fill('E2E Tone');
-  await volunteer.locator('#lib-list li', { hasText: 'E2E Tone' }).waitFor();
+  // The new track is in the library for the other phone (LibraryChanged push), under both of its categories.
+  await openTab(helper, 'library');
+  await helper.locator('#lib-search').fill('E2E Tone');
+  await helper.locator('#lib-list li', { hasText: 'E2E Tone' }).waitFor();
+  for (const category of ['Dhun', 'Kirtan']) {
+    await helper.getByRole('button', { name: category, exact: true }).click();
+    await helper.locator('#lib-list li', { hasText: 'E2E Tone' }).waitFor();
+  }
 
   // Same audio again → reported as a duplicate, not added twice.
   await admin.locator('#up-files').setInputFiles(file);
@@ -232,56 +269,39 @@ test('admin uploads a WAV with visible progress; duplicates are reported', { tim
   await admin.locator('#up-list li').last().locator('.up-status', { hasText: 'Already in the library' }).waitFor({ timeout: 30000 });
 });
 
-test('volunteer upload attempt is refused by the server', { timeout: 30000 }, async () => {
-  const result = await volunteer.evaluate(async () => {
-    const response = await fetch('/api/uploads', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-SabhaMujic': '1' },
-      body: JSON.stringify({ fileName: 'x.wav', totalBytes: 10 }),
-    });
-    return { status: response.status, body: await response.json() };
-  });
-  assert.equal(result.status, 403);
-  assert.equal(result.body.code, 'Forbidden');
-});
-
 test('connection pill shows reconnecting while the hub restarts, then recovers', { timeout: 90000 }, async () => {
   await openTab(admin, 'now');
-  await openTab(volunteer, 'now');
+  await openTab(helper, 'now');
   host.send('restart');
-  for (const page of [admin, volunteer]) {
+  for (const page of [admin, helper]) {
     await page.locator('#conn[data-status="reconnecting"]').waitFor({ timeout: 20000 });
   }
   await host.next('restarted', 30000);
-  for (const page of [admin, volunteer]) await expectConnected(page);
+  for (const page of [admin, helper]) await expectConnected(page);
 
   // Still in control after reconnecting, and state is re-fetched.
   await admin.locator('#np-play').click();
-  for (const page of [admin, volunteer]) await expectStatus(page, 'Paused');
+  for (const page of [admin, helper]) await expectStatus(page, 'Paused');
 });
 
-test('signing out unpairs the phone', { timeout: 60000 }, async () => {
+test('signing out a remembered phone revokes it', { timeout: 60000 }, async () => {
   const { context, page } = await newPhone('leaver');
-  const { code } = await host.pairingCode('Volunteer');
-  await page.goto(`${origin}/pair#code=${code}`);
-  await page.locator('#pair-name').fill('Leaving iPhone');
-  await page.locator('#pair-submit').click();
+  await page.goto(`${origin}/`);
+  await signIn(page, 'helper', 'helper-pass', true);
   await page.locator('#view-now').waitFor({ state: 'visible' });
   await expectConnected(page);
-  host.send('devices');
-  assert.ok((await host.next('devices')).names.includes('Leaving iPhone'));
+  const remembered = await host.devices();
 
   await page.locator('#signout').click();
   await page.locator('#confirm-ok').click();
-  await page.locator('#view-pair').waitFor({ state: 'visible' });
+  await page.locator('#view-login').waitFor({ state: 'visible' });
 
   // The device is revoked on the server, not just forgotten by the browser: it is gone from the admin's list and a
-  // reload lands on pairing again.
-  host.send('devices');
-  assert.ok(!(await host.next('devices')).names.includes('Leaving iPhone'));
+  // reload lands on the sign-in page again.
+  assert.equal((await host.devices()).length, remembered.length - 1);
   assert.equal((await context.cookies(origin)).some((c) => c.name === '__Host-SabhaMujic'), false);
   await page.goto(`${origin}/`);
-  await page.locator('#view-pair').waitFor({ state: 'visible' });
+  await page.locator('#view-login').waitFor({ state: 'visible' });
   await context.close();
 });
 

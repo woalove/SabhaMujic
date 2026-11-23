@@ -17,7 +17,9 @@ public sealed class ServerFixture : IAsyncLifetime
 
 /// <summary>
 /// Invokes every method of every contract interface over the real pipe as anonymous, Volunteer and Admin and checks the
-/// outcome against <see cref="Authorizer"/>. Denied calls must leave no trace (DB, store, uploads, backend, analysis).
+/// outcome against <see cref="Authorizer"/>. Desktop rules (contract v2): an anonymous connection is open use (everything
+/// a volunteer may do); administration needs an admin sign-in (<c>Unauthenticated</c> anonymously, <c>Forbidden</c> for a
+/// volunteer account). Denied calls must leave no trace (DB, store, uploads, backend, analysis).
 /// </summary>
 public sealed class AuthorizationMatrixTests(ServerFixture fixture) : IClassFixture<ServerFixture>
 {
@@ -60,7 +62,8 @@ public sealed class AuthorizationMatrixTests(ServerFixture fixture) : IClassFixt
         var server = fixture.Server;
         var api = RpcProtocol.ApiInterfaces.Single(a => a.Name == apiName);
         var method = api.GetMethod(methodName)!;
-        var level = Authorizer.RequiredLevel(OperationMap.For(apiName, methodName));
+        var operation = OperationMap.For(apiName, methodName);
+        var level = Authorizer.RequiredLevel(operation);
 
         await using var client = role switch
         {
@@ -71,10 +74,16 @@ public sealed class AuthorizationMatrixTests(ServerFixture fixture) : IClassFixt
 
         var expectedDenial = role switch
         {
-            As.Anonymous when level != AccessLevel.Anonymous => ErrorCode.Unauthenticated,
+            As.Anonymous when level == AccessLevel.Admin => ErrorCode.Unauthenticated,
             As.Volunteer when level == AccessLevel.Admin => ErrorCode.Forbidden,
             _ => (ErrorCode?)null,
         };
+        Assert.Equal(expectedDenial, Authorizer.Check(role switch
+        {
+            As.Anonymous => CallerContext.Anonymous(ClientKind.Desktop, "probe"),
+            As.Volunteer => new CallerContext(ClientKind.Desktop, Role.Volunteer, Guid.NewGuid(), null, "s", "probe"),
+            _ => new CallerContext(ClientKind.Desktop, Role.Admin, Guid.NewGuid(), null, "s", "probe"),
+        }, operation));
 
         var before = await server.SnapshotAsync();
         var error = await InvokeAsync(client, api, method);
@@ -112,7 +121,7 @@ public sealed class AuthorizationMatrixTests(ServerFixture fixture) : IClassFixt
     private static string StripAudit(string snapshot) =>
         string.Join('\n', snapshot.Split('\n').Where(line => !line.StartsWith("audit_log:", StringComparison.Ordinal)));
 
-    private static async Task<SabhaMujicException?> InvokeAsync(PipeSabhaClient client, Type api, MethodInfo method)
+    internal static async Task<SabhaMujicException?> InvokeAsync(PipeSabhaClient client, Type api, MethodInfo method)
     {
         object target = api.Name switch
         {
@@ -134,7 +143,7 @@ public sealed class AuthorizationMatrixTests(ServerFixture fixture) : IClassFixt
         }
     }
 
-    private static object? ArgumentFor(ParameterInfo p)
+    internal static object? ArgumentFor(ParameterInfo p)
     {
         var t = p.ParameterType;
         if (t == typeof(CancellationToken))
@@ -161,9 +170,9 @@ public sealed class AuthorizationMatrixTests(ServerFixture fixture) : IClassFixt
             _ when t == typeof(IReadOnlyList<Guid>) => Array.Empty<Guid>(),
             _ when t == typeof(TrackQuery) => new TrackQuery(),
             _ when t == typeof(ImportMetadata) => new ImportMetadata("t", null, null),
-            _ when t == typeof(TrackUpdateDto) => new TrackUpdateDto(Guid.NewGuid(), "t", null, null),
+            _ when t == typeof(TrackUpdateDto) => new TrackUpdateDto(Guid.NewGuid(), "t", null, []),
             _ when t == typeof(LoopRegionDto) => null,
-            _ when t == typeof(Role) => Role.Volunteer,
+            _ when t == typeof(Role) => Role.Admin,
             _ when t == typeof(LoopMode) => LoopMode.Off,
             _ => throw new NotSupportedException($"No test argument for {t} ({p.Member.Name}.{p.Name}). Add one."),
         };

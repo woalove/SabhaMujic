@@ -14,7 +14,7 @@ namespace SabhaMujic.Desktop.ViewModels;
 /// </summary>
 public sealed partial class SetupViewModel : ViewModelBase
 {
-    public const int MinSecretLength = 4;
+    public const int MinSecretLength = 8;
 
     public const string RunAsAdministratorMessage =
         "Close the app, then right-click SabhaMujic and choose 'Run as administrator' to complete first-time setup.";
@@ -81,7 +81,7 @@ public sealed partial class SetupViewModel : ViewModelBase
     /// <summary>Inline guidance while typing (null when the form is fine or still empty).</summary>
     public string? ValidationHint =>
         Secret.Length == 0 ? null
-        : Secret.Length < MinSecretLength ? $"The PIN or password must have at least {MinSecretLength} characters."
+        : Secret.Length < MinSecretLength ? $"The password must have at least {MinSecretLength} characters."
         : ConfirmSecret.Length > 0 && ConfirmSecret != Secret ? "The two entries do not match."
         : null;
 

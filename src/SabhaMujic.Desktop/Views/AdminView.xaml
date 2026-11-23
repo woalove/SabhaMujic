@@ -14,10 +14,10 @@
             <TabItem Header="Tracks">
                 <admin:TracksAdminView DataContext="{Binding Tracks}" />
             </TabItem>
-            <TabItem Header="Users">
+            <TabItem Header="Administrators">
                 <admin:UsersAdminView DataContext="{Binding Users}" />
             </TabItem>
-            <TabItem Header="Remote devices">
+            <TabItem Header="Phones">
                 <admin:DevicesAdminView DataContext="{Binding Devices}" />
             </TabItem>
         </TabControl>

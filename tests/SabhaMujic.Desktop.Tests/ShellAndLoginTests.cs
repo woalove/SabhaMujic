@@ -31,7 +31,7 @@ public class ShellAndLoginTests
     }
 
     [Theory]
-    [InlineData(ErrorCode.Unauthenticated, "Incorrect user name or PIN/password.")]
+    [InlineData(ErrorCode.Unauthenticated, "Incorrect user name or password.")]
     [InlineData(ErrorCode.RateLimited, "Too many sign-in attempts. Please wait a minute and try again.")]
     public async Task Login_failure_shows_message(ErrorCode code, string expected)
     {
@@ -146,14 +146,64 @@ public class ShellAndLoginTests
     }
 
     [Fact]
-    public void Nothing_is_loaded_before_sign_in()
+    public void Open_use_loads_the_player_without_sign_in_but_no_administration()
     {
-        var (_, client, _) = ConnectedShell();
-        client.Events.LibraryChanged(new LibraryChangedDto(LibraryChangeKind.TrackAdded, Guid.NewGuid()));
-        client.Events.LibraryChanged(new LibraryChangedDto(LibraryChangeKind.PlaylistsChanged, null));
+        var (shell, client, _) = ConnectedShell();
 
-        // Only the anonymous first-run check is allowed before sign-in.
-        Assert.All(client.Calls, c => Assert.Equal("IsSetupRequiredAsync", c.Method));
+        Assert.False(shell.IsSignedIn);
+        Assert.True(shell.IsMainVisible);
+        Assert.False(shell.IsLoginVisible);
+        Assert.True(shell.IsAdminSignInAvailable);
+        Assert.Contains(client.Calls, c => c.Method == "GetStateAsync");
+        Assert.Contains(client.Calls, c => c.Method == "GetQueueAsync");
+        Assert.Contains(client.Calls, c => c.Method == "GetCategoriesAsync");
+        Assert.DoesNotContain(client.Calls, c => c.Method is "GetUsersAsync" or "GetDevicesAsync");
+
+        // The Admin page needs an administrator sign-in.
+        shell.NavigateCommand.Execute(NavPage.Admin);
+        Assert.Equal(NavPage.Library, shell.CurrentPage);
+        Assert.False(shell.IsAdminVisible);
+    }
+
+    [Fact]
+    public async Task Admin_sign_in_opens_on_request_and_back_returns_to_the_player()
+    {
+        var (shell, client, _) = ConnectedShell();
+        shell.OpenAdminSignInCommand.Execute(null);
+        Assert.True(shell.IsLoginVisible);
+        Assert.False(shell.IsMainVisible);
+
+        shell.Login.CloseCommand.Execute(null);
+        Assert.False(shell.IsLoginVisible);
+        Assert.True(shell.IsMainVisible);
+
+        client.Auth.OnLogin = (user, _) => FakeSabhaClient.MakeSession(Role.Admin, user);
+        shell.OpenAdminSignInCommand.Execute(null);
+        shell.Login.UserName = "admin";
+        shell.Login.Secret = "admin-pass";
+        await shell.Login.LoginCommand.ExecuteAsync(null);
+        Assert.True(shell.IsAdmin);
+        Assert.False(shell.IsLoginVisible);
+        Assert.True(shell.IsMainVisible);
+        Assert.False(shell.IsAdminSignInAvailable);
+    }
+
+    [Fact]
+    public void An_ended_admin_session_returns_to_open_use_and_keeps_the_player()
+    {
+        var (shell, client, _) = ConnectedShell(Role.Admin);
+        shell.NavigateCommand.Execute(NavPage.Admin);
+        var callsBefore = client.Calls.Count;
+
+        client.Events.SessionEnded("Signed out after 15 minutes without activity.");
+
+        Assert.False(shell.IsSignedIn);
+        Assert.True(shell.IsMainVisible);
+        Assert.False(shell.IsLoginVisible);
+        Assert.Equal(NavPage.Library, shell.CurrentPage);
+        Assert.Contains("15 minutes", shell.StatusMessage);
+        Assert.True(shell.IsAdminSignInAvailable);
+        Assert.DoesNotContain(client.Calls.Skip(callsBefore), c => c.Method == "LogoutAsync");
     }
 
     [Fact]

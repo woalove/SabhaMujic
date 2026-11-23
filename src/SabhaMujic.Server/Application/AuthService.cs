@@ -9,11 +9,20 @@ namespace SabhaMujic.Server.Application;
 /// <summary>A session bound to a connection: what the client gets back, and the caller identity for later calls.</summary>
 public sealed record AuthResult(SessionDto Session, string TokenHash, CallerContext Caller);
 
-public sealed record PairingResult(DeviceDto Device, SessionDto Session, string TokenHash, CallerContext Caller);
+/// <summary>
+/// Options of a sign-in on the iPhone remote. <see cref="RememberDevice"/> creates a device (listed for administrators,
+/// revocable) with a long-lived sliding session; otherwise the session ends after
+/// <see cref="ServerOptions.RemoteSessionLifetime"/>.
+/// </summary>
+public sealed record RemoteSignIn(bool RememberDevice, string? DeviceName);
 
 /// <summary>
-/// Logins, sessions and pairing. Callers are already authorized by <c>ApiSession</c>; this service applies the rate limits
-/// and credential checks. Only token hashes are stored.
+/// Sign-in, sessions, first-run setup and recovery. Callers are already authorized by <c>ApiSession</c>; this service
+/// applies the rate limits and credential checks. Only token hashes are stored.
+/// <para>Session lifetimes: desktop administrator sessions end after <see cref="ServerOptions.DesktopSessionLifetime"/>
+/// (15 minutes) without activity (sliding, recorded at most once per <see cref="ServerOptions.SessionTouchInterval"/>);
+/// remote sessions last <see cref="ServerOptions.RemoteSessionLifetime"/> (12 hours, not extended); remembered phones
+/// slide over <see cref="ServerOptions.DeviceSessionLifetime"/> (180 days).</para>
 /// </summary>
 public sealed class AuthService
 {
@@ -22,37 +31,31 @@ public sealed class AuthService
     private readonly IUserRepository _users;
     private readonly ISessionRepository _sessions;
     private readonly IDeviceRepository _devices;
-    private readonly IPairingCodeRepository _pairingCodes;
     private readonly EventBroadcaster _events;
     private readonly AuditWriter _audit;
     private readonly ServerOptions _options;
     private readonly TimeProvider _clock;
     private readonly FailureRateLimiter _loginPerUser;
     private readonly FailureRateLimiter _loginGlobal;
-    private readonly FailureRateLimiter _pairingPerCaller;
-    private readonly FailureRateLimiter _pairingGlobal;
     private readonly FailureRateLimiter _recoveryPerCaller;
     private readonly Lazy<string> _dummyHash;
     private readonly SemaphoreSlim _bootstrapGate = new(1, 1);
     private readonly ILogger _logger;
     private long _touchSuspendedUntilTicks;
 
-    public AuthService(IUserRepository users, ISessionRepository sessions, IDeviceRepository devices, IPairingCodeRepository pairingCodes,
+    public AuthService(IUserRepository users, ISessionRepository sessions, IDeviceRepository devices,
         EventBroadcaster events, AuditWriter audit, ServerOptions options, TimeProvider clock, ILogger<AuthService>? logger = null)
     {
         _logger = logger ?? NullLogger<AuthService>.Instance;
         _users = users;
         _sessions = sessions;
         _devices = devices;
-        _pairingCodes = pairingCodes;
         _events = events;
         _audit = audit;
         _options = options;
         _clock = clock;
         _loginPerUser = new FailureRateLimiter(options.LoginMaxFailuresPerUser, options.LoginFailureWindow, clock);
         _loginGlobal = new FailureRateLimiter(options.LoginMaxFailuresGlobal, options.LoginFailureWindow, clock);
-        _pairingPerCaller = new FailureRateLimiter(options.PairingMaxFailuresPerCaller, options.PairingFailureWindow, clock);
-        _pairingGlobal = new FailureRateLimiter(options.PairingMaxFailuresGlobal, options.PairingFailureWindow, clock);
         _recoveryPerCaller = new FailureRateLimiter(options.LoginMaxFailuresPerUser, options.LoginFailureWindow, clock);
         // Verified against when the user does not exist, so unknown and known names take about the same time.
         _dummyHash = new Lazy<string>(() => SecretHasher.Hash(Tokens.NewToken(), options.SecretHashIterations));
@@ -69,11 +72,16 @@ public sealed class AuthService
         if (string.IsNullOrEmpty(secret) || secret.Length < _options.MinSecretLength || secret.Length > _options.MaxSecretLength)
         {
             throw new SabhaMujicException(ErrorCode.InvalidArgument,
-                $"The password or PIN must be {_options.MinSecretLength}–{_options.MaxSecretLength} characters.");
+                $"The password must be {_options.MinSecretLength}–{_options.MaxSecretLength} characters.");
         }
     }
 
-    public async Task<AuthResult> LoginAsync(CallerContext caller, string userName, string secret, CancellationToken ct)
+    /// <summary>
+    /// Password sign-in (rate-limited per user name and globally). On the remote only administrators may sign in: any
+    /// other account gets <see cref="ErrorCode.Forbidden"/> (after its password was checked, so this reveals nothing to
+    /// someone without it); <paramref name="remote"/> decides whether the phone is remembered.
+    /// </summary>
+    public async Task<AuthResult> LoginAsync(CallerContext caller, string userName, string secret, CancellationToken ct, RemoteSignIn? remote = null)
     {
         var name = (userName ?? "").Trim();
         var userKey = "user:" + name.ToUpperInvariant();
@@ -96,10 +104,47 @@ public sealed class AuthService
         }
 
         _loginPerUser.Reset(userKey);
+        if (caller.Client == ClientKind.Remote)
+        {
+            if (user.Role != Role.Admin)
+            {
+                await _audit.WriteAsync(caller, "login.remote_denied", "user:" + user.UserName).ConfigureAwait(false);
+                throw RemoteAdminsOnly();
+            }
+
+            if (remote is { RememberDevice: true })
+            {
+                return await RememberDeviceAsync(caller, user, remote.DeviceName, ct).ConfigureAwait(false);
+            }
+        }
+
         var result = await CreateUserSessionAsync(caller, user, ct).ConfigureAwait(false);
         await _audit.WriteAsync(result.Caller, "login", "user:" + user.UserName).ConfigureAwait(false);
         return result;
     }
+
+    /// <summary>Creates the remembered phone (admin role, shown in the Devices list) and its long-lived session.</summary>
+    private async Task<AuthResult> RememberDeviceAsync(CallerContext caller, UserRecord user, string? deviceName, CancellationToken ct)
+    {
+        var name = string.IsNullOrWhiteSpace(deviceName) ? $"{user.UserName}'s phone" : deviceName.Trim();
+        if (name.Length > 100)
+        {
+            throw new SabhaMujicException(ErrorCode.InvalidArgument, "The phone's name can have at most 100 characters.");
+        }
+
+        var device = await _devices.CreateAsync(name, Role.Admin, ct).ConfigureAwait(false);
+        var token = Tokens.NewToken();
+        var tokenHash = Tokens.HashToken(token);
+        var record = await _sessions.CreateAsync(new NewSession(tokenHash, user.Id, device.Id, Role.Admin, ClientKind.Remote,
+            _clock.GetUtcNow() + _options.DeviceSessionLifetime), ct).ConfigureAwait(false);
+        var bound = BoundCaller(caller, record, user.UserName);
+        _events.PublishLibraryChanged(new LibraryChangedDto(LibraryChangeKind.DevicesChanged, device.Id));
+        await _audit.WriteAsync(bound, "login.remembered_device", "device:" + device.Id, device.Name).ConfigureAwait(false);
+        return new AuthResult(new SessionDto(token, user.UserName, Role.Admin, record.ExpiresAt), tokenHash, bound);
+    }
+
+    private static SabhaMujicException RemoteAdminsOnly() =>
+        new(ErrorCode.Forbidden, "Only administrators can use the SabhaMujic phone remote.");
 
     /// <summary>True while no user accounts exist (fresh install).</summary>
     public async Task<bool> IsSetupRequiredAsync(CancellationToken ct) =>
@@ -146,8 +191,8 @@ public sealed class AuthService
     }
 
     /// <summary>
-    /// Admin PIN recovery from the desktop app. Same gate as <see cref="CompleteInitialSetupAsync"/> (desktop pipe AND an
-    /// elevated local Administrator, never the remote). Sets a new PIN for the named administrator and signs out all of
+    /// Admin password recovery from the desktop app. Same gate as <see cref="CompleteInitialSetupAsync"/> (desktop pipe AND
+    /// an elevated local Administrator, never the remote). Sets a new password for the named administrator and signs out all of
     /// its sessions, or creates a new administrator when no account has that name; then signs in as it.
     /// <para>Rate-limited like sign-in, per Windows account (transport principal): every gated attempt counts, granted or
     /// denied, because recovery checks no secret. Remote callers are refused before the limiter so they cannot use up a
@@ -182,7 +227,7 @@ public sealed class AuthService
             throw new SabhaMujicException(ErrorCode.InvalidArgument, "Enter the administrator's user name.");
         }
 
-        var hash = HashSecret(newSecret); // validates the PIN before anything changes
+        var hash = HashSecret(newSecret); // validates the password before anything changes
         UserRecord user;
         bool created;
         await _bootstrapGate.WaitAsync(ct).ConfigureAwait(false);
@@ -210,7 +255,7 @@ public sealed class AuthService
                 created = false;
             }
 
-            // Every existing session of the account ends (a new account has none): whoever knew the old PIN is out.
+            // Every existing session of the account ends (a new account has none): whoever knew the old password is out.
             await _sessions.RevokeAllForUserAsync(user.Id, CancellationToken.None).ConfigureAwait(false);
         }
         finally
@@ -219,7 +264,7 @@ public sealed class AuthService
         }
 
         var userId = user.Id;
-        _events.EndSessions(c => c.UserId == userId, "This account's PIN was reset on the SabhaMujic PC. Please sign in again.");
+        _events.EndSessions(c => c.UserId == userId, "This account's password was reset on the SabhaMujic PC. Please sign in again.");
         var result = await CreateUserSessionAsync(caller, user, CancellationToken.None).ConfigureAwait(false);
         await _audit.WriteAsync(result.Caller, created ? "recovery.admin_created" : "recovery.admin_reset", "user:" + user.UserName)
             .ConfigureAwait(false);
@@ -228,7 +273,7 @@ public sealed class AuthService
     }
 
     private static SabhaMujicException RecoveryForbidden() => new(ErrorCode.Forbidden,
-        "Resetting an administrator PIN must be done in the SabhaMujic app started with 'Run as administrator' on this PC.");
+        "Resetting an administrator password must be done in the SabhaMujic app started with 'Run as administrator' on this PC.");
 
     private async Task<AuthResult> CreateUserSessionAsync(CallerContext caller, UserRecord user, CancellationToken ct)
     {
@@ -267,6 +312,12 @@ public sealed class AuthService
             displayName = device.Name;
         }
 
+        if (caller.Client == ClientKind.Remote && record.Role != Role.Admin)
+        {
+            // A phone paired as a volunteer before contract v2: it stays listed (and revocable) but can no longer be used.
+            throw RemoteAdminsOnly();
+        }
+
         var bound = BoundCaller(caller, record, displayName);
         return new AuthResult(new SessionDto(token, displayName, record.Role, record.ExpiresAt), tokenHash, bound);
     }
@@ -292,7 +343,8 @@ public sealed class AuthService
         var now = _clock.GetUtcNow();
         if (now - record.LastSeenAt >= _options.SessionTouchInterval && now.UtcTicks >= Volatile.Read(ref _touchSuspendedUntilTicks))
         {
-            var extendTo = now + LifetimeOf(record);
+            // Remote sign-ins without "remember" end 12 h after sign-in, however active: only last-seen is recorded.
+            DateTimeOffset? extendTo = IsSliding(record) ? now + LifetimeOf(record) : null;
             try
             {
                 if (await _sessions.TouchAsync(record.Id, extendTo, ct).ConfigureAwait(false))
@@ -302,7 +354,7 @@ public sealed class AuthService
                         await _devices.TouchAsync(deviceId, ct).ConfigureAwait(false);
                     }
 
-                    record = record with { LastSeenAt = now, ExpiresAt = extendTo > record.ExpiresAt ? extendTo : record.ExpiresAt };
+                    record = record with { LastSeenAt = now, ExpiresAt = extendTo is { } e && e > record.ExpiresAt ? e : record.ExpiresAt };
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -317,9 +369,9 @@ public sealed class AuthService
     }
 
     /// <summary>
-    /// Signs the caller out. A user session is revoked. A paired device <b>unpairs itself</b>: the device record and all its
+    /// Signs the caller out. A user session is revoked. A remembered phone <b>forgets itself</b>: the device record and all its
     /// sessions are revoked (no admin needed: a device may always revoke itself) and admins get
-    /// <see cref="LibraryChangeKind.DevicesChanged"/>; pairing again needs a new code.
+    /// <see cref="LibraryChangeKind.DevicesChanged"/>; using that phone again needs a new sign-in.
     /// </summary>
     public async Task LogoutAsync(CallerContext caller, CancellationToken ct)
     {
@@ -342,42 +394,6 @@ public sealed class AuthService
         await _audit.WriteAsync(caller, "logout").ConfigureAwait(false);
         _events.EndSessions(c => c.SessionId == sessionId, "Signed out.");
         _events.CloseSession(sessionId);
-    }
-
-    /// <summary>Consumes a pairing code and creates a device with a long-lived token (rate-limited per caller and globally).</summary>
-    public async Task<PairingResult> PairAsync(CallerContext caller, string code, string deviceName, CancellationToken ct)
-    {
-        var callerKey = "caller:" + caller.Principal;
-        if (_pairingPerCaller.IsLimited(callerKey) || _pairingGlobal.IsLimited(GlobalKey))
-        {
-            await _audit.WriteAsync(caller, "pair.rate_limited").ConfigureAwait(false);
-            throw new SabhaMujicException(ErrorCode.RateLimited, "Too many failed pairing attempts. Wait a few minutes and try again.");
-        }
-
-        var name = (deviceName ?? "").Trim();
-        if (name.Length is 0 or > 100)
-        {
-            throw new SabhaMujicException(ErrorCode.InvalidArgument, "A device name of 1–100 characters is required.");
-        }
-
-        var consumed = await _pairingCodes.TryConsumeAsync((code ?? "").Trim(), ct).ConfigureAwait(false);
-        if (consumed is null)
-        {
-            _pairingPerCaller.RecordFailure(callerKey);
-            _pairingGlobal.RecordFailure(GlobalKey);
-            await _audit.WriteAsync(caller, "pair.failed").ConfigureAwait(false);
-            throw new SabhaMujicException(ErrorCode.Unauthenticated, "The pairing code is invalid or has expired.");
-        }
-
-        var device = await _devices.CreateAsync(name, consumed.Role, ct).ConfigureAwait(false);
-        var token = Tokens.NewToken();
-        var tokenHash = Tokens.HashToken(token);
-        var record = await _sessions.CreateAsync(new NewSession(tokenHash, null, device.Id, consumed.Role, ClientKind.Remote,
-            _clock.GetUtcNow() + _options.DeviceSessionLifetime), ct).ConfigureAwait(false);
-        var bound = BoundCaller(caller with { Client = ClientKind.Remote }, record, device.Name);
-        _events.PublishLibraryChanged(new LibraryChangedDto(LibraryChangeKind.DevicesChanged, device.Id));
-        await _audit.WriteAsync(bound, "device.paired", "device:" + device.Id, "role=" + device.Role).ConfigureAwait(false);
-        return new PairingResult(device.ToDto(), new SessionDto(token, device.Name, device.Role, record.ExpiresAt), tokenHash, bound);
     }
 
     /// <summary>
@@ -405,6 +421,8 @@ public sealed class AuthService
             _bootstrapGate.Release();
         }
     }
+
+    private static bool IsSliding(SessionRecord record) => record.DeviceId is not null || record.ClientKind == ClientKind.Desktop;
 
     private TimeSpan LifetimeOf(SessionRecord record) =>
         record.DeviceId is not null ? _options.DeviceSessionLifetime

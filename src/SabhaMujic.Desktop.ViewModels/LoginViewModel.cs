@@ -6,7 +6,10 @@ using SabhaMujic.Desktop.ViewModels.Infrastructure;
 
 namespace SabhaMujic.Desktop.ViewModels;
 
-/// <summary>Sign-in form: user name + PIN/password. The secret is cleared after every attempt.</summary>
+/// <summary>
+/// Administrator sign-in: user name + password. Opened from "Admin sign-in" (the player itself needs no sign-in); the
+/// password is cleared after every attempt.
+/// </summary>
 public sealed partial class LoginViewModel : ViewModelBase
 {
     private readonly ISabhaClient _client;
@@ -19,10 +22,22 @@ public sealed partial class LoginViewModel : ViewModelBase
     /// <summary>Raised after a successful sign-in with the new session.</summary>
     public event Action<SessionDto>? LoggedIn;
 
-    /// <summary>Raised by the "Forgot admin PIN?" link.</summary>
+    /// <summary>Raised by the "Forgot admin password?" link.</summary>
     public event Action? RecoveryRequested;
 
-    /// <summary>"Forgot admin PIN?": opens the administrator PIN recovery screen.</summary>
+    /// <summary>Raised by "Back" (close the sign-in form, keep using the player).</summary>
+    public event Action? Closed;
+
+    [RelayCommand]
+    private void Close()
+    {
+        ErrorMessage = null;
+        Secret = "";
+        SecretCleared?.Invoke();
+        Closed?.Invoke();
+    }
+
+    /// <summary>"Forgot admin password?": opens the administrator password recovery screen.</summary>
     [RelayCommand]
     private void ForgotAdminPin()
     {

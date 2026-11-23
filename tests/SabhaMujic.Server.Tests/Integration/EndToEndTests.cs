@@ -11,7 +11,6 @@ namespace SabhaMujic.Server.Tests.Integration;
 public sealed class EndToEndTests
 {
     private const string AdminPin = "admin-pin";
-    private const string VolunteerPin = "vol-pin";
 
     [Fact]
     public async Task Full_service_flow_on_the_real_engine()
@@ -38,9 +37,8 @@ public sealed class EndToEndTests
         var toneAnalysis = await h.App.Analysis.GetAsync(tone.TrackId);
         Assert.InRange(toneAnalysis!.TrimStartSeconds!.Value, 0.3, 0.7);
 
-        // 4. A volunteer created by the admin plays: Playing, then a crossfade into the second track.
-        await admin.Admin.CreateUserAsync("sevak", Role.Volunteer, VolunteerPin);
-        var volunteer = await h.ConnectAsync("sevak", VolunteerPin);
+        // 4. A volunteer plays without signing in (open use): Playing, then a crossfade into the second track.
+        var volunteer = await h.ConnectAsync();
         var statuses = new ConcurrentQueue<(PlaybackStatus Status, Guid? Track)>();
         volunteer.Events.PlaybackStateReceived += s => statuses.Enqueue((s.Status, s.CurrentTrackId));
         var queue = await volunteer.Playback.EnqueueAsync([tone.TrackId, song.TrackId], playNext: false);
@@ -74,7 +72,7 @@ public sealed class EndToEndTests
         Assert.NotEqual(before.PositionSeconds, after.PositionSeconds);
 
         // 7. A new client sees the live state.
-        var observer = await h.ConnectAsync("sevak", VolunteerPin);
+        var observer = await h.ConnectAsync();
         var live = await observer.Playback.GetStateAsync();
         Assert.Equal((PlaybackStatus.Playing, song.TrackId, LoopMode.SmartLoop, 0.5f), (live.Status, live.CurrentTrackId, live.LoopMode, live.Volume));
         Assert.Equal(h.App.ServerEpoch, live.ServerEpoch);

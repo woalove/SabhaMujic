@@ -10,7 +10,8 @@ using SabhaMujic.Server.Application;
 
 namespace SabhaMujic.Server.Remote.Http;
 
-public sealed record PairRequest(string? Code, string? DeviceName);
+/// <summary><c>POST /api/login</c>: an administrator's name and password; <see cref="RememberDevice"/> keeps the phone signed in.</summary>
+public sealed record LoginRequest(string? UserName, string? Password, bool RememberDevice, string? DeviceName);
 
 public sealed record MeResponse(string Name, Role Role);
 
@@ -18,16 +19,18 @@ public sealed record BeginUploadRequest(string? FileName, long TotalBytes);
 
 public sealed record BeginUploadResponse(Guid UploadId);
 
-public sealed record CompleteUploadRequest(string? Title, string? Artist, Guid? CategoryId);
+public sealed record CompleteUploadRequest(string? Title, string? Artist, IReadOnlyList<Guid>? CategoryIds);
 
 /// <summary>
 /// The remote's HTTP API. Every endpoint opens a per-request <see cref="ApiSession"/> (resumed from the cookie or bearer
 /// token) and performs its operation only through it, so <see cref="Core.Security.Authorizer"/> decides access.
 /// <list type="bullet">
-/// <item><c>POST /api/pair</c> → <see cref="ApiSession.PairAsync"/>; sets the device cookie.</item>
-/// <item><c>GET /api/me</c> → <see cref="ApiSession.ResumeSessionAsync"/>; refreshes the cookie.</item>
-/// <item><c>POST /api/logout</c> → <see cref="ApiSession.LogoutAsync"/> when a valid token is presented: the device unpairs itself
-/// (device record and sessions revoked). Always clears the cookie and answers 204, also for unknown or expired tokens.</item>
+/// <item><c>POST /api/login</c> → <see cref="ApiSession.RemoteLoginAsync"/> (administrators only, rate-limited like every
+/// sign-in); sets the session cookie: persistent for a remembered phone, otherwise a browser-session cookie (the session
+/// itself ends after 12 hours).</item>
+/// <item><c>GET /api/me</c> → <see cref="ApiSession.ResumeSessionAsync"/>; refreshes a remembered phone's cookie.</item>
+/// <item><c>POST /api/logout</c> → <see cref="ApiSession.LogoutAsync"/> when a valid token is presented: the session ends and
+/// a remembered phone is revoked. Always clears the cookie and answers 204, also for unknown or expired tokens.</item>
 /// <item><c>POST /api/uploads</c> → <see cref="ApiSession.BeginImportAsync"/>.</item>
 /// <item><c>PUT /api/uploads/{id}?offset=N</c> (raw body ≤ <see cref="AdminLimits.MaxChunkBytes"/>) → <see cref="ApiSession.UploadChunkAsync"/>.</item>
 /// <item><c>POST /api/uploads/{id}/complete</c> → <see cref="ApiSession.CompleteImportAsync"/>.</item>
@@ -41,7 +44,7 @@ public static class RemoteApiEndpoints
     /// <summary>Every HTTP API endpoint as (method, route template). Used by the exhaustive authorization tests.</summary>
     public static readonly IReadOnlyList<(string Method, string Route)> All =
     [
-        ("POST", "/api/pair"),
+        ("POST", "/api/login"),
         ("GET", "/api/me"),
         ("POST", "/api/logout"),
         ("POST", "/api/uploads"),
@@ -52,12 +55,13 @@ public static class RemoteApiEndpoints
 
     internal static void Map(IEndpointRouteBuilder endpoints, ServerApplication app)
     {
-        endpoints.MapPost("/api/pair", context => Handle(context, app, authenticate: false, async session =>
+        endpoints.MapPost("/api/login", context => Handle(context, app, authenticate: false, async session =>
         {
-            var request = await ReadJsonAsync<PairRequest>(context).ConfigureAwait(false);
-            var paired = await session.PairAsync(request.Code ?? "", request.DeviceName ?? "", context.RequestAborted).ConfigureAwait(false);
-            RemoteAuth.SetCookie(context, paired.Session.Token);
-            await RemoteJson.WriteAsync(context, new MeResponse(paired.Session.UserName, paired.Session.Role)).ConfigureAwait(false);
+            var request = await ReadJsonAsync<LoginRequest>(context).ConfigureAwait(false);
+            var signedIn = await session.RemoteLoginAsync(request.UserName ?? "", request.Password ?? "", request.RememberDevice,
+                request.DeviceName, context.RequestAborted).ConfigureAwait(false);
+            RemoteAuth.SetCookie(context, signedIn.Token, persistent: request.RememberDevice);
+            await RemoteJson.WriteAsync(context, new MeResponse(signedIn.UserName, signedIn.Role)).ConfigureAwait(false);
         }));
 
         endpoints.MapGet("/api/me", context => Handle(context, app, authenticate: false, async session =>
@@ -65,9 +69,9 @@ public static class RemoteApiEndpoints
             var token = RemoteAuth.GetToken(context)
                 ?? throw new SabhaMujicException(ErrorCode.Unauthenticated, "Sign in is required.");
             var resumed = await session.ResumeSessionAsync(token, context.RequestAborted).ConfigureAwait(false);
-            if (context.Request.Cookies.ContainsKey(RemoteAuth.CookieName))
+            if (context.Request.Cookies.ContainsKey(RemoteAuth.CookieName) && session.IsRememberedDevice)
             {
-                RemoteAuth.SetCookie(context, token); // slide the browser-side expiry
+                RemoteAuth.SetCookie(context, token, persistent: true); // slide the browser-side expiry of a remembered phone
             }
 
             await RemoteJson.WriteAsync(context, new MeResponse(resumed.UserName, resumed.Role)).ConfigureAwait(false);
@@ -83,9 +87,9 @@ public static class RemoteApiEndpoints
                     var session = await RemoteAuth.OpenSessionAsync(app, context).ConfigureAwait(false);
                     await session.LogoutAsync(context.RequestAborted).ConfigureAwait(false);
                 }
-                catch (SabhaMujicException ex) when (ex.Code is ErrorCode.Unauthenticated)
+                catch (SabhaMujicException ex) when (ex.Code is ErrorCode.Unauthenticated or ErrorCode.Forbidden)
                 {
-                    // Already revoked or expired: signing out is still a success for the phone.
+                    // Already revoked or expired (or a volunteer phone from before v2): signing out is still a success.
                 }
             }
 
@@ -119,7 +123,7 @@ public static class RemoteApiEndpoints
         {
             var id = RouteId(context);
             var request = await ReadJsonAsync<CompleteUploadRequest>(context).ConfigureAwait(false);
-            var result = await session.CompleteImportAsync(id, new ImportMetadata(request.Title ?? "", request.Artist, request.CategoryId),
+            var result = await session.CompleteImportAsync(id, new ImportMetadata(request.Title ?? "", request.Artist, request.CategoryIds),
                 context.RequestAborted).ConfigureAwait(false);
             await RemoteJson.WriteAsync(context, result).ConfigureAwait(false);
         }));

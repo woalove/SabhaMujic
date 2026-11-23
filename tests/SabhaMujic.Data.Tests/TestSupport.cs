@@ -49,7 +49,6 @@ public sealed class TestDb : IAsyncLifetime
         Users = new SqliteUserRepository(Database);
         Sessions = new SqliteSessionRepository(Database);
         Devices = new SqliteDeviceRepository(Database);
-        PairingCodes = new SqlitePairingCodeRepository(Database);
         Categories = new SqliteCategoryRepository(Database);
         Tracks = new SqliteTrackRepository(Database);
         Analysis = new SqliteTrackAnalysisRepository(Database);
@@ -68,8 +67,6 @@ public sealed class TestDb : IAsyncLifetime
     public SqliteSessionRepository Sessions { get; }
 
     public SqliteDeviceRepository Devices { get; }
-
-    public SqlitePairingCodeRepository PairingCodes { get; }
 
     public SqliteCategoryRepository Categories { get; }
 
@@ -98,11 +95,21 @@ public sealed class TestDb : IAsyncLifetime
 
     public static string Secret(string plain = "pin-1234") => SecretHasher.Hash(plain, iterations: 1_000);
 
-    public async Task<TrackDto> AddTrackAsync(string title, string? artist = null, Guid? categoryId = null, string? hash = null)
+    public async Task<TrackDto> AddTrackAsync(string title, string? artist = null, Guid? categoryId = null, string? hash = null,
+        IReadOnlyList<Guid>? categoryIds = null)
     {
         hash ??= NewHash();
-        var result = await Tracks.AddAsync(new NewTrack(hash, hash + ".mp3", title, artist, categoryId, 180, 1234));
+        var tags = categoryIds ?? (categoryId is { } c ? [c] : null);
+        var result = await Tracks.AddAsync(new NewTrack(hash, hash + ".mp3", title, artist, tags, 180, 1234));
         return result.Track;
+    }
+
+    /// <summary>TrackDto equality without the tag list (records compare lists by reference), plus the tags by value.</summary>
+    public static void AssertSameTrack(TrackDto expected, TrackDto? actual)
+    {
+        Assert.NotNull(actual);
+        Assert.Equal(expected.CategoryIds, actual.CategoryIds);
+        Assert.Equal(expected with { CategoryIds = [] }, actual with { CategoryIds = [] });
     }
 }
 

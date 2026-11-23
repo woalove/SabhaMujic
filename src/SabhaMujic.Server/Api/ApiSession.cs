@@ -7,9 +7,6 @@ using SabhaMujic.Server.Application;
 
 namespace SabhaMujic.Server.Api;
 
-/// <summary>Result of pairing a remote device: its record and the long-lived device session (token included once).</summary>
-public sealed record PairedDevice(DeviceDto Device, SessionDto Session);
-
 /// <summary>
 /// The authorization choke point for one client connection, transport-agnostic (named pipe now, HTTP/SignalR in M5).
 /// <para>
@@ -35,6 +32,7 @@ public sealed class ApiSession : IAuthApi, ILibraryApi, IPlaybackApi, IPlaylistA
     private readonly Lock _gate = new();
     private CallerContext _caller;
     private string? _tokenHash;
+    private DateTimeOffset _expiresAt;
     private long _binding;
     private int _helloCompleted;
     private int _callsInProgress;
@@ -105,7 +103,7 @@ public sealed class ApiSession : IAuthApi, ILibraryApi, IPlaybackApi, IPlaylistA
         Bind(await _app.Auth.CompleteInitialSetupAsync(_anonymous, _isElevatedAdministrator, adminUserName, secret, ct).ConfigureAwait(false)), ct);
 
     /// <summary>
-    /// Admin PIN recovery. Like setup, <see cref="AuthService.ResetAdministratorAsync"/> requires the desktop pipe and an
+    /// Admin password recovery. Like setup, <see cref="AuthService.ResetAdministratorAsync"/> requires the desktop pipe and an
     /// elevated local Administrator as reported by the transport; the connection is then signed in as that administrator.
     /// </summary>
     public Task<SessionDto> ResetAdministratorAsync(string adminUserName, string newSecret, CancellationToken ct = default) => Run(Auth, async _ =>
@@ -117,13 +115,40 @@ public sealed class ApiSession : IAuthApi, ILibraryApi, IPlaybackApi, IPlaylistA
         Unbind(expectedBinding: null);
     }, ct);
 
-    /// <summary>Pairs a remote device with a one-time code (anonymous, rate-limited). Not on the pipe contract; used by M5.</summary>
-    public Task<PairedDevice> PairAsync(string code, string deviceName, CancellationToken ct = default) => Run(Operation.Pair, async _ =>
+    /// <summary>
+    /// Remote sign-in (<c>POST /api/login</c>; not on the pipe contract). Administrators only; with
+    /// <paramref name="rememberDevice"/> the phone becomes a revocable device with a long-lived session.
+    /// </summary>
+    public Task<SessionDto> RemoteLoginAsync(string userName, string password, bool rememberDevice, string? deviceName,
+        CancellationToken ct = default) => Run(Operation.Login, async _ =>
+        Bind(await _app.Auth.LoginAsync(_anonymous, userName, password, ct, new RemoteSignIn(rememberDevice, deviceName)).ConfigureAwait(false)), ct);
+
+    /// <summary>True while this connection's session is a remembered phone (its cookie is long-lived).</summary>
+    public bool IsRememberedDevice => Caller.DeviceId is not null;
+
+    /// <summary>
+    /// Ends the bound session when its expiry has passed: on the desktop that is the administrator idle timeout. The
+    /// client gets <c>SessionEnded</c> and the connection continues signed out (open use on the desktop). The pipe calls
+    /// this about once a second; it also happens on the next call. Returns true when it ended a session.
+    /// </summary>
+    public bool EndIfExpired(DateTimeOffset now)
     {
-        var result = await _app.Auth.PairAsync(_anonymous, code, deviceName, ct).ConfigureAwait(false);
-        Bind(new AuthResult(result.Session, result.TokenHash, result.Caller));
-        return new PairedDevice(result.Device, result.Session);
-    }, ct);
+        CallerContext caller;
+        long binding;
+        lock (_gate)
+        {
+            if (_tokenHash is null || now < _expiresAt)
+            {
+                return false;
+            }
+
+            caller = _caller;
+            binding = _binding;
+        }
+
+        EndExpired(caller, binding);
+        return true;
+    }
 
     // ------------------------------------------------------------------ ILibraryApi
 
@@ -229,6 +254,9 @@ public sealed class ApiSession : IAuthApi, ILibraryApi, IPlaybackApi, IPlaylistA
     public Task ReorderCategoriesAsync(IReadOnlyList<Guid> orderedCategoryIds, CancellationToken ct = default) =>
         Run(Admin, c => _app.Admin.ReorderCategoriesAsync(c, orderedCategoryIds, ct), ct);
 
+    public Task<CategoryDto> SetCategoryTracksAsync(Guid categoryId, IReadOnlyList<Guid> trackIds, CancellationToken ct = default) =>
+        Run(Admin, c => _app.Admin.SetCategoryTracksAsync(c, categoryId, trackIds, ct), ct);
+
     public Task DeleteCategoryAsync(Guid categoryId, CancellationToken ct = default) =>
         Run(Admin, c => _app.Admin.DeleteCategoryAsync(c, categoryId, ct), ct);
 
@@ -257,8 +285,8 @@ public sealed class ApiSession : IAuthApi, ILibraryApi, IPlaybackApi, IPlaylistA
 
     public Task<IReadOnlyList<DeviceDto>> GetDevicesAsync(CancellationToken ct = default) => Run(Admin, c => _app.Admin.GetDevicesAsync(c, ct), ct);
 
-    public Task<PairingCodeDto> CreatePairingCodeAsync(Role role, CancellationToken ct = default) =>
-        Run(Admin, c => _app.Admin.CreatePairingCodeAsync(c, role, ct), ct);
+    public Task<PhoneSetupInfoDto> GetPhoneSetupInfoAsync(CancellationToken ct = default) =>
+        Run(Admin, c => _app.Admin.GetPhoneSetupInfoAsync(c, ct), ct);
 
     public Task RevokeDeviceAsync(Guid deviceId, CancellationToken ct = default) =>
         Run(Admin, c => _app.Admin.RevokeDeviceAsync(c, deviceId, ct), ct);
@@ -320,13 +348,35 @@ public sealed class ApiSession : IAuthApi, ILibraryApi, IPlaybackApi, IPlaylistA
             return _anonymous;
         }
 
-        if (await _app.Auth.ValidateAsync(tokenHash, ct).ConfigureAwait(false) is null)
+        if (await _app.Auth.ValidateAsync(tokenHash, ct).ConfigureAwait(false) is not { } record)
         {
-            Unbind(binding);
+            EndExpired(caller, binding);
             return _anonymous;
         }
 
+        lock (_gate)
+        {
+            if (_binding == binding)
+            {
+                _expiresAt = record.ExpiresAt; // slid by the touch
+            }
+        }
+
         return caller;
+    }
+
+    /// <summary>The bound session expired (or was revoked): tell its connections, then continue signed out.</summary>
+    private void EndExpired(CallerContext caller, long binding)
+    {
+        var reason = caller.Client == ClientKind.Desktop
+            ? $"Signed out after {_app.Options.DesktopSessionLifetime.TotalMinutes:0} minutes without activity."
+            : "The session has expired. Please sign in again.";
+        if (caller.SessionId is { } sessionId)
+        {
+            _app.Events.EndSessions(c => c.SessionId == sessionId, reason);
+        }
+
+        Unbind(binding);
     }
 
     private SessionDto Bind(AuthResult result)
@@ -335,6 +385,7 @@ public sealed class ApiSession : IAuthApi, ILibraryApi, IPlaybackApi, IPlaylistA
         {
             _tokenHash = result.TokenHash;
             _caller = result.Caller;
+            _expiresAt = result.Session.ExpiresAt;
             _binding++;
         }
 

@@ -1,7 +1,9 @@
 // E2E host for the SabhaMujic web remote. Starts the real application layer and RemoteHost (HTTPS + bootstrap) on
 // loopback with a temp database/store and a scripted playback backend, then speaks a line protocol:
-//   stdout (JSON lines): {"event":"ready",…}, {"event":"code",…}, {"event":"restarted"}, {"event":"state",…}
-//   stdin:  "code Admin" | "code Volunteer" | "restart" | "state" | "devices" | "quit"
+//   stdout (JSON lines): {"event":"ready",…}, {"event":"setup",…}, {"event":"restarted"}, {"event":"state",…}, {"event":"devices",…}
+//   stdin:  "setup" | "restart" | "state" | "devices" | "quit"
+// Accounts: administrators "admin"/"admin-pass" and "helper"/"helper-pass"; a volunteer account "sevak"/"sevak-pass" from
+// before contract v2 (it must be refused by the remote).
 // Usage: dotnet SabhaMujic.RemoteE2EHost.dll [--https-port 0] [--bootstrap-port 0]
 using System.Collections.Concurrent;
 using System.Net;
@@ -50,6 +52,8 @@ using var app = new ServerApplication(new ServerDependencies
 app.Events.Subscribe(new DurationSink(app, durations), new SabhaMujic.Core.Security.CallerContext(ClientKind.Desktop, Role.Admin, null, null, "e2e", "e2e"));
 
 await app.Auth.EnsureInitialAdminAsync("admin", "admin-pass");
+await app.Users.CreateAsync("helper", Role.Admin, app.Auth.HashSecret("helper-pass"));
+await app.Users.CreateAsync("sevak", Role.Volunteer, app.Auth.HashSecret("sevak-pass"));
 await Seed(app, durations);
 
 var certDir = Path.Combine(root, "certs");
@@ -82,10 +86,9 @@ while ((line = await Console.In.ReadLineAsync()) is not null)
     {
         switch (parts[0])
         {
-            case "code":
-                var role = parts.Length > 1 && Enum.TryParse<Role>(parts[1], true, out var r) ? r : Role.Volunteer;
-                var pairing = await admin.CreatePairingCodeAsync(role);
-                Emit(new { @event = "code", role, pairing.Code, pairing.PairingUrl, pairing.BootstrapUrl, pairing.CaFingerprint });
+            case "setup":
+                var setup = await admin.GetPhoneSetupInfoAsync();
+                Emit(new { @event = "setup", setup.BootstrapUrl, setup.RemoteUrl, setup.CaFingerprint, setup.IsRemoteRunning });
                 break;
             case "restart":
                 await remote.StopAsync();
@@ -153,7 +156,7 @@ static async Task Seed(ServerApplication app, ConcurrentDictionary<Guid, double>
     foreach (var (title, artist, category, seconds) in catalog)
     {
         var hash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(title))).ToLowerInvariant();
-        var added = await app.Tracks.AddAsync(new SabhaMujic.Data.Repositories.NewTrack(hash, hash + ".mp3", title, artist, category, seconds, 1_000_000,
+        var added = await app.Tracks.AddAsync(new SabhaMujic.Data.Repositories.NewTrack(hash, hash + ".mp3", title, artist, [category], seconds, 1_000_000,
             title + ".mp3"));
         durations[added.Track.Id] = seconds;
         ids.Add(added.Track.Id);

@@ -8,18 +8,24 @@ using SabhaMujic.Desktop.ViewModels.Infrastructure;
 namespace SabhaMujic.Desktop.ViewModels.Admin;
 
 /// <summary>
-/// Admin: paired remote devices (list, revoke) and pairing a new device. Pairing shows the one-time code,
-/// a QR code of <see cref="PairingCodeDto.PairingUrl"/> and a countdown to <see cref="PairingCodeDto.ExpiresAt"/>.
+/// Admin: phones. The list shows phones remembered at remote sign-in ("Remember this phone"; revoke signs one out).
+/// "Set up a phone" shows the setup page address as text and QR code (<see cref="PhoneSetupInfoDto.BootstrapUrl"/>), the
+/// remote's address and the CA fingerprint to compare. There are no codes: on the phone an administrator signs in with
+/// their name and password.
 /// </summary>
 public sealed partial class DevicesAdminViewModel : ViewModelBase
 {
-    public static readonly TimeSpan CountdownInterval = TimeSpan.FromSeconds(1);
-
     public const string FingerprintHint = "Check this matches the fingerprint on the phone's setup page";
+
+    public const string SetupInstructions =
+        "On the iPhone, open the camera and scan this code (or type the address into Safari). Follow the steps to install " +
+        "the certificate, then sign in with an administrator name and password.";
+
+    public const string RemoteOffMessage =
+        "The phone remote is not running on this PC, so these addresses will not work until it is turned on.";
 
     private readonly ISabhaClient _client;
     private readonly UiServices _ui;
-    private IDisposable? _countdown;
 
     public DevicesAdminViewModel(ISabhaClient client, UiServices ui)
     {
@@ -29,21 +35,24 @@ public sealed partial class DevicesAdminViewModel : ViewModelBase
 
     public ObservableCollection<DeviceDto> Devices { get; } = [];
 
-    public IReadOnlyList<Role> Roles { get; } = [Role.Volunteer, Role.Admin];
-
     [ObservableProperty]
     public partial DeviceDto? SelectedDevice { get; set; }
 
-    /// <summary>Role the next paired device will get.</summary>
     [ObservableProperty]
-    public partial Role PairingRole { get; set; } = Role.Volunteer;
+    [NotifyPropertyChangedFor(nameof(IsSetupVisible), nameof(CaFingerprintText), nameof(IsFingerprintVisible), nameof(IsRemoteOff))]
+    public partial PhoneSetupInfoDto? Setup { get; private set; }
 
+    /// <summary>PNG bytes of the QR code for <see cref="PhoneSetupInfoDto.BootstrapUrl"/>.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsPairingVisible), nameof(CaFingerprintText), nameof(IsFingerprintVisible))]
-    public partial PairingCodeDto? Pairing { get; private set; }
+    public partial byte[]? SetupQrPng { get; private set; }
+
+    public bool IsSetupVisible => Setup is not null;
+
+    /// <summary>True when the setup panel is open but the remote is not running (the addresses will not answer).</summary>
+    public bool IsRemoteOff => Setup is { IsRemoteRunning: false };
 
     /// <summary>The local CA fingerprint in lines of 8 bytes, for comparing with the phone's setup page; null without a remote.</summary>
-    public string? CaFingerprintText => Pairing?.CaFingerprint is { Length: > 0 } fingerprint ? FormatFingerprint(fingerprint) : null;
+    public string? CaFingerprintText => Setup?.CaFingerprint is { Length: > 0 } fingerprint ? FormatFingerprint(fingerprint) : null;
 
     public bool IsFingerprintVisible => CaFingerprintText is not null;
 
@@ -63,54 +72,26 @@ public sealed partial class DevicesAdminViewModel : ViewModelBase
         return string.Join(Environment.NewLine, bytes.Chunk(bytesPerLine).Select(line => string.Join(':', line).ToUpperInvariant()));
     }
 
-    /// <summary>PNG bytes of the QR code for <see cref="PairingCodeDto.PairingUrl"/>.</summary>
-    [ObservableProperty]
-    public partial byte[]? PairingQrPng { get; private set; }
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CountdownText))]
-    public partial TimeSpan Remaining { get; private set; }
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CountdownText))]
-    public partial bool IsPairingExpired { get; private set; }
-
-    public bool IsPairingVisible => Pairing is not null;
-
-    public string CountdownText => Pairing is null
-        ? ""
-        : IsPairingExpired
-            ? "This code has expired. Create a new one."
-            : $"Expires in {(int)Remaining.TotalMinutes}:{Remaining.Seconds:00}";
-
     public Task<bool> LoadAsync() => TryAsync(ReloadAsync, clearError: false);
 
     [RelayCommand]
     private Task RefreshAsync() => TryAsync(ReloadAsync);
 
+    /// <summary>Opens the "Set up a phone" panel.</summary>
     [RelayCommand]
-    private Task PairNewDeviceAsync() => TryAsync(async () =>
+    private Task SetUpPhoneAsync() => TryAsync(async () =>
     {
-        var code = await _client.Admin.CreatePairingCodeAsync(PairingRole).ConfigureAwait(true);
-        StopCountdown();
-        Pairing = code;
-        PairingQrPng = QrCodeRenderer.RenderPng(code.PairingUrl);
-        IsPairingExpired = false;
-        UpdateCountdown();
-        if (!IsPairingExpired)
-        {
-            _countdown = _ui.Scheduler.SchedulePeriodic(CountdownInterval, UpdateCountdown);
-        }
+        var setup = await _client.Admin.GetPhoneSetupInfoAsync().ConfigureAwait(true);
+        Setup = setup;
+        SetupQrPng = QrCodeRenderer.RenderPng(setup.BootstrapUrl);
     });
 
-    /// <summary>Hides the pairing panel (e.g. the phone is paired) and refreshes the device list.</summary>
+    /// <summary>Hides the setup panel and refreshes the list (the phone may have signed in and been remembered).</summary>
     [RelayCommand]
-    private Task ClosePairingAsync()
+    private Task CloseSetupAsync()
     {
-        StopCountdown();
-        Pairing = null;
-        PairingQrPng = null;
-        IsPairingExpired = false;
+        Setup = null;
+        SetupQrPng = null;
         return TryAsync(ReloadAsync);
     }
 
@@ -124,9 +105,9 @@ public sealed partial class DevicesAdminViewModel : ViewModelBase
         }
 
         var confirmed = await _ui.Dialogs.ConfirmAsync(
-            "Revoke device",
-            $"Revoke \"{device.Name}\"? It will be signed out immediately and must be paired again.",
-            "Revoke").ConfigureAwait(true);
+            "Forget phone",
+            $"Forget \"{device.Name}\"? It will be signed out immediately; an administrator can sign in on it again.",
+            "Forget").ConfigureAwait(true);
         if (!confirmed)
         {
             return;
@@ -141,39 +122,9 @@ public sealed partial class DevicesAdminViewModel : ViewModelBase
 
     public void Reset()
     {
-        StopCountdown();
-        Pairing = null;
-        PairingQrPng = null;
+        Setup = null;
+        SetupQrPng = null;
         Devices.Clear();
-    }
-
-    private void UpdateCountdown()
-    {
-        if (Pairing is null)
-        {
-            StopCountdown();
-            return;
-        }
-
-        var remaining = Pairing.ExpiresAt - _ui.Scheduler.UtcNow;
-        if (remaining <= TimeSpan.Zero)
-        {
-            Remaining = TimeSpan.Zero;
-            IsPairingExpired = true;
-            PairingQrPng = null; // never show a QR code that no longer works
-            StopCountdown();
-            Run(ReloadAsync);    // the device may have paired just before expiry
-            return;
-        }
-
-        // Round up so the display reaches 0:00 exactly at expiry, never early.
-        Remaining = TimeSpan.FromSeconds(Math.Ceiling(remaining.TotalSeconds));
-    }
-
-    private void StopCountdown()
-    {
-        _countdown?.Dispose();
-        _countdown = null;
     }
 
     private async Task ReloadAsync()

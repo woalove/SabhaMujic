@@ -16,9 +16,9 @@ namespace SabhaMujic.Desktop.ViewModels.Demo;
 public sealed class DemoSabhaClient : ISabhaClient
 {
     public const string AdminUser = "admin";
-    public const string AdminSecret = "1234";
+    public const string AdminSecret = "demo-admin";
     public const string VolunteerUser = "sevak";
-    public const string VolunteerSecret = "1111";
+    public const string VolunteerSecret = "demo-volunteer";
 
     private static readonly TimeSpan TickPeriod = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan ReconnectDelay = TimeSpan.FromSeconds(3);
@@ -316,9 +316,11 @@ public sealed class DemoSabhaClient : ISabhaClient
                     throw new IOException("Not connected (demo).");
                 }
 
-                if (authenticated && Session is null)
+                // Like the service's desktop pipe (contract v2): the player is open to everyone; administration needs an
+                // administrator sign-in.
+                if (admin && Session is null)
                 {
-                    throw new SabhaMujicException(ErrorCode.Unauthenticated, "Not signed in.");
+                    throw new SabhaMujicException(ErrorCode.Unauthenticated, "Sign in as an administrator is required.");
                 }
 
                 if (admin && Session?.Role != Role.Admin)
@@ -379,6 +381,20 @@ public sealed class DemoSabhaClient : ISabhaClient
     private DemoCategory CategoryOrThrow(Guid id) =>
         _categories.FirstOrDefault(c => c.Id == id) ?? throw new SabhaMujicException(ErrorCode.NotFound, "No such category.");
 
+    /// <summary>Like the service: the password minimum for administrators.</summary>
+    public const int MinPasswordLength = 8;
+
+    private Guid[] TagsOrThrow(IReadOnlyList<Guid>? categoryIds)
+    {
+        var tags = (categoryIds ?? []).Distinct().ToArray();
+        foreach (var id in tags)
+        {
+            CategoryOrThrow(id);
+        }
+
+        return [.. _categories.Where(c => tags.Contains(c.Id)).OrderBy(c => c.SortOrder).Select(c => c.Id)];
+    }
+
     private TrackDto TrackOrThrow(Guid id) =>
         _tracks.TryGetValue(id, out var t) ? t : throw new SabhaMujicException(ErrorCode.NotFound, "No such track.");
 
@@ -407,7 +423,7 @@ public sealed class DemoSabhaClient : ISabhaClient
         void AddTrack(string title, string? artist, int category, double seconds)
         {
             var id = Guid.NewGuid();
-            _tracks[id] = new TrackDto(id, title, artist, _categories[category].Id, seconds, AnalysisStatus.Ready, AutoLoop(seconds), now);
+            _tracks[id] = new TrackDto(id, title, artist, [_categories[category].Id], seconds, AnalysisStatus.Ready, AutoLoop(seconds), now);
         }
 
         AddTrack("Demo Dhun – Morning", "Demo Ensemble", 0, 245);
@@ -421,16 +437,16 @@ public sealed class DemoSabhaClient : ISabhaClient
         AddTrack("Demo Instrumental – Flute", "Demo Players", 3, 365);
         AddTrack("Demo Instrumental – Sitar", "Demo Players", 3, 421);
         var uncategorized = Guid.NewGuid();
-        _tracks[uncategorized] = new TrackDto(uncategorized, "Demo Uncategorized Track", null, null, 180, AnalysisStatus.Ready, AutoLoop(180), now);
+        _tracks[uncategorized] = new TrackDto(uncategorized, "Demo Uncategorized Track", null, [], 180, AnalysisStatus.Ready, AutoLoop(180), now);
 
         var playlistId = Guid.NewGuid();
         _playlists[playlistId] = new PlaylistDto(
             playlistId,
             "Demo Sunday Sabha",
-            _tracks.Values.Where(t => t.CategoryId == _categories[0].Id || t.CategoryId == _categories[2].Id).Select(t => t.Id).ToArray(),
+            _tracks.Values.Where(t => t.CategoryIds.Contains(_categories[0].Id) || t.CategoryIds.Contains(_categories[2].Id)).Select(t => t.Id).ToArray(),
             now);
 
-        _devices.Add(new DeviceDto(Guid.NewGuid(), "Demo iPhone", Role.Volunteer, now.AddDays(-7), now.AddHours(-2)));
+        _devices.Add(new DeviceDto(Guid.NewGuid(), "Demo iPhone", Role.Admin, now.AddDays(-7), now.AddHours(-2)));
     }
 
     private sealed record DemoUser(Guid Id, string UserName, Role Role, string Secret, DateTimeOffset CreatedAt);
@@ -469,7 +485,7 @@ public sealed class DemoSabhaClient : ISabhaClient
             if (user is null || user.Secret != secret)
             {
                 s._failedLogins++;
-                throw new SabhaMujicException(ErrorCode.Unauthenticated, "Wrong user name or PIN.");
+                throw new SabhaMujicException(ErrorCode.Unauthenticated, "Wrong user name or password.");
             }
 
             s._failedLogins = 0;
@@ -503,9 +519,9 @@ public sealed class DemoSabhaClient : ISabhaClient
                 throw new SabhaMujicException(ErrorCode.Conflict, "SabhaMujic is already set up.");
             }
 
-            if (string.IsNullOrWhiteSpace(adminUserName) || (secret?.Length ?? 0) < 4)
+            if (string.IsNullOrWhiteSpace(adminUserName) || (secret?.Length ?? 0) < MinPasswordLength)
             {
-                throw new SabhaMujicException(ErrorCode.InvalidArgument, "A name and a PIN of at least 4 characters are required.");
+                throw new SabhaMujicException(ErrorCode.InvalidArgument, $"A name and a password of at least {MinPasswordLength} characters are required.");
             }
 
             var now = s._time.GetUtcNow();
@@ -516,15 +532,15 @@ public sealed class DemoSabhaClient : ISabhaClient
         }, authenticated: false);
 
         /// <summary>
-        /// The demo is always "elevated": resets the named admin's PIN, or adds a new admin with that name. A volunteer's name
+        /// The demo is always "elevated": resets the named admin's password, or adds a new admin with that name. A volunteer's name
         /// reports Conflict, like the service.
         /// </summary>
         public Task<SessionDto> ResetAdministratorAsync(string adminUserName, string newSecret, CancellationToken ct = default) => s.Run(() =>
         {
             var name = adminUserName?.Trim() ?? "";
-            if (name.Length == 0 || (newSecret?.Length ?? 0) < 4)
+            if (name.Length == 0 || (newSecret?.Length ?? 0) < MinPasswordLength)
             {
-                throw new SabhaMujicException(ErrorCode.InvalidArgument, "A name and a PIN of at least 4 characters are required.");
+                throw new SabhaMujicException(ErrorCode.InvalidArgument, $"A name and a password of at least {MinPasswordLength} characters are required.");
             }
 
             var now = s._time.GetUtcNow();
@@ -555,7 +571,7 @@ public sealed class DemoSabhaClient : ISabhaClient
         public Task<IReadOnlyList<CategoryDto>> GetCategoriesAsync(CancellationToken ct = default) =>
             s.Run<IReadOnlyList<CategoryDto>>(() => s._categories
                 .OrderBy(c => c.SortOrder)
-                .Select(c => new CategoryDto(c.Id, c.Name, c.SortOrder, s._tracks.Values.Count(t => t.CategoryId == c.Id)))
+                .Select(c => new CategoryDto(c.Id, c.Name, c.SortOrder, s._tracks.Values.Count(t => t.CategoryIds.Contains(c.Id))))
                 .ToArray());
 
         public Task<PagedResult<TrackDto>> GetTracksAsync(TrackQuery query, CancellationToken ct = default) => s.Run(() =>
@@ -564,7 +580,7 @@ public sealed class DemoSabhaClient : ISabhaClient
             IEnumerable<TrackDto> items = s._tracks.Values;
             if (query.CategoryId is { } category)
             {
-                items = items.Where(t => t.CategoryId == category);
+                items = items.Where(t => t.CategoryIds.Contains(category));
             }
 
             if (!string.IsNullOrWhiteSpace(query.Search))
@@ -977,10 +993,7 @@ public sealed class DemoSabhaClient : ISabhaClient
             }
 
             var title = RequireName(metadata.Title, "Title");
-            if (metadata.CategoryId is { } c)
-            {
-                s.CategoryOrThrow(c);
-            }
+            var tags = s.TagsOrThrow(metadata.CategoryIds);
 
             s._uploads.Remove(uploadId);
             var hash = Convert.ToHexString(upload.Hash.GetHashAndReset());
@@ -997,7 +1010,7 @@ public sealed class DemoSabhaClient : ISabhaClient
                 id,
                 title,
                 string.IsNullOrWhiteSpace(metadata.Artist) ? null : metadata.Artist.Trim(),
-                metadata.CategoryId,
+                tags,
                 Math.Round(duration, 1),
                 AnalysisStatus.Analyzing,
                 null,
@@ -1032,7 +1045,7 @@ public sealed class DemoSabhaClient : ISabhaClient
             var renamed = category with { Name = UniqueCategoryName(name, categoryId) };
             s._categories[s._categories.IndexOf(category)] = renamed;
             s.EmitLibrary(LibraryChangeKind.CategoriesChanged, categoryId);
-            return new CategoryDto(renamed.Id, renamed.Name, renamed.SortOrder, s._tracks.Values.Count(t => t.CategoryId == categoryId));
+            return new CategoryDto(renamed.Id, renamed.Name, renamed.SortOrder, s._tracks.Values.Count(t => t.CategoryIds.Contains(categoryId)));
         }, admin: true);
 
         public Task ReorderCategoriesAsync(IReadOnlyList<Guid> orderedCategoryIds, CancellationToken ct = default) => s.Run(() =>
@@ -1053,28 +1066,51 @@ public sealed class DemoSabhaClient : ISabhaClient
         public Task DeleteCategoryAsync(Guid categoryId, CancellationToken ct = default) => s.Run(() =>
         {
             s._categories.Remove(s.CategoryOrThrow(categoryId));
-            foreach (var track in s._tracks.Values.Where(t => t.CategoryId == categoryId).ToArray())
+            foreach (var track in s._tracks.Values.Where(t => t.CategoryIds.Contains(categoryId)).ToArray())
             {
-                s._tracks[track.Id] = track with { CategoryId = null };
+                s._tracks[track.Id] = track with { CategoryIds = track.CategoryIds.Where(id => id != categoryId).ToArray() };
             }
 
             s.EmitLibrary(LibraryChangeKind.CategoriesChanged, categoryId);
+        }, admin: true);
+
+        public Task<CategoryDto> SetCategoryTracksAsync(Guid categoryId, IReadOnlyList<Guid> trackIds, CancellationToken ct = default) => s.Run(() =>
+        {
+            ArgumentNullException.ThrowIfNull(trackIds);
+            var category = s.CategoryOrThrow(categoryId);
+            var wanted = trackIds.ToHashSet();
+            if (wanted.Any(id => !s._tracks.ContainsKey(id)))
+            {
+                throw new SabhaMujicException(ErrorCode.InvalidArgument, "One or more of the tracks do not exist.");
+            }
+
+            foreach (var track in s._tracks.Values.ToArray())
+            {
+                var has = track.CategoryIds.Contains(categoryId);
+                if (has != wanted.Contains(track.Id))
+                {
+                    s._tracks[track.Id] = track with
+                    {
+                        CategoryIds = has ? track.CategoryIds.Where(id => id != categoryId).ToArray() : [.. track.CategoryIds, categoryId],
+                    };
+                    s.EmitLibrary(LibraryChangeKind.TrackUpdated, track.Id);
+                }
+            }
+
+            s.EmitLibrary(LibraryChangeKind.CategoriesChanged, categoryId);
+            return new CategoryDto(category.Id, category.Name, category.SortOrder, wanted.Count);
         }, admin: true);
 
         public Task<TrackDto> UpdateTrackAsync(TrackUpdateDto update, CancellationToken ct = default) => s.Run(() =>
         {
             ArgumentNullException.ThrowIfNull(update);
             var track = s.TrackOrThrow(update.TrackId);
-            if (update.CategoryId is { } c)
-            {
-                s.CategoryOrThrow(c);
-            }
-
+            var tags = s.TagsOrThrow(update.CategoryIds);
             var updated = track with
             {
                 Title = RequireName(update.Title, "Title"),
                 Artist = string.IsNullOrWhiteSpace(update.Artist) ? null : update.Artist.Trim(),
-                CategoryId = update.CategoryId,
+                CategoryIds = tags,
             };
             s._tracks[track.Id] = updated;
             s.EmitLibrary(LibraryChangeKind.TrackUpdated, track.Id);
@@ -1149,6 +1185,11 @@ public sealed class DemoSabhaClient : ISabhaClient
                 throw new SabhaMujicException(ErrorCode.Conflict, $"A user called \"{name}\" already exists.");
             }
 
+            if (role != Role.Admin)
+            {
+                throw new SabhaMujicException(ErrorCode.InvalidArgument, "Only administrator accounts can be created.");
+            }
+
             RequireSecret(secret);
             var user = new DemoUser(Guid.NewGuid(), name, role, secret, s._time.GetUtcNow());
             s._users.Add(user);
@@ -1176,20 +1217,13 @@ public sealed class DemoSabhaClient : ISabhaClient
         public Task<IReadOnlyList<DeviceDto>> GetDevicesAsync(CancellationToken ct = default) =>
             s.Run<IReadOnlyList<DeviceDto>>(() => s._devices.ToArray(), admin: true);
 
-        public Task<PairingCodeDto> CreatePairingCodeAsync(Role role, CancellationToken ct = default) => s.Run(() =>
-        {
-            var code = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6", System.Globalization.CultureInfo.InvariantCulture);
-            return new PairingCodeDto(
-                code,
-                $"https://demo.sabhamujic.invalid:{Endpoints.RemoteHttpsPort}/pair#{code}",
+        public Task<PhoneSetupInfoDto> GetPhoneSetupInfoAsync(CancellationToken ct = default) => s.Run(() =>
+            new PhoneSetupInfoDto(
                 $"http://demo.sabhamujic.invalid:{Endpoints.BootstrapHttpPort}/",
-                role,
-                s._time.GetUtcNow().AddMinutes(5))
-            {
+                $"https://demo.sabhamujic.invalid:{Endpoints.RemoteHttpsPort}/",
                 // A fixed, made-up fingerprint so the demo shows the comparison panel.
-                CaFingerprint = string.Join(":", Enumerable.Range(0, 32).Select(i => ((i * 37 + 11) % 256).ToString("X2", System.Globalization.CultureInfo.InvariantCulture))),
-            };
-        }, admin: true);
+                string.Join(":", Enumerable.Range(0, 32).Select(i => ((i * 37 + 11) % 256).ToString("X2", System.Globalization.CultureInfo.InvariantCulture))),
+                IsRemoteRunning: true), admin: true);
 
         public Task RevokeDeviceAsync(Guid deviceId, CancellationToken ct = default) => s.Run(() =>
         {
@@ -1218,9 +1252,9 @@ public sealed class DemoSabhaClient : ISabhaClient
 
         private static void RequireSecret(string secret)
         {
-            if (string.IsNullOrEmpty(secret) || secret.Length < 4)
+            if (string.IsNullOrEmpty(secret) || secret.Length < MinPasswordLength)
             {
-                throw new SabhaMujicException(ErrorCode.InvalidArgument, "The PIN/password must be at least 4 characters.");
+                throw new SabhaMujicException(ErrorCode.InvalidArgument, $"The password must be at least {MinPasswordLength} characters.");
             }
         }
     }

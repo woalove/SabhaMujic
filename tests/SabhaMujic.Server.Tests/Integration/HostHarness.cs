@@ -112,7 +112,7 @@ public sealed class HostHarness : IAsyncDisposable
             await admin.Admin.UploadChunkAsync(id, offset, bytes[offset..Math.Min(bytes.Length, offset + AdminLimits.MaxChunkBytes)]);
         }
 
-        return await admin.Admin.CompleteImportAsync(id, new ImportMetadata(title, null, categoryId));
+        return await admin.Admin.CompleteImportAsync(id, new ImportMetadata(title, null, categoryId is { } c ? [c] : null));
     }
 
     public int StoredFileCount() =>

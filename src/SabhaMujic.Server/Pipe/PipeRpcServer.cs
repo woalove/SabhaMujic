@@ -62,9 +62,9 @@ public sealed class PipeCallerIdentity : ICallerIdentity
 /// <summary>
 /// Pipe limits. Any local user can open the pipe (by design), so slots are protected against idle squatters:
 /// <list type="bullet">
-/// <item>Main defence, deadlines for anonymous connections: <see cref="HelloTimeout"/> to complete the handshake, then
-/// <see cref="AuthenticationTimeout"/> to sign in (counted again from each sign-out). On expiry the connection is closed;
-/// the desktop app reconnects quietly while signed out.</item>
+/// <item>Deadlines: <see cref="HelloTimeout"/> to complete the handshake. <see cref="AuthenticationTimeout"/> (to sign in,
+/// counted again from each sign-out) is off by default since contract v2, because a signed-out desktop connection is
+/// legitimate open (volunteer) use; when set, the desktop app reconnects quietly after such a close.</item>
 /// <item>Room for real users: anonymous connections may hold at most <see cref="MaxConnections"/> minus
 /// <see cref="ReservedConnections"/> slots, and when the pipe is full a newcomer replaces the oldest anonymous
 /// connection. Only when every slot is signed in is a newcomer refused.</item>
@@ -89,8 +89,11 @@ public sealed class PipeServerOptions
     /// <summary>A connection that has not completed Hello by then is closed. Null disables it.</summary>
     public TimeSpan? HelloTimeout { get; init; } = TimeSpan.FromSeconds(10);
 
-    /// <summary>A connection still signed out this long after Hello (or after signing out) is closed. Null disables it.</summary>
-    public TimeSpan? AuthenticationTimeout { get; init; } = TimeSpan.FromSeconds(60);
+    /// <summary>
+    /// A connection still signed out this long after Hello (or after signing out) is closed. Null (default) disables it:
+    /// signed-out desktop connections are open (volunteer) use.
+    /// </summary>
+    public TimeSpan? AuthenticationTimeout { get; init; }
 
     /// <summary>
     /// Longest wait for the OS to identify a client (token lookup). On expiry the connection goes on as an unidentified
@@ -146,6 +149,16 @@ public sealed class PipeRpcServer : IAsyncDisposable
     /// <summary>The OS principal of each open connection, oldest first (diagnostics/tests).</summary>
     public IReadOnlyList<string> ConnectionPrincipals =>
         _connections.Keys.Where(c => !c.IsClosing).OrderBy(c => c.Sequence).Select(c => c.Principal).ToList();
+
+    /// <summary>
+    /// Ends every signed-in session whose expiry has passed (desktop administrator idle timeout) now, instead of at the next
+    /// watchdog tick (about once a second). Returns how many ended. Tests use it with a fake clock.
+    /// </summary>
+    public int ExpireIdleSessions()
+    {
+        var now = _app.Clock.GetUtcNow();
+        return _connections.Keys.Count(c => c.EndIfExpired(now));
+    }
 
     /// <summary>Open connections that are not signed in (diagnostics/tests).</summary>
     public int AnonymousConnectionCount => _connections.Keys.Count(c => !c.IsAuthenticated && !c.IsClosing);
@@ -377,6 +390,8 @@ public sealed class PipeRpcServer : IAsyncDisposable
 
         public bool IsClosing => Volatile.Read(ref _closing) != 0;
 
+        public bool EndIfExpired(DateTimeOffset now) => Volatile.Read(ref _session)?.EndIfExpired(now) == true;
+
         public void MarkClosing() => Volatile.Write(ref _closing, 1);
 
         public async Task RunAsync()
@@ -453,11 +468,7 @@ public sealed class PipeRpcServer : IAsyncDisposable
         private async Task WatchDeadlinesAsync(ApiSession session, CancellationToken ct)
         {
             var options = server._options;
-            if (options.HelloTimeout is null && options.AuthenticationTimeout is null)
-            {
-                return;
-            }
-
+            // Also the idle-timeout check of signed-in sessions, so it always runs (at most a second apart).
             var shortest = Math.Min(options.HelloTimeout?.TotalMilliseconds ?? double.MaxValue, options.AuthenticationTimeout?.TotalMilliseconds ?? double.MaxValue);
             var poll = TimeSpan.FromMilliseconds(Math.Clamp(shortest / 4, 10, 1_000));
             var connectedAt = Environment.TickCount64;
@@ -488,7 +499,13 @@ public sealed class PipeRpcServer : IAsyncDisposable
                         Volatile.Write(ref _anonymousSince, Math.Max(Volatile.Read(ref _anonymousSince), now));
                     }
 
-                    if (options.AuthenticationTimeout is not { } authTimeout || IsAuthenticated || session.HasCallInProgress)
+                    if (IsAuthenticated)
+                    {
+                        session.EndIfExpired(server._app.Clock.GetUtcNow());
+                        continue;
+                    }
+
+                    if (options.AuthenticationTimeout is not { } authTimeout || session.HasCallInProgress)
                     {
                         continue;
                     }

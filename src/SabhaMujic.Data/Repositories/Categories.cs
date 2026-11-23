@@ -12,7 +12,7 @@ public interface ICategoryRepository
 
     Task<CategoryDto?> GetAsync(Guid id, CancellationToken ct = default);
 
-    /// <summary>All categories in sort order, with their track counts.</summary>
+    /// <summary>All categories in sort order, with the number of tracks tagged with each.</summary>
     Task<IReadOnlyList<CategoryDto>> ListAsync(CancellationToken ct = default);
 
     /// <summary>Null when not found; Conflict when the new name is taken.</summary>
@@ -24,7 +24,14 @@ public interface ICategoryRepository
     /// </summary>
     Task ReorderAsync(IReadOnlyList<Guid> orderedIds, CancellationToken ct = default);
 
-    /// <summary>Deletes the category; its tracks become uncategorized (FK ON DELETE SET NULL).</summary>
+    /// <summary>
+    /// Makes <paramref name="trackIds"/> exactly the tracks tagged with the category, in one transaction; other tags of
+    /// those tracks are untouched. Null when the category is unknown; InvalidArgument when a track is unknown (nothing
+    /// changes then). Returns the category and the tracks whose tags changed (added or removed).
+    /// </summary>
+    Task<(CategoryDto Category, IReadOnlyList<Guid> ChangedTrackIds)?> SetTracksAsync(Guid id, IReadOnlyList<Guid> trackIds, CancellationToken ct = default);
+
+    /// <summary>Deletes the category; it is removed from every track that had it (track_categories ON DELETE CASCADE).</summary>
     Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
 }
 
@@ -35,7 +42,7 @@ public sealed class SqliteCategoryRepository(SqliteDatabase database) : SqliteRe
     private const string SelectWithCounts =
         """
         SELECT c.id AS Id, c.name AS Name, c.sort_order AS SortOrder,
-               (SELECT COUNT(*) FROM tracks t WHERE t.category_id = c.id) AS TrackCount
+               (SELECT COUNT(*) FROM track_categories tc WHERE tc.category_id = c.id) AS TrackCount
         FROM categories c
         """;
 
@@ -128,6 +135,56 @@ public sealed class SqliteCategoryRepository(SqliteDatabase database) : SqliteRe
         }
 
         tx.Commit();
+    }
+
+    public const int MaxTracksPerSet = 10_000;
+
+    public async Task<(CategoryDto Category, IReadOnlyList<Guid> ChangedTrackIds)?> SetTracksAsync(Guid id, IReadOnlyList<Guid> trackIds,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(trackIds);
+        var wanted = trackIds.Distinct().ToArray();
+        if (wanted.Length > MaxTracksPerSet)
+        {
+            throw DataRules.Invalid($"At most {MaxTracksPerSet} tracks can be set at once.");
+        }
+
+        await using var conn = await OpenAsync(ct).ConfigureAwait(false);
+        using var tx = conn.BeginTransaction(deferred: false);
+        if (await conn.ExecuteScalarAsync<long>(new CommandDefinition(
+                "SELECT COUNT(*) FROM categories WHERE id = @Id;", new { Id = id }, tx, cancellationToken: ct)).ConfigureAwait(false) == 0)
+        {
+            return null;
+        }
+
+        // The ids travel as one JSON array parameter (json_each), so the statements stay fully parameterized.
+        var idsJson = System.Text.Json.JsonSerializer.Serialize(wanted.Select(DapperTypeHandlers.ToDb));
+        var known = await conn.ExecuteScalarAsync<long>(new CommandDefinition(
+            "SELECT COUNT(*) FROM tracks WHERE id IN (SELECT value FROM json_each(@Ids));", new { Ids = idsJson }, tx, cancellationToken: ct))
+            .ConfigureAwait(false);
+        if (known != wanted.Length)
+        {
+            throw DataRules.Invalid("One or more of the tracks do not exist.");
+        }
+
+        var before = (await conn.QueryAsync<Guid>(new CommandDefinition(
+            "SELECT track_id FROM track_categories WHERE category_id = @Id;", new { Id = id }, tx, cancellationToken: ct)).ConfigureAwait(false))
+            .ToHashSet();
+        await conn.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM track_categories WHERE category_id = @Id AND track_id NOT IN (SELECT value FROM json_each(@Ids));",
+            new { Id = id, Ids = idsJson }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        await conn.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO track_categories (track_id, category_id)
+            SELECT value, @Id FROM json_each(@Ids) WHERE true
+            ON CONFLICT (track_id, category_id) DO NOTHING;
+            """,
+            new { Id = id, Ids = idsJson }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        tx.Commit();
+
+        var after = wanted.ToHashSet();
+        var changed = before.Where(t => !after.Contains(t)).Concat(after.Where(t => !before.Contains(t))).ToArray();
+        return ((await GetAsync(conn, id, ct).ConfigureAwait(false))!, changed);
     }
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)

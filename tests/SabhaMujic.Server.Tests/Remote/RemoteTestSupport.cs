@@ -177,23 +177,30 @@ public sealed class RemoteTestHost : IAsyncDisposable
         return request;
     }
 
-    public async Task<string> NewPairingCodeAsync(Role role)
-    {
-        var admin = Server.App.CreateSession(ClientKind.Desktop, "test-admin");
-        await admin.LoginAsync(TestServer.AdminName, TestServer.AdminSecret);
-        return (await admin.CreatePairingCodeAsync(role)).Code;
-    }
-
-    /// <summary>Pairs a phone through <c>POST /api/pair</c> and returns its token (taken from the Set-Cookie header).</summary>
-    public async Task<PairedPhone> PairAsync(Role role, string? name = null)
+    /// <summary>
+    /// A phone with a session. <see cref="Role.Admin"/>: signs in through <c>POST /api/login</c> as the test admin
+    /// (remembered unless <paramref name="remember"/> is false) and returns the token from the Set-Cookie header.
+    /// <see cref="Role.Volunteer"/>: no volunteer can sign in on the remote any more, so this is a phone paired as a
+    /// volunteer before contract v2 (device + long-lived session written directly), which the remote must refuse.
+    /// </summary>
+    public async Task<PairedPhone> PhoneAsync(Role role, string? name = null, bool remember = true)
     {
         name ??= $"{role} phone {Guid.NewGuid():N}"[..20];
-        var code = await NewPairingCodeAsync(role);
-        using var response = await Http().SendAsync(Api(HttpMethod.Post, "/api/pair", new { code, deviceName = name }));
+        if (role == Role.Volunteer)
+        {
+            var device = await Server.App.Devices.CreateAsync(name, Role.Volunteer);
+            var legacyToken = Core.Security.Tokens.NewToken();
+            await Server.App.Sessions.CreateAsync(new Data.Repositories.NewSession(Core.Security.Tokens.HashToken(legacyToken), null, device.Id,
+                Role.Volunteer, ClientKind.Remote, Server.Clock.GetUtcNow().AddDays(30)));
+            return new PairedPhone(legacyToken, name, role, device.Id);
+        }
+
+        using var response = await Http().SendAsync(Api(HttpMethod.Post, "/api/login",
+            new { userName = TestServer.AdminName, password = TestServer.AdminSecret, rememberDevice = remember, deviceName = name }));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var token = CookieToken(response) ?? throw new InvalidOperationException("no device cookie");
-        var device = (await Server.App.Devices.ListAsync()).Single(d => d.Name == name);
-        return new PairedPhone(token, name, role, device.Id);
+        var token = CookieToken(response) ?? throw new InvalidOperationException("no session cookie");
+        Guid? deviceId = remember ? (await Server.App.Devices.ListAsync()).Single(d => d.Name == name).Id : null;
+        return new PairedPhone(token, name, role, deviceId ?? Guid.Empty);
     }
 
     public static string? CookieToken(HttpResponseMessage response) =>
