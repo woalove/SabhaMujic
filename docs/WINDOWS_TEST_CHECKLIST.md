@@ -4,22 +4,22 @@ Run on a real Windows 10 22H2+ / 11 PC. Record date, build commit, tester and re
 Anything not ticked here is **unverified**.
 
 ## Desktop shell (M4a; run `SabhaMujic.Desktop.exe --demo` unless noted)
-- [ ] With no arguments: starts and shows "Connecting to SabhaMujic service…", and sign-in stays disabled (before M3 lands).
-- [ ] `--demo`: the demo banner shows; admin/1234 and sevak/1111 sign in; the Admin entry appears only for admin.
-- [ ] Main window resizes and can't go below 760×480. At minimum size the sidebar, centre, queue panel and now-playing bar are all usable without clipping.
-- [ ] Queue panel hides and shows (sidebar button and ×), and the state survives a restart.
+- [ ] With no arguments and the service stopped: starts and shows "Connecting to SabhaMujic service…", and Admin sign-in stays disabled until it connects.
+- [ ] `--demo`: the demo banner shows and the player works with no sign-in; **Admin sign-in** with admin / demo-admin shows the Admin item in the nav rail; **Sign out** hides it again.
+- [ ] Main window resizes and can't go below 760×480. At minimum size the nav rail, centre, queue panel and now-playing bar are all usable without clipping.
+- [ ] Queue panel hides and shows (queue-panel button and ×), and the state survives a restart.
 - [ ] Window position, size and maximized state survive a restart (`%LOCALAPPDATA%\SabhaMujic\desktop-settings.json`). An off-screen saved position falls back to centred.
-- [ ] Space play/pause, Ctrl+→ next, Ctrl+← previous, Ctrl+F jumps to Library search. Space still types a space in the search box and login fields.
+- [ ] Space play/pause, Ctrl+→ next, Ctrl+← previous, Ctrl+F jumps to Library search. Space still types a space in the search box and sign-in fields.
 - [ ] Seek: clicking the bar seeks once. Dragging the thumb doesn't jump during the drag and seeks once on release. The time label shows the drag target.
 - [ ] Volume, mute, loop-mode cycle, crossfade slider (0–12 s, whole seconds). The Crossfading badge appears near the end of a track.
-- [ ] Library: category click filters (and switches to Library from another page); search filters as you type; Enter searches now; Esc clears; paging; double-click plays; the Play / Play next / Add buttons work.
+- [ ] Library: clicking a category tab filters (and switches to Library from another page); search filters as you type; Enter searches now; Esc clears; paging; double-click plays; the Play / Play next / Add buttons work.
 - [ ] Right-click a track → Add to playlist → choose a playlist: the playlist's track count goes up.
 - [ ] Queue: drag-reorder (in both the side panel and the Queue page), up/down, remove, Clear (with confirm), double-click plays, current row highlighted with a play icon.
 - [ ] Playlists: create, rename, delete with confirm, drag-reorder tracks, Add to queue, Replace queue with confirm.
-- [ ] Import: the Add files dialog filters to audio types; per-file title/artist/category editing; progress bars; Cancel mid-upload; re-importing the same file shows "Already in library"; a .txt file is rejected.
+- [ ] Import: the Add files dialog filters to audio types; per-file title/artist/categories editing; progress bars; Cancel mid-upload; re-importing the same file shows "Already in library"; a .txt file is rejected.
 - [ ] Admin Tracks: edit and save, loop override validation messages, decimals can be typed in the loop boxes, "use automatic", re-analyze.
-- [ ] Admin Users: create (PIN box clears afterwards), reset PIN dialog (both entries must match), delete with confirm.
-- [ ] Admin Devices: Pair new device shows a scannable QR, a 6-digit code and a countdown from 5:00. On expiry the QR disappears and a red "expired" message shows. Revoke with confirm.
+- [ ] Admin › Administrators: create (password box clears afterwards; fewer than 8 characters refused), Reset password… dialog (both entries must match), delete with confirm.
+- [ ] Admin › Phones: **Set up a phone** shows a scannable QR for the setup page, the setup page and remote addresses, and the certificate fingerprint. **Forget…** asks for confirmation.
 - [ ] Mini player: opens from the bar and hides the main window; transport, seek and volume work; the "On top" toggle works and is remembered; Restore or closing the mini player brings the main window back; its position is remembered.
 - [ ] Ctrl+Shift+R in the demo: red "Reconnecting…" banner, then it clears after about 3 s and data reloads.
 - [ ] Error banners appear and can be dismissed. No crash dialogs in normal use.
@@ -49,27 +49,27 @@ Build it with `dotnet run --project tools/SabhaMujic.AudioSpike -c Release -- <f
 
 ## iPhone remote (M5): needs a PC with the service running and an iPhone on the same Wi-Fi
 - [ ] The PC firewall allows TCP 8443 and 8080 on the Private profile. `http://<pc-ip>:8080/health` returns OK from the phone.
-- [ ] Scanning the desktop pairing QR opens `http://<ip>:8080/#code=NNNNNN` in Safari. The page shows the code and the CA SHA-256 fingerprint, and the fingerprint matches the one on the PC.
+- [ ] Scanning the QR in Admin › Phones › **Set up a phone** opens `http://<ip>:8080/` in Safari. The page shows the CA SHA-256 fingerprint, and it matches the one on the PC.
 - [ ] "Download profile" → Allow → Settings → General → VPN & Device Management → SabhaMujic Remote → Install. The profile shows "SabhaMujic Local CA (<PC name>)".
 - [ ] Settings → General → About → Certificate Trust Settings: full trust for the SabhaMujic CA can be enabled.
-- [ ] "Continue" opens `https://<ip>:8443/pair#code=NNNNNN` with no certificate warning and the code prefilled. Pairing with a device name shows the Now tab, and the pill says Connected.
+- [ ] "Continue" opens `https://<ip>:8443/` with no certificate warning and shows the sign-in screen. Signing in with an administrator's name and password shows Now Playing, and the pill says Connected.
 - [ ] `https://<pc-hostname>.local:8443/` also loads without a warning.
 - [ ] Transport (play/pause, prev, next, stop), seek, volume, mute, loop mode, crossfade and the Crossfading badge all work; the position advances smoothly.
 - [ ] A second iPhone sees changes live.
-- [ ] Queue (play item, up/down, remove, clear with confirm), Library (chips, search, load more, play now / play next / add to queue), Playlists (add, replace with confirm).
-- [ ] A volunteer device shows no Admin tab.
-- [ ] Admin tab: pick several files from Files, edit title/artist/category, upload with progress, cancel mid-upload, re-upload the same file ("Already in the library"), add a category.
+- [ ] Queue (play item, up/down, remove, clear with confirm), Library (category tabs, search, load more, play now / play next / add to queue), Playlists (add, replace with confirm).
+- [ ] Signing in with a non-administrator account (only possible on an install upgraded from v1) shows "Only administrators can use the SabhaMujic phone remote."
+- [ ] Upload tab: pick several files from Files, edit title/artist, choose several categories, upload with progress, cancel mid-upload, re-upload the same file ("Already in the library"), add a category.
 - [ ] Lock the phone or toggle Wi-Fi: the pill shows Reconnecting… and returns to Connected with current state. Restarting the service: same.
 - [ ] **Playback continues on the PC while every phone is locked, offline or closed.**
-- [ ] Revoking the device on the PC returns the phone to the pair screen; reloading stays signed out.
-- [ ] Add to Home Screen: the icon shows and the app opens standalone. If iOS keeps separate cookies and asks to pair, pairing with a new code works.
+- [ ] Forgetting the phone on the PC returns it to the sign-in screen; reloading stays signed out.
+- [ ] Add to Home Screen: the icon shows and the app opens standalone. If iOS keeps separate cookies and asks to sign in, signing in there works.
 - [ ] Light and dark mode read well, touch targets are comfortable, and iOS 16.x is checked if available.
 - [ ] After the PC's IP changes, the phone connects without a warning within about 10 minutes (the leaf is re-issued).
 - [ ] The leaf certificate works with SChannel under the service account.
 
 ## M6a additions
-- [ ] The phone setup page's fingerprint equals the one on the PC pairing panel.
-- [ ] "Sign out" on the phone removes it from the PC device list; the phone needs a new code.
+- [ ] The phone setup page's fingerprint equals the one on the PC's **Set up a phone** panel.
+- [ ] "Sign out" on a remembered phone removes it from Admin › Phones; the phone needs the password again.
 - [ ] After installing the MSI, the unelevated first-run screen offers "Restart as administrator". Confirming creates the admin; cancelling UAC shows a message and keeps the app open.
 - [ ] Setting a loop override while that track plays takes effect at the next seam.
 - [ ] Restart the service mid-track, then press Play: it continues near the old position, with the same queue.
@@ -95,7 +95,24 @@ The silent install, uninstall, upgrade and refused downgrade are covered by `ins
 - [ ] A junction in place of `library` stops the service with a clear error.
 - [ ] A standard user can read `logs` but can't write there.
 - [ ] Event Log entries appear under source `SabhaMujic.Service` in the Application log.
-- [ ] "Forgot admin PIN?" unelevated shows the elevation message; "Restart as administrator" reopens the recovery screen; the reset signs in and the old PIN stops working.
+- [ ] "Forgot admin password?" unelevated shows the elevation message; "Restart as administrator" reopens the recovery screen; the reset signs in and the old password stops working.
 - [ ] The icon shows in the exe, taskbar, title bar and mini player.
-- [ ] Leave the sign-in screen open for more than 2 minutes: no "Reconnecting" banner.
+- [ ] Leave the app open with no administrator signed in for more than 2 minutes: no "Reconnecting" banner.
 - [ ] Interrupt storage mid-session: commands keep working, and the queue is saved once storage recovers.
+
+## v2 additions: none of these have been done yet
+Run with the installed v2 MSI and the service running, unless noted. Phone items need a real iPhone with Safari.
+- [ ] **Open use:** with an administrator already created, the app starts on the Library with no sign-in. Playing, the queue and playlists work. The header chip says "Admin sign-in" and the nav rail has no Admin item.
+- [ ] **Admin sign-in:** the chip asks for user name and password; a wrong password shows "Incorrect user name or password."; a correct one shows the name in the chip and Admin in the nav rail. **Sign out** from the chip menu works.
+- [ ] **15-minute sign-out:** using the app keeps the admin signed in. Left untouched for about 15 minutes, the admin is signed out with the "administrator session has ended" note, the Admin item disappears (an open Admin page goes back to Library), and the music keeps playing.
+- [ ] **Theme:** dark on first start; the sun/moon toggle switches every screen, dialog and the mini player; the choice survives a restart of the app. Same on the phone after a reload.
+- [ ] **Custom title bar** at 100 %, 125 % and 150 % display scaling: drag to move, double-click to maximise/restore, drag to a screen edge and Win+arrow keys snap, Windows 11 snap layouts appear over the maximise button, minimise/maximise/close work, edges resize, and a maximised window doesn't cover the taskbar or cut off content.
+- [ ] **Inter font:** text renders in Inter, not Segoe UI. Regular, Medium, SemiBold and Bold look clearly different (titles, tabs, buttons). Times and counts line up (tabular figures).
+- [ ] **Icon glyphs:** nav rail, header, title-bar buttons, transport and list buttons all show icons, with no empty boxes.
+- [ ] **Two-way categories:** on a track, **Categories…** with two ticks shows two tags. **Add tracks…** from Admin › Categories and from right-clicking a Library tab adds and removes tracks and keeps their other categories. Deleting a category keeps its tracks. The phone shows the same.
+- [ ] **Multi-select import:** **Add files…** accepts several files at once; each file can get several categories; **Categories for new files** and **Apply to all** work; every file ends up with the right categories.
+- [ ] **Phone sign-in without "Remember this phone"** (real iPhone Safari): works; the phone isn't listed under Admin › Phones; after closing Safari completely and reopening, it asks to sign in again.
+- [ ] **Phone sign-in with "Remember this phone"** (real iPhone Safari): the phone is listed under Admin › Phones as "iPhone"; it stays signed in after closing Safari and restarting the phone; the Home Screen app works too. Private Browsing forgets the sign-in when the tab closes.
+- [ ] **Phone look:** Inter renders (including bold and semi-bold); the seek, volume and crossfade sliders are easy to drag with a thumb; the header and bottom nav (Now Playing, Queue, Library, Playlists, Upload) sit clear of the notch/Dynamic Island and the home indicator, in Safari and in the Home Screen app, portrait and landscape.
+- [ ] **Forget a phone** in Admin › Phones: it leaves the list at once; the phone shows "This device was removed by an administrator." and the sign-in screen; reloading stays signed out; signing in again with Remember adds it back.
+- [ ] **Upgrade from a v1 install** (tracks in categories, playlists, loop overrides, a volunteer account, an admin phone and a volunteer phone): after installing v2, every track keeps its category and playlists and loop points are kept; the old admin PIN signs in; the volunteer account is listed as "Volunteer"; the admin phone asks to sign in and then works; the volunteer phone gets "Only administrators can use the SabhaMujic phone remote."; both old phones are listed under Admin › Phones and can be forgotten.

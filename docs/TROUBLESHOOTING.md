@@ -79,16 +79,16 @@ Creating the first SabhaMujic administrator needs the app to run with Windows ad
 
 If the form says "SabhaMujic is already set up", an administrator already exists: sign in instead.
 
-## Forgotten administrator PIN
+## Forgotten administrator password
 
-- **Another administrator account exists**: sign in with it, open **Admin → Users**, select the account and use **Reset PIN…**.
-- **No administrator can sign in**: reset the PIN on the SabhaMujic PC. This needs someone with Windows administrator rights on that PC. It never works from an iPhone.
-  1. On the sign-in screen, click **Forgot admin PIN?** The screen **Reset an administrator PIN** opens.
-  2. If the app isn't running as administrator, it says "Resetting an administrator PIN needs Windows administrator rights. Choose 'Restart as administrator' and confirm the Windows prompt." Click **Restart as administrator** and confirm. The app reopens on the same screen.
-  3. Enter the **Administrator name**, then the **New PIN or password (at least 4 characters)** and **Repeat new PIN or password**, and click **Reset PIN and sign in**. If no account has that name, a new administrator with that name is created instead. A volunteer's name is refused ("That account is not an administrator…").
-  4. You're signed in as that administrator. Anywhere else the account was signed in, it is signed out with "This account's PIN was reset on the SabhaMujic PC. Please sign in again."
+- **Another administrator account exists**: sign in with it, open **Admin → Administrators**, select the account and use **Reset password…**.
+- **No administrator can sign in**: reset the password on the SabhaMujic PC. This needs someone with Windows administrator rights on that PC. It never works from an iPhone.
+  1. Click **Admin sign-in**, then **Forgot admin password?** The screen **Reset an administrator password** opens.
+  2. If the app isn't running as administrator, it says "Resetting an administrator password needs Windows administrator rights. Choose 'Restart as administrator' and confirm the Windows prompt." Click **Restart as administrator** and confirm. The app reopens on the same screen.
+  3. Enter the **Administrator name**, then the **New password (at least 8 characters)** and **Repeat new password**, and click **Reset password and sign in**. If no account has that name, a new administrator with that name is created instead. An old volunteer account's name is refused ("That account is not an administrator…").
+  4. You're signed in as that administrator. Anywhere else the account was signed in, including its phones, it is signed out with "This account's password was reset on the SabhaMujic PC. Please sign in again."
 
-  **Back to sign in** returns to the sign-in screen. After 5 attempts within 5 minutes from the same Windows account, further attempts are refused for a while (the app says "Too many attempts. Please wait a minute and try again."). If the Windows prompt was cancelled, click **Restart as administrator** again. If the app can't restart itself, close it and start it with right-click **SabhaMujic** → **More** → **Run as administrator**, then click **Forgot admin PIN?** again.
+  **Back to sign in** returns to the sign-in screen. After 5 attempts within 5 minutes from the same Windows account, further attempts are refused for a while. If the Windows prompt was cancelled, click **Restart as administrator** again. If the app can't restart itself, close it and start it with right-click **SabhaMujic** → **More** → **Run as administrator**, then click **Admin sign-in** → **Forgot admin password?** again.
 
 ## "The SabhaMujic service could not save data (storage busy or full)"
 
@@ -99,13 +99,43 @@ The full message is "The SabhaMujic service could not save data (storage busy or
 3. Exclude `C:\ProgramData\SabhaMujic\data` from antivirus scanning or file-level backup while the service runs; back it up with the service stopped ([ADMIN_GUIDE.md](ADMIN_GUIDE.md#backups)).
 4. The service log names the operation that failed.
 
-## The sign-in screen briefly reconnects
-
-If the desktop app sits on the sign-in (or setup) screen without anyone signing in, the service closes its connection after 60 seconds, to keep connections free for real use. The app reconnects by itself straight away. This isn't an error, and nothing needs to be done.
-
 ## "Too many sign-in attempts"
 
-The app says "Too many sign-in attempts. Please wait a minute and try again." After 5 wrong PINs for one user name within 5 minutes, sign-in for that name pauses for a few minutes. Wait and try again, or ask an administrator to reset the PIN.
+The app says "Too many sign-in attempts. Please wait a minute and try again." (on the iPhone: "Too many failed sign-in attempts. Wait a few minutes and try again."). After 5 wrong passwords for one user name within 5 minutes, sign-in for that name pauses for a few minutes. Wait and try again, or ask another administrator to reset the password.
+
+## Signed out on the PC after 15 minutes
+
+This is on purpose. If nobody uses the app for about 15 minutes, SabhaMujic signs the administrator out, so admin screens aren't left open for anyone who walks up to the PC. The app says the administrator session has ended, and the **Admin** item disappears from the left-hand menu. The music keeps playing, and volunteers can carry on using the app. Click **Admin sign-in** to sign in again. The time can't be changed.
+
+If you're signed out sooner, the message says why:
+
+- "Your password was changed. Please sign in again." Another administrator reset your password.
+- "This account's password was reset on the SabhaMujic PC. Please sign in again." Someone used **Forgot admin password?**.
+- "Your account was removed." Another administrator deleted your account.
+
+## The phone says only administrators can use the remote
+
+The iPhone shows "Only administrators can use the SabhaMujic phone remote." The remote is for administrators only; volunteers use the app on the PC, which needs no sign-in.
+
+- **You signed in with an old volunteer account** (from version 1): sign in with an administrator's user name and password instead.
+- **The phone was paired as a volunteer phone in version 1**: those phones stop working after the upgrade. If an administrator uses this phone, sign in on it with an administrator account. Otherwise, forget it on the PC under **Admin → Phones**.
+
+## The phone keeps asking to sign in
+
+1. **"Remember this phone" wasn't ticked.** Without it, the sign-in ends when Safari is closed, and after 12 hours at most. On an administrator's own phone, sign in again with **Remember this phone** ticked. It then stays signed in for about 180 days and appears on the PC under **Admin → Phones**.
+2. **Private Browsing.** Safari forgets the sign-in when a private tab closes. Open the remote in a normal tab: in Safari, tap the tabs button and switch from **Private** to the normal tab group.
+3. **Cookies are blocked.** The sign-in is kept in a cookie. Check **Settings → Apps → Safari** (on older iOS: **Settings → Safari**) and make sure **Block All Cookies** is off. Content blockers or "clear history" apps can also remove it.
+4. **Home Screen icon.** iOS can keep the Home Screen app's storage separate from Safari. Sign in once inside the Home Screen app too, with **Remember this phone** ticked.
+5. **Different address.** A sign-in only counts for the address you used. Always open the remote at the same address (for example always `https://192.168.1.20:8443/`, not sometimes the PC's name). If the PC's address changed, see [below](#the-pcs-ip-address-changed).
+6. **It was signed out on purpose.** The phone says "This phone was signed out." or "This device was removed by an administrator." when someone tapped **Sign out**, forgot the phone under **Admin → Phones**, reset the password or deleted the account. A remembered phone that isn't used for 180 days is also signed out. Sign in again.
+
+## The font looks different
+
+SabhaMujic comes with its own font, Inter, on the PC and on the iPhone. If it can't be loaded, the PC falls back to Segoe UI and the iPhone to its system font. Everything still works; it just looks slightly different.
+
+- **iPhone:** the first time the remote opens, the system font may show for a moment until Inter has loaded. If it stays, reload the page (in Safari, tap the reload arrow in the address bar).
+- **PC:** if the app always shows Segoe UI, or bold and semi-bold text looks wrong, run **Repair** of SabhaMujic in **Settings → Apps → Installed apps** (or install the same version again).
+- **Icons show as empty boxes on the PC:** the icons come from the "Segoe MDL2 Assets" font that is part of Windows 10 and 11. Make sure Windows is up to date.
 
 ## The iPhone can't reach the PC
 
@@ -127,9 +157,9 @@ The setup page (`http://<PC address>:8080/`) or the remote (`https://<PC address
 
 Safari says "This connection is not private", or the remote keeps disconnecting:
 
-1. **Profile installed and trusted?** Check **Settings → General → VPN & Device Management** for **SabhaMujic Remote**. Then check **Settings → General → About → Certificate Trust Settings**: **SabhaMujic Local CA (<PC name>)** must be switched on. Both steps are needed; see [SETUP.md](SETUP.md#pair-an-iphone).
+1. **Profile installed and trusted?** Check **Settings → General → VPN & Device Management** for **SabhaMujic Remote**. Then check **Settings → General → About → Certificate Trust Settings**: **SabhaMujic Local CA (<PC name>)** must be switched on. Both steps are needed; see [SETUP.md](SETUP.md#set-up-an-iphone-administrators-only).
 2. **Right PC?** The certificate is specific to one PC. A profile from another PC doesn't help.
-3. **PC reinstalled, moved to a new PC or certificates reset?** If the service lost its `certs` folder (or the folder came from another PC or Windows installation, where its keys can't be decrypted), it created a new certificate authority. On the iPhone, remove the old **SabhaMujic Remote** profile, then install the new one from `http://<PC address>:8080/`, trust it and pair again. Restoring `certs` from a backup of this same PC avoids that ([ADMIN_GUIDE.md](ADMIN_GUIDE.md#backups)).
+3. **PC reinstalled, moved to a new PC or certificates reset?** If the service lost its `certs` folder (or the folder came from another PC or Windows installation, where its keys can't be decrypted), it created a new certificate authority. On the iPhone, remove the old **SabhaMujic Remote** profile, then install the new one from `http://<PC address>:8080/`, trust it and sign in again. Restoring `certs` from a backup of this same PC avoids that ([ADMIN_GUIDE.md](ADMIN_GUIDE.md#backups)).
 4. **Never tap through a certificate warning** to "visit anyway". The warning means the iPhone can't confirm it is talking to your PC.
 
 ## The PC's IP address changed
@@ -138,8 +168,9 @@ The service notices a new address within about 10 minutes (or as soon as Windows
 
 The iPhone, however, opens the remote at the address it was set up with. If that address no longer works:
 
-1. Find the new address (`ipconfig` on the PC) and open `http://<new address>:8080/` on the iPhone, then **Continue**.
-2. The iPhone's sign-in is tied to the address it paired with, so you'll probably need to pair it again with a new code from **Admin → Remote devices**. The certificate profile doesn't need to be installed again. Revoke the old entry for that phone.
+1. Find the new address (`ipconfig` on the PC, or **Admin → Phones → Set up a phone**) and open `http://<new address>:8080/` on the iPhone, then **Continue**.
+2. The iPhone's sign-in belongs to the old address, so sign in again (tick **Remember this phone** if it's your own phone). The certificate profile doesn't need to be installed again. On the PC, **Forget…** the old entry for that phone under **Admin → Phones**.
+3. Replace the Home Screen icon: delete the old one and add the new address with Share → **Add to Home Screen**.
 
 To avoid this, give the PC a fixed address: add a DHCP reservation for it on the Wi-Fi router.
 
@@ -153,4 +184,4 @@ Get-Content "$env:ProgramData\SabhaMujic\logs\sabhamujic-$(Get-Date -Format yyyy
 
 **Event Viewer** (`eventvwr.msc`): **Windows Logs → Application**, then **Filter Current Log…** → Event sources **SabhaMujic.Service**. The service writes only warnings and errors here. If the service can't start at all, look in **Windows Logs → System** for events from **Service Control Manager** that mention SabhaMujic.
 
-When asking for help, include the service log of the day of the problem and the time it happened. Logs can contain user names, device names and track titles, so share them only with people you trust.
+When asking for help, include the service log of the day of the problem and the time it happened. Logs can contain user names, phone names and track titles, so share them only with people you trust.

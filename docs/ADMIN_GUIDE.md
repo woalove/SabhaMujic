@@ -1,45 +1,69 @@
 # SabhaMujic administrator guide
 
-For SabhaMujic administrators: adding music, organising it, tuning Smart Loop, and managing accounts, iPhones and backups. Installing and first-run setup are in [SETUP.md](SETUP.md); problems are covered in [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+For SabhaMujic administrators: adding music, organising it, tuning Smart Loop, and managing accounts, phones and backups. Installing and first-run setup are in [SETUP.md](SETUP.md); problems are covered in [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
-Everything in this guide is in the desktop app under **Admin** (visible only to administrators), unless it says otherwise. The iPhone remote has an **Admin** tab for importing music and adding categories; it appears only on iPhones paired with the Admin role.
+## Signing in
+
+Volunteers use SabhaMujic on the PC without signing in. The administration screens need an administrator:
+
+- **Sign in:** click **Admin sign-in** at the top right of the window, enter your **User name** and **Password**, and click **Sign in**. **Admin** appears in the left-hand menu.
+- **Sign out:** click your name at the top right → **Sign out**.
+- **Automatic sign-out:** after about **15 minutes** without anyone using the app, the administrator is signed out. The app says the administrator session has ended, the **Admin** menu item disappears, and the music keeps playing. Sign in again to carry on.
+
+Everything in this guide is in the desktop app under **Admin**, unless it says otherwise. The iPhone remote is for administrators only; its **Upload** tab imports music and adds categories.
 
 ## Who can do what
 
-| | Volunteer | Admin |
+| | Anyone at the PC (no sign-in) | Administrator |
 |---|---|---|
 | Browse and search the library, play tracks | ✓ | ✓ |
 | Control playback: play, pause, stop, next, previous, seek, volume, mute, loop mode, crossfade | ✓ | ✓ |
 | Edit the queue, create and edit playlists | ✓ | ✓ |
 | Import music, manage categories and tracks, set loop points | | ✓ |
-| Manage accounts and paired iPhones | | ✓ |
+| Manage administrator accounts and phones | | ✓ |
+| Use the iPhone remote | | ✓ |
 
-The role comes from the SabhaMujic account (or, for an iPhone, from the role chosen when pairing), not from the Windows account. The service checks every action, whichever app or device asks.
+SabhaMujic accounts are separate from Windows accounts. The service checks every action, whichever app or phone asks.
+
+## Look and feel
+
+SabhaMujic is dark by default. The sun/moon button at the top right switches between dark and light. The choice is remembered on each PC (for each Windows user) and on each phone. The app uses the Inter font, which comes with SabhaMujic; if it can't be loaded, Windows shows Segoe UI and the iPhone its own system font instead.
+
+On the PC, the left-hand menu has **Library**, **Queue**, **Playlists** and, while an administrator is signed in, **Admin**. On the iPhone, the bar at the bottom has **Now Playing**, **Queue**, **Library**, **Playlists** and **Upload**.
 
 ## Importing music
 
 **Admin → Import music**:
 
 1. Click **Add files…** and choose audio files. Supported formats: **MP3, WAV, M4A, AAC, FLAC and WMA**, up to **1 GB per file**. Other file types are refused.
-2. For each file, adjust the **Title** (the file name by default) and **Artist** (optional). Choose a category per file, or set **Category for new files** before adding them.
-3. Click **Start import**. Each file is uploaded to the service, which first checks that it really decodes as audio (a renamed non-audio file is rejected). It then stores the file in the protected library and starts the Smart Loop analysis. The status column follows these stages: uploading, validating, storing, analyzing, done. **Cancel** stops the uploads still in progress. Signing out (or revoking the iPhone that uploads) also cancels that session's unfinished uploads.
+2. For each file, adjust the **Title** (the file name by default) and **Artist** (optional), and tick its categories (as many as you like). To give several files the same categories, set **Categories for new files** before adding them, or set it and click **Apply to all**.
+3. Click **Start import**. Each file is uploaded to the service, which first checks that it really decodes as audio (a renamed non-audio file is rejected). It then stores the file in the protected library and starts the Smart Loop analysis. The status column follows these stages: uploading, validating, storing, analyzing, done. **Cancel** stops the uploads still in progress. Signing out (or forgetting the phone that uploads) also cancels that session's unfinished uploads.
 
 Notes:
 
 - **Duplicates**: a file whose content is byte-for-byte identical to a track already in the library is not added again; it shows **Already in library**. A re-encoded or trimmed copy of the same song is a different file and is imported as a new track.
 - The service keeps imported files in `C:\ProgramData\SabhaMujic\library`, under content-based names. Keep your original files somewhere safe as well, ideally where volunteers can't reach them. The app never gives files back out.
 - The desktop app uploads the files one after another; the service accepts at most 2 uploads at a time per signed-in admin.
-- On an admin iPhone, use the remote's **Admin** tab. Pick files from the Files app, edit the title, artist and category, and upload.
+- On the iPhone, use the remote's **Upload** tab. Pick files from the Files app, edit the title and artist, tap the categories you want (any number) and upload.
 
 ## Categories
 
-**Admin → Categories**: **New category**, **Rename**, **Delete**, and the up/down arrows to change the order in which categories appear in the library sidebar. Category names must be unique. Deleting a category keeps its tracks; they become uncategorized.
+A track can be in **several categories** (for example both "Dhun" and "Morning"). Each category is a tab at the top of the **Library**, and a track shows a coloured tag for each of its categories.
+
+**Admin → Categories**: **New category**, **Rename**, **Delete**, and the up/down arrows to change the order of the Library tabs. Category names must be unique. Deleting a category removes it from its tracks but doesn't delete the tracks; tracks with no other category become uncategorized.
+
+There are two ways to put tracks in categories:
+
+- **From a track:** in the Library, right-click a track → **Categories…** (or use the track's **Categories…** button). Tick every category it belongs to, then click **Save**. **New category** adds one on the spot. **Admin → Tracks** has the same ticks under **Categories (tick all that apply)**.
+- **From a category:** in **Admin → Categories**, click **Add tracks…** next to the category, or right-click its tab in the Library → **Add tracks…**. Search, tick the tracks that belong in it, and click **Save**. Their other categories are kept.
+
+These options only show while an administrator is signed in.
 
 ## Tracks and Smart Loop
 
 **Admin → Tracks** lists the library with a search box. Select a track to:
 
-- edit its **Title**, **Artist** and **Category** (**Save**);
+- edit its **Title**, **Artist** and **Categories** (**Save**);
 - **Delete track…**: removes it from the library, from all playlists and from the queue, and deletes the stored file. If it is playing, playback moves on to the next track.
 
 ### How Smart Loop works
@@ -79,29 +103,35 @@ Playlists are shared: every user sees and can edit the same playlists. On **Play
 
 The queue is shared by the desktop app and every iPhone; changes appear everywhere at once. **Clear** removes everything except the track playing now.
 
-Playback runs in the service. Closing the app, signing out or locking an iPhone doesn't stop the music. After a service restart, the queue comes back stopped at the track that was current; press **Play** to continue near where it was. The position is saved when the service stops and whenever the queue or a setting changes, so after a crash it continues from the last save.
+Playback runs in the service. Closing the app, signing out (or being signed out after 15 minutes) or locking an iPhone doesn't stop the music. After a service restart, the queue comes back stopped at the track that was current; press **Play** to continue near where it was. The position is saved when the service stops and whenever the queue or a setting changes, so after a crash it continues from the last save.
 
-## Users and PINs
+## Administrator accounts
 
-**Admin → Users**:
+Only administrators have accounts; volunteers use the PC without one. **Admin → Administrators**:
 
-- **Create user**: a user name (1–64 characters, unique regardless of upper and lower case), a role and a PIN or password (at least 4 characters).
-- **Reset PIN…**: sets a new PIN (enter it twice) and signs that user out everywhere. If you change your own PIN, only the session you are using stays signed in.
+- **Create user**: a user name (1–64 characters, unique regardless of upper and lower case) and a password (at least 8 characters). New accounts are always administrators.
+- **Reset password…**: sets a new password (enter it twice) and signs that account out everywhere, including its phones. If you change your own password, only the session you are using stays signed in.
 - **Delete**: removes the account and signs it out. You can't delete your own account, and the last administrator can't be deleted.
 
-After 5 wrong PINs for the same user name within 5 minutes, sign-in for that name is paused for a few minutes (the app says "Too many sign-in attempts. Please wait a minute and try again.").
+After 5 wrong passwords for the same user name within 5 minutes, sign-in for that name is paused for a few minutes (the app says "Too many sign-in attempts. Please wait a minute and try again.").
 
-Keep at least **two administrator accounts**. If no administrator can sign in, a Windows administrator can reset an administrator PIN on the PC with **Forgot admin PIN?** on the sign-in screen (see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#forgotten-administrator-pin)).
+Keep at least **two administrator accounts**. If no administrator can sign in, a Windows administrator can reset an administrator password on the PC with **Forgot admin password?** on the sign-in screen (see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#forgotten-administrator-password)).
 
-## Remote devices (iPhones)
+After an upgrade from version 1, old volunteer accounts are still listed here with the role "Volunteer". They aren't needed any more; delete them. An old administrator PIN still works, but change a short one to a password of at least 8 characters.
 
-**Admin → Remote devices** lists the paired iPhones with their role, when they were paired and when they were last seen.
+## Phones (iPhone remote)
 
-- **Pair new device**: see [SETUP.md](SETUP.md#pair-an-iphone). Choose the role first. An iPhone paired as **Admin** has admin rights without a PIN, so pair as Admin only a phone an administrator keeps.
-- **Revoke…**: removes a device immediately. A lost or replaced phone should be revoked. The phone goes back to the pairing screen and needs a new pairing code to be used again.
-- **Sign out** on the iPhone unpairs that phone itself: it disappears from this list and needs a new pairing code.
+The iPhone remote is for administrators only. A phone is set up once (certificate), then an administrator signs in on it with their user name and password; see [SETUP.md](SETUP.md#set-up-an-iphone-administrators-only).
 
-Pairing codes are 6 digits, work once and expire after 5 minutes. Too many wrong codes pause pairing for a few minutes.
+**Admin → Phones**:
+
+- **Set up a phone** shows the setup page address and its QR code, the remote's address, and the certificate fingerprint to compare on the phone.
+- **Remembered phones** lists the phones where someone ticked **Remember this phone** when signing in, with when they were remembered and last seen. A remembered phone stays signed in for about 180 days, counted again each time it is used.
+- **Forget…** signs that phone out at once and removes it from the list. Forget a lost or replaced phone straight away. The phone needs the password again to be used.
+
+A phone signed in **without** "Remember this phone" isn't listed. Its sign-in lasts until Safari is closed, and at most 12 hours. **Sign out** on a phone (tap your name at the top right) signs it out and, if it was remembered, removes it from this list.
+
+Phones that were paired as Volunteer in version 1 no longer work; the phone says "Only administrators can use the SabhaMujic phone remote." Forget them here.
 
 ## Backups
 
@@ -109,7 +139,7 @@ The things worth backing up are in `C:\ProgramData\SabhaMujic`:
 
 | Folder | Contents | Back up? |
 |---|---|---|
-| `data` | the database: accounts (PINs stored as salted hashes), library entries, categories, playlists, loop points, paired devices, settings, audit log | **Yes** |
+| `data` | the database: accounts (passwords stored as salted hashes), library entries, categories, playlists, loop points, remembered phones, settings, audit log | **Yes** |
 | `library` | the imported audio files | **Yes** |
 | `certs` | the iPhone remote's certificate authority (`ca.cer`) and its keys (`ca.key`, `leaf.pfx`, encrypted for this PC) | **Yes**, for restoring on the same PC (see below) |
 | `uploads` | unfinished uploads | No |
@@ -143,7 +173,7 @@ The backup holds the music as plain audio files. Keep it where volunteers can't 
 
 **Restore** (with SabhaMujic installed): stop the service, copy the folders back into `C:\ProgramData\SabhaMujic` with the same `robocopy` commands (source and destination swapped), then start the service. The service locks the folders again when it starts. Copy real folders: if a folder ends up as a junction or link, or owned by another account, the service refuses to start (see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#setup-stops-or-the-service-wont-start-because-of-the-data-folder)).
 
-**Certificates on a new PC**: the keys in `certs` are encrypted with Windows DPAPI for the PC (the Windows installation) they were made on, so `certs` can't be moved to another PC; restore only `data` and `library` there. If `certs` is missing or can't be decrypted, the service creates a new certificate authority, and every iPhone must remove the old profile, install and trust the new one, and pair again.
+**Certificates on a new PC**: the keys in `certs` are encrypted with Windows DPAPI for the PC (the Windows installation) they were made on, so `certs` can't be moved to another PC; restore only `data` and `library` there. If `certs` is missing or can't be decrypted, the service creates a new certificate authority, and every iPhone must remove the old profile, install and trust the new one, and sign in again.
 
 ## Service settings
 
@@ -181,7 +211,7 @@ To turn it back on, delete the file (or set `true`) and restart the service. The
 | Service settings (optional) | `C:\Program Files\SabhaMujic\Service\appsettings.json` (see [Service settings](#service-settings)) |
 | Service logs | `C:\ProgramData\SabhaMujic\logs\sabhamujic-YYYYMMDD.log` (a new file each day or every 10 MB; the newest 14 files are kept) |
 | Windows Event Log | **Event Viewer → Windows Logs → Application**, source **SabhaMujic.Service** (warnings and errors only) |
-| Desktop app window settings | `%LOCALAPPDATA%\SabhaMujic\desktop-settings.json` (per Windows user) |
+| Desktop app window and theme settings | `%LOCALAPPDATA%\SabhaMujic\desktop-settings.json` (per Windows user) |
 | Service | **Services** (`services.msc`) → **SabhaMujic Playback Service**; in PowerShell: `Get-Service SabhaMujic` |
 
-The service also records an audit trail (sign-ins, imports, account and device changes) in its database. There is no screen for it yet.
+The service also records an audit trail (sign-ins, imports, account and phone changes) in its database. There is no screen for it yet.

@@ -2,7 +2,7 @@
 
 This guide is for the person who installs SabhaMujic on the sabha PC. Day-to-day administration (music, loop points, playlists, backups) is in [ADMIN_GUIDE.md](ADMIN_GUIDE.md). If something goes wrong, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
-> **Verification status.** CI builds the installer and runs a silent install, uninstall and upgrade test on a Windows Server image. That test does not cover audible playback from the service, the setup dialogs, the first-run flow on a real PC or pairing a real iPhone. Until those are checked on real hardware (see [TESTING.md](TESTING.md) and [WINDOWS_TEST_CHECKLIST.md](WINDOWS_TEST_CHECKLIST.md)), treat the steps below as the intended behaviour.
+> **Verification status.** CI builds the installer and runs a silent install, uninstall and upgrade test on a Windows Server image. That test does not cover audible playback from the service, the setup dialogs, the first-run flow on a real PC or setting up a real iPhone. Version 2 (open use on the PC, password sign-in on the iPhone, the new look) hasn't been tried on a real PC or iPhone yet either. Until those are checked on real hardware (see [TESTING.md](TESTING.md) and [WINDOWS_TEST_CHECKLIST.md](WINDOWS_TEST_CHECKLIST.md)), treat the steps below as the intended behaviour.
 
 ## What you need
 
@@ -40,47 +40,60 @@ Before starting the service, the installer prepares `C:\ProgramData\SabhaMujic` 
 There are no default accounts or passwords. The first SabhaMujic administrator is created on this PC by a Windows administrator.
 
 1. Open SabhaMujic (the installer can start it for you). It shows **Welcome to SabhaMujic**. If it says "Waiting for the SabhaMujic service…", wait a moment.
-2. Enter an **Administrator name** and a **PIN or password** (at least 4 characters), twice, and click **Create administrator**.
+2. Enter an **Administrator name** and a **Password** (at least 8 characters), then **Repeat password**, and click **Create administrator**.
 3. Windows only allows this step from the app running **as administrator**. The installer starts the app normally, so the first attempt usually answers "Creating the first administrator needs Windows administrator rights" and shows a **Restart as administrator** button. Click it and confirm the Windows prompt. SabhaMujic reopens with administrator rights; fill in the form again and click **Create administrator**.
    - If you cancel the Windows prompt, the app stays open and says so; click **Restart as administrator** again.
    - Fallback: close the app, then in the Start menu right-click **SabhaMujic** → **More** → **Run as administrator**.
 4. You're signed in as the administrator. Close the app and open it normally from now on. Running it as administrator is only needed for this one step.
 
-It's still a good idea to create a **second administrator account** (next section). If an administrator PIN is forgotten, a Windows administrator can reset it on this PC; see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#forgotten-administrator-pin).
+It's still a good idea to create a **second administrator account** (next section). If an administrator password is forgotten, a Windows administrator can reset it on this PC; see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#forgotten-administrator-password).
 
-## Create volunteer accounts
+## Volunteers and administrators
 
-SabhaMujic accounts are separate from Windows accounts. Volunteers can share one Windows login and each sign in to SabhaMujic with their own name and PIN.
+**Volunteers don't need an account.** Anyone at the PC can open SabhaMujic and browse, play, control playback, and edit the queue and playlists. There is no sign-in for that.
 
-1. Sign in as an administrator and open **Admin → Users**.
-2. Under **New user**, enter a **User name**, choose the **Role** and enter a **PIN or password** (at least 4 characters). Click **Create user**.
-   - **Volunteer**: browse and play music, control playback, edit the queue and playlists.
-   - **Admin**: everything a volunteer can do, plus importing music, categories, tracks and loop points, accounts and iPhone pairing.
-3. Give each volunteer their user name and PIN.
+**Administrators** sign in to add music, organise categories and tracks, set loop points, and manage accounts and phones:
 
-**Reset PIN…** changes a user's PIN and signs that user out everywhere. If you change your own PIN, only the session you are using stays signed in. You can't delete your own account or the last administrator.
+1. Click **Admin sign-in** at the top right of the window.
+2. Enter your **User name** and **Password** and click **Sign in**. **Admin** now appears in the left-hand menu.
+3. When you're done, click your name at the top right → **Sign out**. If nobody uses the app for about 15 minutes, SabhaMujic signs the administrator out by itself. The music keeps playing, and the app goes back to normal use for volunteers.
 
-## Pair an iPhone
+To add another administrator:
 
-Each iPhone is set up once: it installs the PC's own certificate, then pairs with a one-time code. A paired iPhone stays signed in until an administrator removes it, and it has the role chosen when pairing.
+1. Sign in, open **Admin → Administrators**.
+2. Under **New user**, enter a **User name** and a **Password** (at least 8 characters). Click **Create user**. New accounts are always administrators.
+3. Give the new administrator their user name and password in person.
+
+**Reset password…** changes an administrator's password and signs that account out everywhere. If you change your own password, only the session you are using stays signed in. You can't delete your own account or the last administrator.
+
+SabhaMujic accounts are separate from Windows accounts. Volunteers can use a standard Windows account; they can play the music but can't open or copy the music files.
+
+## Set up an iPhone (administrators only)
+
+The iPhone remote is for administrators. Volunteers use the PC. Each iPhone is set up once: it installs the PC's own certificate, then the administrator signs in with their user name and password.
 
 **On the PC** (signed in as an administrator):
 
 1. Make sure the PC is on the sabha Wi-Fi or LAN and that the network is set to **Private** (see [Network and firewall](#network-and-firewall)).
-2. Open **Admin → Remote devices**. Under **Pair a new iPhone**, choose the **Role for the new device**. Choose **Admin** only for a phone an administrator keeps, because it gets admin rights without a PIN. Then click **Pair new device**.
-3. The app shows a QR code, a 6-digit code and a countdown from 5:00. The code works once and expires after 5 minutes; if it runs out, click **Pair new device** again. Below the code it shows the PC's certificate fingerprint in four lines, under "Check this matches the fingerprint on the phone's setup page".
+2. Open **Admin → Phones** and click **Set up a phone**.
+3. The app shows a QR code, the **Setup page** address (`http://<PC address>:8080/`) and the **Remote (after setup)** address (`https://<PC address>:8443/`). Below them it shows the PC's certificate fingerprint, under "Check this matches the fingerprint on the phone's setup page". If it says "The phone remote is not running on this PC", the remote has been turned off; see [Turning the iPhone remote off](ADMIN_GUIDE.md#turning-the-iphone-remote-off) to turn it back on.
 
 **On the iPhone:**
 
 1. Connect to the same Wi-Fi as the PC.
-2. Open the Camera and point it at the QR code, then tap the link. Safari opens the **Set up the SabhaMujic remote** page on `http://<PC address>:8080/`, showing your pairing code.
+2. Open the Camera and point it at the QR code, then tap the link. (Or type the setup page address into Safari.) Safari opens the **Set up the SabhaMujic remote** page.
 3. **Install the certificate profile.** Tap **Download profile**, then **Allow** and **Close**. Open **Settings → General → VPN & Device Management**, tap **SabhaMujic Remote**, then **Install**, enter the iPhone passcode, tap **Install** again and **Done**.
-4. **Check the fingerprint.** The setup page shows `SHA-256 …` at the bottom. Compare it with the fingerprint on the PC's pairing panel (step 3 on the PC), a line at a time. The two must be identical. If they differ, don't continue: another device on the network may be pretending to be the PC.
+4. **Check the fingerprint.** The setup page shows `SHA-256 …` at the bottom. Compare it with the fingerprint on the PC's **Set up a phone** panel, a line at a time. The two must be identical. If they differ, don't continue: another device on the network may be pretending to be the PC.
 5. **Turn on full trust.** Open **Settings → General → About → Certificate Trust Settings**. Under "Enable full trust for root certificates", switch on **SabhaMujic Local CA (<PC name>)** and tap **Continue**.
-6. Go back to Safari and tap **Continue**. It opens `https://<PC address>:8443/pair` with the code filled in, and there must be no certificate warning. Enter a device name (for example "Kirtan iPhone") and pair.
-7. The remote opens on the **Now** tab and shows **Connected**. Tap Share → **Add to Home Screen** for quick access. If the home-screen app asks to pair again (iOS can keep its storage separate from Safari), pair it with a new code.
+6. Go back to Safari and tap **Continue**. It opens `https://<PC address>:8443/`, and there must be no certificate warning.
+7. **Sign in** with your administrator user name and password.
+   - Tick **Remember this phone** on an administrator's own iPhone. It then stays signed in for about 180 days, and the time starts again each time the phone is used. It appears on the PC under **Admin → Phones**.
+   - Leave it unticked on a borrowed or shared phone. The sign-in then lasts until Safari is closed, and at most 12 hours.
+8. The remote opens on **Now Playing** and shows **Connected**. Tap Share → **Add to Home Screen** for quick access. If the home-screen icon asks you to sign in again (iOS can keep its storage separate from Safari), sign in there too.
 
-To pair another iPhone, repeat these steps; the profile and trust steps are needed once per iPhone. To remove an iPhone, use **Revoke…** in **Admin → Remote devices**. **Sign out** on the iPhone unpairs it too: it disappears from the PC's list and needs a new pairing code to be used again.
+To set up another iPhone, repeat these steps; the profile and trust steps are needed once per iPhone.
+
+**Signing out and forgetting a phone.** On the iPhone, tap your name at the top right → **Sign out**. A remembered phone is then also removed from the PC's list. On the PC, **Forget…** next to a phone in **Admin → Phones** signs it out at once. Forget a lost or replaced phone straight away. Either way, the phone needs the password again to be used.
 
 ## Network and firewall
 
@@ -88,13 +101,24 @@ To pair another iPhone, repeat these steps; the profile and trust steps are need
 - The firewall rules only apply on networks Windows treats as **Private**. In **Settings → Network & internet → Wi-Fi** (or **Ethernet**) → your network, set **Network profile type** to **Private network**. On a **Public** network the iPhone can't connect.
 - Ports: TCP **8080** serves only the setup page and the certificate (plain HTTP, nothing secret). TCP **8443** serves the remote itself over HTTPS.
 - To turn the remote off completely, see [Turning the iPhone remote off](ADMIN_GUIDE.md#turning-the-iphone-remote-off).
-- Give the PC a fixed address if you can. On the Wi-Fi router, add a DHCP reservation for the PC. The PC's certificate follows address changes by itself, but the iPhone was set up for the old address and may need to be paired again (see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#the-pcs-ip-address-changed)).
+- Give the PC a fixed address if you can. On the Wi-Fi router, add a DHCP reservation for the PC. The PC's certificate follows address changes by itself, but the iPhone was set up for the old address and will need to sign in again at the new one (see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#the-pcs-ip-address-changed)).
 
 ## Update
 
 1. Run the newer `SabhaMujic-<version>-x64.msi` the same way as the first install.
 2. The installer stops and removes the old version, then installs the new one and starts the service. Playback stops for a moment during the update.
-3. Accounts, music, playlists, loop points and paired iPhones are kept. They live in `C:\ProgramData\SabhaMujic`, which the installer doesn't touch.
+3. Accounts, music, categories, playlists, loop points and remembered phones are kept. They live in `C:\ProgramData\SabhaMujic`, which the installer doesn't touch.
+
+### Upgrading from version 1
+
+Version 2 changes how people sign in. The service updates its database by itself the first time it starts (nothing to do, but make a [backup](ADMIN_GUIDE.md#backups) first if you can). After the update:
+
+- **Volunteers** no longer sign in on the PC. Old volunteer accounts are still listed under **Admin → Administrators** with the role "Volunteer". They can't do anything a volunteer at the PC can't already do, and they can't use the iPhone remote; delete them when convenient.
+- **Administrators** sign in with **Admin sign-in** and their old PIN, which still works. Change a PIN shorter than 8 characters to a longer password with **Reset password…**.
+- **Categories**: each track keeps the category it had. A track can now be in several categories (see [ADMIN_GUIDE.md](ADMIN_GUIDE.md#categories)).
+- **iPhones**: pairing codes are gone. A phone paired as **Admin** must sign in again with an administrator's user name and password; the certificate stays installed, so just open the remote and sign in. A phone paired as **Volunteer** is refused ("Only administrators can use the SabhaMujic phone remote."). Old phones stay listed under **Admin → Phones**; use **Forget…** to remove the ones no longer used.
+
+Don't go back to version 1 with the upgraded data: version 1 can't read the new category list. To go back, restore the backup you made before upgrading.
 
 An older version can't be installed over a newer one; the installer says so and stops. To go back to an older version, uninstall SabhaMujic first (your data is kept), then install the older version.
 
@@ -112,8 +136,8 @@ An older version can't be installed over a newer one; the installer says so and 
    ```
 
 3. If `C:\Program Files\SabhaMujic` is still there, it holds a settings file you added yourself (`Service\appsettings.json`, see [ADMIN_GUIDE.md](ADMIN_GUIDE.md#service-settings)); delete the folder.
-4. Optionally, for each Windows user who used the app, delete `%LOCALAPPDATA%\SabhaMujic`. It only holds window position and size.
-5. On each paired iPhone, remove the certificate: **Settings → General → VPN & Device Management → SabhaMujic Remote → Remove Profile**. Also delete the home-screen icon.
+4. Optionally, for each Windows user who used the app, delete `%LOCALAPPDATA%\SabhaMujic`. It only holds the window position and size and the light/dark choice.
+5. On each iPhone that was set up for the remote, remove the certificate: **Settings → General → VPN & Device Management → SabhaMujic Remote → Remove Profile**. Also delete the home-screen icon.
 
 ## Unattended install (IT)
 
