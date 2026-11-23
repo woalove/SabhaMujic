@@ -35,6 +35,12 @@ public interface IDialogService
 
     /// <summary>Asks for a password with confirmation. Returns null when cancelled.</summary>
     Task<string?> PromptSecretAsync(string title, string label);
+
+    /// <summary>
+    /// Shows <paramref name="sheet"/> modally until it closes itself (<see cref="SheetViewModel.CloseRequested"/>) or the
+    /// user dismisses it. Returns true when the sheet closed after saving.
+    /// </summary>
+    Task<bool> ShowSheetAsync(SheetViewModel sheet);
 }
 
 /// <summary>Native file-open dialog.</summary>

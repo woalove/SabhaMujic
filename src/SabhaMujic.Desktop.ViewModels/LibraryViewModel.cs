@@ -3,23 +3,30 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SabhaMujic.Client;
 using SabhaMujic.Contracts;
+using SabhaMujic.Desktop.ViewModels.Admin;
 using SabhaMujic.Desktop.ViewModels.Infrastructure;
 
 namespace SabhaMujic.Desktop.ViewModels;
 
-/// <summary>Sidebar entry: "All" (Id null) or a category.</summary>
+/// <summary>Category tab: "All" (Id null) or a category, with its dot colour and track count.</summary>
 public sealed partial class CategoryItemViewModel : ObservableObject
 {
-    public CategoryItemViewModel(Guid? id, string name, int trackCount)
+    public CategoryItemViewModel(Guid? id, string name, int trackCount, TagColor? color = null)
     {
         Id = id;
         Name = name;
         TrackCount = trackCount;
+        Color = color;
     }
 
     public Guid? Id { get; }
 
     public bool IsAll => Id is null;
+
+    /// <summary>Dot colour; null for "All" (no dot).</summary>
+    public TagColor? Color { get; }
+
+    public bool HasDot => Color is not null;
 
     [ObservableProperty]
     public partial string Name { get; set; }
@@ -29,13 +36,14 @@ public sealed partial class CategoryItemViewModel : ObservableObject
 }
 
 /// <summary>One track in the library list.</summary>
-public sealed class TrackItemViewModel
+public sealed partial class TrackItemViewModel : ObservableObject
 {
-    public TrackItemViewModel(LibraryViewModel owner, TrackDto track, string? categoryName)
+    public TrackItemViewModel(LibraryViewModel owner, TrackDto track, IReadOnlyList<CategoryPill> pills)
     {
         Owner = owner;
         Track = track;
-        CategoryName = categoryName;
+        Pills = pills ?? [];
+        CategoryName = Pills.Count == 0 ? null : string.Join(", ", Pills.Select(p => p.Name));
     }
 
     public LibraryViewModel Owner { get; }
@@ -48,7 +56,18 @@ public sealed class TrackItemViewModel
 
     public string? Artist => Track.Artist;
 
+    /// <summary>The track's categories joined with commas (null when it has none).</summary>
     public string? CategoryName { get; }
+
+    /// <summary>One pill per category, in category order.</summary>
+    public IReadOnlyList<CategoryPill> Pills { get; }
+
+    /// <summary>The track playing now (filled timeline node, accent title).</summary>
+    [ObservableProperty]
+    public partial bool IsCurrent { get; set; }
+
+    /// <summary>Muted line above the title: duration and artist.</summary>
+    public string TopLine => Artist is null ? DurationText : $"{DurationText} · {Artist}";
 
     public string DurationText => Formatting.Time(Track.DurationSeconds);
 
@@ -65,7 +84,7 @@ public sealed class TrackItemViewModel
 }
 
 /// <summary>
-/// Library browser: category sidebar (All + categories with counts), debounced search, paged track list,
+/// Library browser: category tab row (All + categories with dot colours and counts), debounced search, paged track list,
 /// per-track play/queue/playlist commands, and live refresh on <see cref="IClientEvents.LibraryChanged"/>.
 /// </summary>
 public sealed partial class LibraryViewModel : ViewModelBase
@@ -83,7 +102,9 @@ public sealed partial class LibraryViewModel : ViewModelBase
     private readonly PlaylistsViewModel _playlists;
     private readonly Debouncer _searchDebouncer;
     private readonly Debouncer _refreshCoalescer;
-    private readonly Dictionary<Guid, string> _categoryNames = [];
+    private readonly Dictionary<Guid, CategoryPill> _categoryPills = [];
+    private readonly Dictionary<Guid, int> _categoryOrder = [];
+    private Guid? _currentTrackId;
     private int _requestSequence;
     private bool _suppressReload;
     private bool _loaded;
@@ -110,6 +131,10 @@ public sealed partial class LibraryViewModel : ViewModelBase
 
     [ObservableProperty]
     public partial CategoryItemViewModel? SelectedCategory { get; set; }
+
+    /// <summary>True while an administrator is signed in: shows "Categories…" on tracks and "Add tracks…" on category tabs.</summary>
+    [ObservableProperty]
+    public partial bool CanManageCategories { get; set; }
 
     [ObservableProperty]
     public partial string SearchText { get; set; } = "";
@@ -211,6 +236,68 @@ public sealed partial class LibraryViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Marks the row of the track playing now (called when now-playing changes).</summary>
+    public void SetCurrentTrack(Guid? trackId)
+    {
+        _currentTrackId = trackId;
+        foreach (var t in Tracks)
+        {
+            t.IsCurrent = t.Id == trackId;
+        }
+    }
+
+    /// <summary>Admin: "Categories…" on a track — a checklist of every category, plus "New category".</summary>
+    [RelayCommand]
+    private async Task EditCategoriesAsync(TrackItemViewModel? track)
+    {
+        if (track is null || !CanManageCategories)
+        {
+            return;
+        }
+
+        var sheet = new TrackCategoriesSheet(_client, _ui, track.Track);
+        if (!await sheet.LoadAsync().ConfigureAwait(true))
+        {
+            ErrorMessage = sheet.ErrorMessage;
+            return;
+        }
+
+        if (await _ui.Dialogs.ShowSheetAsync(sheet).ConfigureAwait(true))
+        {
+            StatusMessage = $"Categories saved for \"{sheet.Track.Title}\".";
+            await RefreshAfterCategoryChangeAsync().ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>Admin: "Add tracks…" on a category tab — a searchable checklist of the library.</summary>
+    [RelayCommand]
+    private async Task AddTracksToCategoryAsync(CategoryItemViewModel? category)
+    {
+        if (category?.Id is not { } categoryId || !CanManageCategories)
+        {
+            return;
+        }
+
+        var sheet = new CategoryTracksSheet(_client, categoryId, category.Name);
+        if (!await sheet.LoadAsync().ConfigureAwait(true))
+        {
+            ErrorMessage = sheet.ErrorMessage;
+            return;
+        }
+
+        if (await _ui.Dialogs.ShowSheetAsync(sheet).ConfigureAwait(true))
+        {
+            StatusMessage = $"Tracks saved for \"{category.Name}\".";
+            await RefreshAfterCategoryChangeAsync().ConfigureAwait(true);
+        }
+    }
+
+    private async Task RefreshAfterCategoryChangeAsync()
+    {
+        await TryAsync(LoadCategoriesAsync, clearError: false).ConfigureAwait(true);
+        await LoadPageAsync(PageIndex).ConfigureAwait(true);
+    }
+
     private bool CanGoNext() => PageIndex + 1 < PageCount;
 
     private bool CanGoPrevious() => PageIndex > 0;
@@ -281,9 +368,12 @@ public sealed partial class LibraryViewModel : ViewModelBase
         foreach (var track in result.Items)
         {
             _tracks.Put(track);
-            var names = track.CategoryIds.Select(c => _categoryNames.TryGetValue(c, out var n) ? n : null).OfType<string>().ToArray();
-            var categoryName = names.Length == 0 ? null : string.Join(", ", names);
-            Tracks.Add(new TrackItemViewModel(this, track, categoryName));
+            var pills = track.CategoryIds
+                .Where(_categoryPills.ContainsKey)
+                .OrderBy(c => _categoryOrder[c])
+                .Select(c => _categoryPills[c])
+                .ToArray();
+            Tracks.Add(new TrackItemViewModel(this, track, pills) { IsCurrent = track.Id == _currentTrackId });
         }
 
         PageIndex = Math.Max(0, pageIndex);
@@ -297,10 +387,13 @@ public sealed partial class LibraryViewModel : ViewModelBase
         var categories = await _client.Library.GetCategoriesAsync().ConfigureAwait(true);
         var all = await _client.Library.GetTracksAsync(new TrackQuery(Take: 1)).ConfigureAwait(true);
 
-        _categoryNames.Clear();
-        foreach (var c in categories)
+        var ordered = categories.OrderBy(c => c.SortOrder).ThenBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
+        _categoryPills.Clear();
+        _categoryOrder.Clear();
+        for (var i = 0; i < ordered.Length; i++)
         {
-            _categoryNames[c.Id] = c.Name;
+            _categoryPills[ordered[i].Id] = new CategoryPill(ordered[i].Id, ordered[i].Name, TagColors.ForPosition(i));
+            _categoryOrder[ordered[i].Id] = i;
         }
 
         var selectedId = SelectedCategory?.Id;
@@ -309,9 +402,9 @@ public sealed partial class LibraryViewModel : ViewModelBase
         {
             Categories.Clear();
             Categories.Add(new CategoryItemViewModel(null, "All", all.Total));
-            foreach (var c in categories.OrderBy(c => c.SortOrder).ThenBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase))
+            for (var i = 0; i < ordered.Length; i++)
             {
-                Categories.Add(new CategoryItemViewModel(c.Id, c.Name, c.TrackCount));
+                Categories.Add(new CategoryItemViewModel(ordered[i].Id, ordered[i].Name, ordered[i].TrackCount, TagColors.ForPosition(i)));
             }
 
             // Keep the selection; fall back to "All" if the category was deleted.

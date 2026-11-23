@@ -32,6 +32,22 @@ public partial class MiniPlayerWindow : Window
         }
 
         PreviewKeyDown += (_, e) => e.Handled = KeyboardShortcuts.TryHandle(e, _nowPlaying);
+
+        // No system caption: drag the mini player by any empty area.
+        MouseLeftButtonDown += (_, e) =>
+        {
+            if (e.ButtonState == System.Windows.Input.MouseButtonState.Pressed)
+            {
+                try
+                {
+                    DragMove();
+                }
+                catch (InvalidOperationException)
+                {
+                    // The button was released before the drag started.
+                }
+            }
+        };
     }
 
     /// <summary>Raised when the user wants the full window back (Restore button or closing the mini player).</summary>

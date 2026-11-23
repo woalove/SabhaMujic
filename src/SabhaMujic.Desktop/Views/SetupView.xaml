@@ -4,14 +4,23 @@
     <Grid>
         <Border Style="{StaticResource Card}" Width="440" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="28">
             <StackPanel>
-                <TextBlock Text="Welcome to SabhaMujic" Style="{StaticResource PageTitle}" />
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,18">
+                    <Border Width="40" Height="40" CornerRadius="12" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" Margin="0,0,12,0">
+                        <TextBlock Style="{StaticResource Glyph}" Text="&#xEC4F;" FontSize="17" HorizontalAlignment="Center"
+                                   Foreground="{DynamicResource AccentBrush}" />
+                    </Border>
+                    <TextBlock FontSize="26" VerticalAlignment="Center">
+                        <Run Text="Sabha" /><Run Text="Mujic" Foreground="{DynamicResource Text2Brush}" />
+                    </TextBlock>
+                </StackPanel>
+                <TextBlock Text="Welcome to SabhaMujic" Style="{StaticResource SectionTitle}" Margin="0,0,0,4" />
                 <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,12"
                            Text="Create the first administrator account. Administrators add music and create accounts for volunteers." />
 
                 <Border Style="{StaticResource ErrorBanner}" Visibility="{Binding HasError, Converter={StaticResource BoolToVisibility}}">
                     <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" />
                 </Border>
-                <Button Content="Restart as administrator" Style="{StaticResource AccentButton}" Margin="0,0,0,12" MinHeight="40"
+                <Button Content="Restart as administrator" Style="{StaticResource PrimaryButton}" Margin="0,0,0,12" MinHeight="40"
                         HorizontalAlignment="Stretch" Command="{Binding RestartAsAdministratorCommand}"
                         AutomationProperties.HelpText="Restarts SabhaMujic with administrator rights. Windows asks for confirmation."
                         Visibility="{Binding CanRestartAsAdministrator, Converter={StaticResource BoolToVisibility}}" />
@@ -31,7 +40,7 @@
                 <TextBlock Text="{Binding ValidationHint}" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,6,0,0"
                            Visibility="{Binding ValidationHint, Converter={StaticResource NullToVisibility}}" />
 
-                <Button Content="Create administrator" Style="{StaticResource AccentButton}" IsDefault="True" Margin="0,18,0,0"
+                <Button Content="Create administrator" Style="{StaticResource PrimaryButton}" IsDefault="True" Margin="0,18,0,0"
                         HorizontalAlignment="Stretch" MinHeight="44" FontSize="16" Command="{Binding CompleteSetupCommand}" />
 
                 <TextBlock Text="Waiting for the SabhaMujic service…" Style="{StaticResource MutedText}" Margin="0,12,0,0"

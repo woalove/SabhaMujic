@@ -7,25 +7,89 @@ using SabhaMujic.Desktop.ViewModels.Infrastructure;
 
 namespace SabhaMujic.Desktop.ViewModels.Admin;
 
-/// <summary>A category choice in a combo box; <see cref="Id"/> null means "no category".</summary>
-public sealed record CategoryOption(Guid? Id, string Name)
-{
-    public static readonly CategoryOption None = new(null, "(No category)");
-
-    public override string ToString() => Name;
-}
-
-/// <summary>One category (tag) in a multi-select list: checked when the track has it.</summary>
-public sealed partial class CategoryChoice(Guid id, string name, bool isSelected = false) : ObservableObject
+/// <summary>One category (tag) in a multi-select list: checked when the track has (or will get) it.</summary>
+public sealed partial class CategoryChoice(Guid id, string name, bool isSelected = false, TagColor color = TagColor.Accent)
+    : ObservableObject
 {
     public Guid Id { get; } = id;
 
     public string Name { get; } = name;
 
+    /// <summary>Colour of the category's dot (by category order).</summary>
+    public TagColor Color { get; } = color;
+
     [ObservableProperty]
     public partial bool IsSelected { get; set; } = isSelected;
 
     public override string ToString() => Name;
+}
+
+/// <summary>A set of <see cref="CategoryChoice"/> ticks with a one-line summary ("Dhun, Kirtan"); rebuilt when categories change.</summary>
+public sealed partial class CategorySelection : ObservableObject
+{
+    public const string NoneText = "No category";
+
+    public ObservableCollection<CategoryChoice> Choices { get; } = [];
+
+    /// <summary>The ticked categories, in category order.</summary>
+    public IReadOnlyList<Guid> SelectedIds => Choices.Where(c => c.IsSelected).Select(c => c.Id).ToArray();
+
+    public string Summary
+    {
+        get
+        {
+            var names = Choices.Where(c => c.IsSelected).Select(c => c.Name).ToArray();
+            return names.Length == 0 ? NoneText : string.Join(", ", names);
+        }
+    }
+
+    public bool HasSelection => Choices.Any(c => c.IsSelected);
+
+    /// <summary>Replaces the choices with <paramref name="categories"/> (sort order), ticking <paramref name="selected"/>.</summary>
+    public void Reset(IReadOnlyList<CategoryDto> categories, IEnumerable<Guid> selected)
+    {
+        var ticked = selected.ToHashSet();
+        foreach (var c in Choices)
+        {
+            c.PropertyChanged -= OnChoiceChanged;
+        }
+
+        Choices.Clear();
+        var position = 0;
+        foreach (var c in categories.OrderBy(c => c.SortOrder))
+        {
+            var choice = new CategoryChoice(c.Id, c.Name, ticked.Contains(c.Id), TagColors.ForPosition(position++));
+            choice.PropertyChanged += OnChoiceChanged;
+            Choices.Add(choice);
+        }
+
+        Changed();
+    }
+
+    /// <summary>Ticks exactly <paramref name="ids"/> (unknown ids are ignored).</summary>
+    public void Select(IEnumerable<Guid> ids)
+    {
+        var wanted = ids.ToHashSet();
+        foreach (var c in Choices)
+        {
+            c.IsSelected = wanted.Contains(c.Id);
+        }
+    }
+
+    private void OnChoiceChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(CategoryChoice.IsSelected))
+        {
+            Changed();
+        }
+    }
+
+    private void Changed()
+    {
+        OnPropertyChanged(nameof(SelectedIds));
+        OnPropertyChanged(nameof(Summary));
+        OnPropertyChanged(nameof(HasSelection));
+    }
 }
 
 /// <summary>Splits an upload into chunks of at most <c>chunkSize</c> bytes.</summary>
@@ -63,14 +127,15 @@ public enum ImportFileStatus
 
 public sealed partial class ImportFileViewModel : ObservableObject
 {
-    public ImportFileViewModel(ImportViewModel owner, string path, long totalBytes, CategoryOption category)
+    public ImportFileViewModel(ImportViewModel owner, string path, long totalBytes, IReadOnlyList<CategoryDto> categories,
+        IEnumerable<Guid> selectedCategories)
     {
         Owner = owner;
         Path = path;
         FileName = System.IO.Path.GetFileName(path);
         TotalBytes = totalBytes;
         Title = ImportChunker.DefaultTitle(path);
-        Category = category;
+        Categories.Reset(categories, selectedCategories);
     }
 
     public ImportViewModel Owner { get; }
@@ -89,8 +154,8 @@ public sealed partial class ImportFileViewModel : ObservableObject
     [ObservableProperty]
     public partial string? Artist { get; set; }
 
-    [ObservableProperty]
-    public partial CategoryOption Category { get; set; }
+    /// <summary>The categories this file will get (any number).</summary>
+    public CategorySelection Categories { get; } = new();
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsEditable), nameof(IsError), nameof(IsInfo), nameof(StatusText))]
@@ -134,7 +199,7 @@ public sealed partial class ImportFileViewModel : ObservableObject
 }
 
 /// <summary>
-/// Admin import: pick files, edit title/artist/category, then upload each file in chunks of at most
+/// Admin import: pick files, edit title/artist/categories (any number), then upload each file in chunks of at most
 /// <see cref="AdminLimits.MaxChunkBytes"/> (Begin → UploadChunk… → Complete). Files are uploaded one at a time;
 /// a failure on one file is recorded on that row and the next file continues. Cancel stops the current upload
 /// (calling <see cref="IAdminApi.CancelImportAsync"/>) and marks the remaining files cancelled.
@@ -144,6 +209,7 @@ public sealed partial class ImportViewModel : ViewModelBase
     private readonly ISabhaClient _client;
     private readonly UiServices _ui;
     private CancellationTokenSource? _cts;
+    private IReadOnlyList<CategoryDto> _categories = [];
 
     public ImportViewModel(ISabhaClient client, UiServices ui)
     {
@@ -162,11 +228,8 @@ public sealed partial class ImportViewModel : ViewModelBase
 
     public ObservableCollection<ImportFileViewModel> Files { get; } = [];
 
-    public ObservableCollection<CategoryOption> CategoryOptions { get; } = [CategoryOption.None];
-
-    /// <summary>Category given to newly added files.</summary>
-    [ObservableProperty]
-    public partial CategoryOption DefaultCategory { get; set; } = CategoryOption.None;
+    /// <summary>Categories ticked for newly added files (multi-select).</summary>
+    public CategorySelection DefaultCategories { get; } = new();
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(CancelCommand), nameof(AddFilesCommand), nameof(ClearFinishedCommand))]
@@ -178,18 +241,21 @@ public sealed partial class ImportViewModel : ViewModelBase
     public void SetCategories(IReadOnlyList<CategoryDto> categories)
     {
         ArgumentNullException.ThrowIfNull(categories);
-        var selected = DefaultCategory.Id;
-        CategoryOptions.Clear();
-        CategoryOptions.Add(CategoryOption.None);
-        foreach (var c in categories.OrderBy(c => c.SortOrder))
-        {
-            CategoryOptions.Add(new CategoryOption(c.Id, c.Name));
-        }
-
-        DefaultCategory = CategoryOptions.FirstOrDefault(o => o.Id == selected) ?? CategoryOption.None;
+        _categories = categories.ToArray();
+        DefaultCategories.Reset(_categories, DefaultCategories.SelectedIds);
         foreach (var file in Files.Where(f => f.IsEditable))
         {
-            file.Category = CategoryOptions.FirstOrDefault(o => o.Id == file.Category.Id) ?? CategoryOption.None;
+            file.Categories.Reset(_categories, file.Categories.SelectedIds);
+        }
+    }
+
+    /// <summary>Gives every file that hasn't been uploaded yet the default categories.</summary>
+    [RelayCommand]
+    private void ApplyDefaultCategoriesToAll()
+    {
+        foreach (var file in Files.Where(f => f.IsEditable))
+        {
+            file.Categories.Select(DefaultCategories.SelectedIds);
         }
     }
 
@@ -238,7 +304,7 @@ public sealed partial class ImportViewModel : ViewModelBase
             }
             else
             {
-                Files.Add(new ImportFileViewModel(this, path, length, DefaultCategory));
+                Files.Add(new ImportFileViewModel(this, path, length, _categories, DefaultCategories.SelectedIds));
             }
         }
     }
@@ -344,7 +410,7 @@ public sealed partial class ImportViewModel : ViewModelBase
             var title = string.IsNullOrWhiteSpace(file.Title) ? ImportChunker.DefaultTitle(file.Path) : file.Title.Trim();
             var artist = string.IsNullOrWhiteSpace(file.Artist) ? null : file.Artist.Trim();
             var result = await _client.Admin
-                .CompleteImportAsync(uploadId.Value, new ImportMetadata(title, artist, file.Category.Id is { } tag ? [tag] : null), ct)
+                .CompleteImportAsync(uploadId.Value, new ImportMetadata(title, artist, file.Categories.HasSelection ? file.Categories.SelectedIds : null), ct)
                 .ConfigureAwait(true);
             file.TrackId = result.TrackId;
             file.Status = result.WasDuplicate ? ImportFileStatus.Duplicate : ImportFileStatus.Imported;
@@ -390,7 +456,7 @@ public sealed partial class ImportViewModel : ViewModelBase
     }
 
     private ImportFileViewModel Rejected(string path, long length, string message) =>
-        new(this, path, length, DefaultCategory) { Status = ImportFileStatus.Failed, Message = message };
+        new(this, path, length, _categories, []) { Status = ImportFileStatus.Failed, Message = message };
 
     private static string Summarize(IReadOnlyCollection<ImportFileViewModel> batch)
     {

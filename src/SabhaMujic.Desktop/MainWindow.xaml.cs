@@ -35,10 +35,58 @@ public partial class MainWindow : Window
         {
             DemoBanner.Visibility = Visibility.Visible;
             Title = "SabhaMujic (demo)";
+            Subtitle.Text = "SABHA MUSIC · DEMO";
         }
 
         PreviewKeyDown += OnPreviewKeyDown;
         Closing += OnClosing;
+        StateChanged += (_, _) => UpdateChromeForState();
+        SourceInitialized += (_, _) => UpdateChromeForState();
+        DpiChanged += (_, _) => UpdateChromeForState();
+    }
+
+    /// <summary>
+    /// Maximised: pad the content by the off-screen sizing frame so nothing is cut off, and show the restore glyph.
+    /// </summary>
+    private void UpdateChromeForState()
+    {
+        var maximized = WindowState == WindowState.Maximized;
+        RootGrid.Margin = maximized ? WindowFrame.MaximizedOverhang(this) : new Thickness(0);
+        MaximizeButton.Content = maximized ? "\uE923" : "\uE922";
+        MaximizeButton.ToolTip = maximized ? "Restore" : "Maximise";
+        System.Windows.Automation.AutomationProperties.SetName(MaximizeButton, maximized ? "Restore" : "Maximise");
+    }
+
+    private void OnMinimize(object sender, RoutedEventArgs e) => SystemCommands.MinimizeWindow(this);
+
+    private void OnMaximizeRestore(object sender, RoutedEventArgs e)
+    {
+        if (WindowState == WindowState.Maximized)
+        {
+            SystemCommands.RestoreWindow(this);
+        }
+        else
+        {
+            SystemCommands.MaximizeWindow(this);
+        }
+    }
+
+    private void OnCloseWindow(object sender, RoutedEventArgs e) => SystemCommands.CloseWindow(this);
+
+    /// <summary>Signed out: open the admin sign-in. Signed in: show the account menu (sign out).</summary>
+    private void OnAccountChipClick(object sender, RoutedEventArgs e)
+    {
+        if (!_shell.IsSignedIn)
+        {
+            _shell.OpenAdminSignInCommand.Execute(null);
+            return;
+        }
+
+        var menu = (ContextMenu)FindResource("AccountMenu");
+        menu.DataContext = _shell;
+        menu.PlacementTarget = AccountChip;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        menu.IsOpen = true;
     }
 
     private void ApplyPlacement(UiSettings s)
@@ -70,6 +118,7 @@ public partial class MainWindow : Window
             Height = bounds.Height,
             IsMaximized = WindowState == WindowState.Maximized,
             IsQueuePanelOpen = _shell.IsQueuePanelOpen,
+            Theme = _shell.Theme.Theme,
         };
         if (_mini is not null)
         {
@@ -89,9 +138,9 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!_shell.IsSignedIn)
+        if (!_shell.IsMainVisible)
         {
-            return;
+            return; // a sign-in/setup form is showing
         }
 
         if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control)
@@ -103,15 +152,6 @@ public partial class MainWindow : Window
         }
 
         e.Handled = KeyboardShortcuts.TryHandle(e, _shell.NowPlaying);
-    }
-
-    /// <summary>A click on a category in the sidebar shows the library (programmatic selection changes don't).</summary>
-    private void OnCategorySelected(object sender, SelectionChangedEventArgs e)
-    {
-        if (e.AddedItems.Count > 0 && CategoryList.IsKeyboardFocusWithin && _shell.CurrentPage != NavPage.Library)
-        {
-            _shell.NavigateCommand.Execute(NavPage.Library);
-        }
     }
 
     private void OnMiniPlayerRequested(object? sender, EventArgs e)

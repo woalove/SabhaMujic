@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace SabhaMujic.Desktop.ViewModels.Infrastructure;
 
-/// <summary>Per-user window layout. Stored as JSON in %LOCALAPPDATA%\SabhaMujic\desktop-settings.json.</summary>
+/// <summary>Per-user window layout and theme. Stored as JSON in %LOCALAPPDATA%\SabhaMujic\desktop-settings.json.</summary>
 public sealed record UiSettings
 {
     public const double MinWidth = 760;
@@ -27,6 +27,10 @@ public sealed record UiSettings
 
     public bool MiniAlwaysOnTop { get; init; } = true;
 
+    /// <summary>Colour theme (header sun/moon toggle). Dark is the default.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter<AppTheme>))]
+    public AppTheme Theme { get; init; } = AppTheme.Dark;
+
     /// <summary>Clamps nonsense values (corrupt file, tiny window) back to usable ones.</summary>
     public UiSettings Sanitized() => this with
     {
@@ -36,6 +40,7 @@ public sealed record UiSettings
         Top = Top is { } t && Finite(t) ? t : null,
         MiniLeft = MiniLeft is { } ml && Finite(ml) ? ml : null,
         MiniTop = MiniTop is { } mt && Finite(mt) ? mt : null,
+        Theme = Enum.IsDefined(Theme) ? Theme : AppTheme.Dark,
     };
 
     private static bool Finite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);

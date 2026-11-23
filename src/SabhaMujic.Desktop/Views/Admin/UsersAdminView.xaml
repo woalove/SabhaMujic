@@ -16,7 +16,7 @@
                         <DockPanel>
                             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                                 <Button Content="Reset password…" Command="{Binding DataContext.ResetSecretCommand, ElementName=UserList}" CommandParameter="{Binding}" />
-                                <Button Style="{StaticResource IconButton}" Content="&#xE74D;" ToolTip="Delete user" AutomationProperties.Name="Delete user"
+                                <Button Style="{StaticResource IconButton}" Foreground="{DynamicResource DangerBrush}" Content="&#xE74D;" ToolTip="Delete user" AutomationProperties.Name="Delete user"
                                         Command="{Binding DataContext.DeleteCommand, ElementName=UserList}" CommandParameter="{Binding}" />
                             </StackPanel>
                             <StackPanel VerticalAlignment="Center">
@@ -38,7 +38,7 @@
                            TextWrapping="Wrap" Margin="0,4,0,0" />
                 <TextBlock Text="Password (at least 8 characters)" Style="{StaticResource FieldLabel}" TextWrapping="Wrap" />
                 <PasswordBox x:Name="NewSecretBox" PasswordChanged="OnNewSecretChanged" AutomationProperties.Name="New administrator password" />
-                <Button Content="Create user" Style="{StaticResource AccentButton}" Command="{Binding CreateCommand}" Margin="0,14,0,0"
+                <Button Content="Create user" Style="{StaticResource PrimaryButton}" Command="{Binding CreateCommand}" Margin="0,14,0,0"
                         HorizontalAlignment="Left" />
             </StackPanel>
         </Border>

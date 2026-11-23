@@ -27,10 +27,12 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private Task? _connectTask;
 
-    public ShellViewModel(ISabhaClient client, UiServices ui)
+    /// <param name="theme">The persisted colour theme; null keeps a dark theme in memory only.</param>
+    public ShellViewModel(ISabhaClient client, UiServices ui, ThemeViewModel? theme = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
+        Theme = theme ?? new ThemeViewModel();
 
         Tracks = new TrackInfoCache(client);
         Login = new LoginViewModel(client);
@@ -41,6 +43,13 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
         Playlists = new PlaylistsViewModel(client, ui, Tracks);
         Library = new LibraryViewModel(client, ui, Tracks, Playlists);
         Admin = new AdminViewModel(client, ui);
+        NowPlaying.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(NowPlayingViewModel.CurrentTrackId))
+            {
+                Library.SetCurrentTrack(NowPlaying.CurrentTrackId);
+            }
+        };
 
         Login.LoggedIn += session =>
         {
@@ -67,6 +76,9 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
     }
 
     public TrackInfoCache Tracks { get; }
+
+    /// <summary>Dark/light theme (header sun/moon toggle).</summary>
+    public ThemeViewModel Theme { get; }
 
     public LoginViewModel Login { get; }
 
@@ -120,8 +132,19 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsConnected), nameof(IsConnectionBannerVisible), nameof(ConnectionBannerText),
-        nameof(IsConnectionProblem))]
+        nameof(IsConnectionProblem), nameof(ConnectionStatusText))]
     public partial ConnectionState ConnectionState { get; private set; }
+
+    /// <summary>Short label for the header status pill (dot colour comes from <see cref="ConnectionState"/>).</summary>
+    public string ConnectionStatusText => ConnectionError is not null
+        ? "Not connected"
+        : ConnectionState switch
+        {
+            ConnectionState.Connected => "Live",
+            ConnectionState.Connecting => "Connecting…",
+            ConnectionState.Reconnecting => "Reconnecting…",
+            _ => "Disconnected",
+        };
 
     public bool IsConnected => ConnectionState == ConnectionState.Connected;
 
@@ -133,7 +156,8 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
 
     /// <summary>A terminal connection failure (e.g. incompatible service version).</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsConnectionBannerVisible), nameof(ConnectionBannerText), nameof(IsConnectionProblem))]
+    [NotifyPropertyChangedFor(nameof(IsConnectionBannerVisible), nameof(ConnectionBannerText), nameof(IsConnectionProblem),
+        nameof(ConnectionStatusText))]
     public partial string? ConnectionError { get; private set; }
 
     public string ConnectionBannerText => ConnectionError ?? ConnectionState switch
@@ -147,8 +171,18 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsSignedIn), nameof(IsAdmin), nameof(IsAdminVisible), nameof(UserDisplayText), nameof(IsLoginVisible),
-        nameof(IsSetupVisible), nameof(IsRecoveryVisible), nameof(IsMainVisible), nameof(IsAdminSignInAvailable))]
+        nameof(IsSetupVisible), nameof(IsRecoveryVisible), nameof(IsMainVisible), nameof(IsAdminSignInAvailable),
+        nameof(AccountName), nameof(AccountInitial))]
     public partial SessionDto? Session { get; private set; }
+
+    /// <summary>Account chip label: "Admin sign-in" when signed out, else the administrator's name.</summary>
+    public string AccountName => Session?.UserName ?? "Admin sign-in";
+
+    /// <summary>Initial in the account chip's avatar (empty when signed out: the chip shows a key icon).</summary>
+    public string AccountInitial =>
+        Session?.UserName is { Length: > 0 } name ? char.ToUpper(name.TrimStart()[0], System.Globalization.CultureInfo.CurrentCulture).ToString() : "";
+
+    partial void OnSessionChanged(SessionDto? value) => Library.CanManageCategories = value?.Role == Role.Admin;
 
     public bool IsSignedIn => Session is not null;
 

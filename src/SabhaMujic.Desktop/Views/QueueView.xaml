@@ -4,7 +4,7 @@
              xmlns:vm="clr-namespace:SabhaMujic.Desktop.ViewModels;assembly=SabhaMujic.Desktop.ViewModels">
     <DockPanel>
         <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-            <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearCommand}" Margin="0"
+            <Button DockPanel.Dock="Right" Content="Clear" Style="{StaticResource GhostButton}" Command="{Binding ClearCommand}" Margin="0"
                     ToolTip="Remove everything except the track playing now" />
             <TextBlock Text="{Binding Summary}" Style="{StaticResource MutedText}" VerticalAlignment="Center" />
         </DockPanel>
@@ -13,54 +13,47 @@
                    Style="{StaticResource MutedText}" Margin="0,6,0,0" />
 
         <ListBox x:Name="QueueList" ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem}"
-                 MouseDoubleClick="OnItemDoubleClick" AutomationProperties.Name="Queue">
-            <ListBox.ItemContainerStyle>
-                <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding IsCurrent}" Value="True">
-                            <Setter Property="Background" Value="{StaticResource CurrentItemBrush}" />
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </ListBox.ItemContainerStyle>
+                 MouseDoubleClick="OnItemDoubleClick" AutomationProperties.Name="Queue"
+                 ItemContainerStyle="{StaticResource TimelineItem}">
             <ListBox.ItemTemplate>
                 <DataTemplate DataType="{x:Type vm:QueueItemViewModel}">
-                    <Border Padding="2">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="30" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock x:Name="Number" Grid.Column="0" Text="{Binding Number}" Style="{StaticResource MutedText}" VerticalAlignment="Center" />
-                            <TextBlock x:Name="NowGlyph" Grid.Column="0" Style="{StaticResource Glyph}" Text="&#xE768;"
-                                       Foreground="{StaticResource AccentBrush}" Visibility="Collapsed" ToolTip="Current track" />
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                <TextBlock x:Name="Title" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
-                                <TextBlock FontSize="12" Style="{StaticResource MutedText}">
-                                    <Run Text="{Binding DurationText, Mode=OneWay}" />
-                                    <Run Text="{Binding Artist, Mode=OneWay}" />
-                                </TextBlock>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="28" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Rectangle Grid.Column="0" Style="{StaticResource TimelineRule}" />
+                        <Ellipse Grid.Column="0" Style="{StaticResource TimelineNode}" Margin="0,31,0,0" ToolTip="{Binding Number}" />
+
+                        <StackPanel Grid.Column="1" Margin="2,8,8,10">
+                            <TextBlock Style="{StaticResource MetaText}" FontSize="13">
+                                <Run Text="{Binding Number, Mode=OneWay, StringFormat='#{0}'}" /><Run Text=" · " /><Run Text="{Binding DurationText, Mode=OneWay}" />
+                            </TextBlock>
+                            <TextBlock Text="{Binding Title}" Style="{StaticResource TimelineTitle}" FontSize="16" Margin="0,1,0,0" />
+                            <TextBlock Text="{Binding Artist}" Style="{StaticResource MetaText}"
+                                       Visibility="{Binding Artist, Converter={StaticResource NullToVisibility}}" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource IconButton}" Width="30" Height="30" MinHeight="30" FontSize="12" Content="&#xE768;"
+                                        ToolTip="Play this" Command="{Binding Owner.PlayItemCommand}" CommandParameter="{Binding}"
+                                        AutomationProperties.Name="Play this" />
+                                <Button Style="{StaticResource IconButton}" Width="30" Height="30" MinHeight="30" FontSize="12" Content="&#xE74D;"
+                                        ToolTip="Remove from queue" Command="{Binding Owner.RemoveCommand}" CommandParameter="{Binding}"
+                                        AutomationProperties.Name="Remove from queue" />
                             </StackPanel>
-                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                                <Button Style="{StaticResource IconButton}" Content="&#xE768;" ToolTip="Play this"
-                                        Command="{Binding Owner.PlayItemCommand}" CommandParameter="{Binding}" AutomationProperties.Name="Play this" />
-                                <Button Style="{StaticResource IconButton}" Content="&#xE70E;" ToolTip="Move up"
-                                        Command="{Binding Owner.MoveUpCommand}" CommandParameter="{Binding}" AutomationProperties.Name="Move up" />
-                                <Button Style="{StaticResource IconButton}" Content="&#xE70D;" ToolTip="Move down"
-                                        Command="{Binding Owner.MoveDownCommand}" CommandParameter="{Binding}" AutomationProperties.Name="Move down" />
-                                <Button Style="{StaticResource IconButton}" Content="&#xE74D;" ToolTip="Remove from queue"
-                                        Command="{Binding Owner.RemoveCommand}" CommandParameter="{Binding}" AutomationProperties.Name="Remove from queue" />
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource IconButton}" Width="30" Height="30" MinHeight="30" FontSize="11" Content="&#xE70E;"
+                                        ToolTip="Move up" Command="{Binding Owner.MoveUpCommand}" CommandParameter="{Binding}"
+                                        AutomationProperties.Name="Move up" />
+                                <Button Style="{StaticResource IconButton}" Width="30" Height="30" MinHeight="30" FontSize="11" Content="&#xE70D;"
+                                        ToolTip="Move down" Command="{Binding Owner.MoveDownCommand}" CommandParameter="{Binding}"
+                                        AutomationProperties.Name="Move down" />
                             </StackPanel>
-                        </Grid>
-                    </Border>
-                    <DataTemplate.Triggers>
-                        <DataTrigger Binding="{Binding IsCurrent}" Value="True">
-                            <Setter TargetName="Number" Property="Visibility" Value="Collapsed" />
-                            <Setter TargetName="NowGlyph" Property="Visibility" Value="Visible" />
-                            <Setter TargetName="Title" Property="FontWeight" Value="SemiBold" />
-                        </DataTrigger>
-                    </DataTemplate.Triggers>
+                        </StackPanel>
+                    </Grid>
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>

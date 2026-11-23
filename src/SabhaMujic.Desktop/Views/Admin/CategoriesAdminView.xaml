@@ -3,22 +3,46 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <DockPanel>
         <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-            <Button Content="New category" Style="{StaticResource AccentButton}" Command="{Binding CreateCommand}" Margin="0,0,8,6" />
+            <Button Content="New category" Style="{StaticResource PrimaryButton}" Command="{Binding CreateCommand}" Margin="0,0,8,6" />
+            <Button Content="Add tracks…" Command="{Binding AddTracksCommand}" Margin="0,0,8,6"
+                    ToolTip="Choose which tracks are in the selected category (their other categories are kept)" />
             <Button Content="Rename" Command="{Binding RenameCommand}" Margin="0,0,8,6" />
-            <Button Content="Delete" Command="{Binding DeleteCommand}" Margin="0,0,16,6" />
+            <Button Content="Delete" Style="{StaticResource DestructiveButton}" Command="{Binding DeleteCommand}" Margin="0,0,16,6" />
             <Button Style="{StaticResource IconButton}" Content="&#xE70E;" Command="{Binding MoveUpCommand}" ToolTip="Move up" AutomationProperties.Name="Move up" />
             <Button Style="{StaticResource IconButton}" Content="&#xE70D;" Command="{Binding MoveDownCommand}" ToolTip="Move down" AutomationProperties.Name="Move down" />
         </WrapPanel>
         <ContentControl DockPanel.Dock="Top" Content="{Binding}" ContentTemplate="{StaticResource MessageStrip}" Focusable="False" />
-        <TextBlock DockPanel.Dock="Bottom" FontSize="12" Style="{StaticResource MutedText}" Margin="0,6,0,0"
-                   Text="The order here is the order in the sidebar. Deleting a category keeps its tracks (they become uncategorized)." TextWrapping="Wrap" />
-        <ListBox ItemsSource="{Binding Categories}" SelectedItem="{Binding SelectedCategory}" MaxWidth="560" HorizontalAlignment="Left"
-                 MinWidth="360" AutomationProperties.Name="Categories">
+        <TextBlock DockPanel.Dock="Bottom" FontSize="12" Style="{StaticResource MutedText}" Margin="0,6,0,0" TextWrapping="Wrap"
+                   Text="The order here is the order of the Library tabs. A track can be in several categories. Deleting a category keeps its tracks." />
+        <!-- AlternationCount 4 = the dot colour cycle (accent → violet → amber → blue), matching the Library tabs. -->
+        <ListBox x:Name="CategoryList" ItemsSource="{Binding Categories}" SelectedItem="{Binding SelectedCategory}" MaxWidth="620"
+                 HorizontalAlignment="Left" MinWidth="380" AlternationCount="4" AutomationProperties.Name="Categories">
             <ListBox.ItemTemplate>
                 <DataTemplate>
                     <DockPanel>
-                        <TextBlock DockPanel.Dock="Right" Style="{StaticResource MutedText}" Text="{Binding TrackCount, StringFormat='{}{0} tracks'}" />
-                        <TextBlock Text="{Binding Name}" FontSize="16" />
+                        <Button DockPanel.Dock="Right" Style="{StaticResource GhostButton}" Content="Add tracks…" Margin="8,0,0,0" MinHeight="30" Padding="10,4"
+                                Command="{Binding DataContext.AddTracksCommand, ElementName=CategoryList}" CommandParameter="{Binding}" />
+                        <TextBlock DockPanel.Dock="Right" Style="{StaticResource MutedText}" VerticalAlignment="Center"
+                                   Text="{Binding TrackCount, StringFormat='{}{0} tracks'}" />
+                        <Ellipse Width="8" Height="8" Margin="0,0,10,0" VerticalAlignment="Center">
+                            <Ellipse.Style>
+                                <Style TargetType="Ellipse">
+                                    <Setter Property="Fill" Value="{DynamicResource AccentBrush}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding (ItemsControl.AlternationIndex), RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="1">
+                                            <Setter Property="Fill" Value="{DynamicResource VioletBrush}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding (ItemsControl.AlternationIndex), RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="2">
+                                            <Setter Property="Fill" Value="{DynamicResource AmberBrush}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding (ItemsControl.AlternationIndex), RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="3">
+                                            <Setter Property="Fill" Value="{DynamicResource BlueBrush}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Ellipse.Style>
+                        </Ellipse>
+                        <TextBlock Text="{Binding Name}" FontSize="16" FontWeight="Medium" VerticalAlignment="Center" />
                     </DockPanel>
                 </DataTemplate>
             </ListBox.ItemTemplate>
