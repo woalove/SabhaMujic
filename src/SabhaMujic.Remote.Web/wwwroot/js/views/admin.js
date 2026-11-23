@@ -1,6 +1,6 @@
 // @ts-check
-// Admin: upload audio files (chunked over HTTPS, progress + cancel; duplicates reported) and create categories.
-// Only shown for the Admin role; the server enforces it regardless.
+// Admin: upload audio files (chunked over HTTPS, progress + cancel; duplicates reported) with any number of
+// categories (tags), and create categories. The remote is admin-only; the server enforces it regardless.
 
 import { api, ApiError } from '../api.js';
 import { byId, h } from '../dom.js';
@@ -86,21 +86,23 @@ export function mountAdmin(ctx) {
     start.textContent = busy ? 'Uploading…' : `Upload ${ready} file${ready === 1 ? '' : 's'}`;
   }
 
-  /** @param {HTMLSelectElement} select */
+  /** Multi-select of categories (tags); keeps what is selected across refreshes. @param {HTMLSelectElement} select */
   function fillCategories(select) {
-    const selected = select.value;
-    select.replaceChildren(
-      h('option', { text: 'No category', attrs: { value: '' } }),
-      ...store.categories.map((c) => h('option', { text: c.name, attrs: { value: c.id } })),
-    );
-    select.value = store.categories.some((c) => c.id === selected) ? selected : '';
+    const selected = new Set(selectedCategories(select));
+    select.replaceChildren(...store.categories.map((c) => h('option', { text: c.name, attrs: { value: c.id } })));
+    for (const option of select.options) option.selected = selected.has(option.value);
+  }
+
+  /** @param {HTMLSelectElement} select */
+  function selectedCategories(select) {
+    return [...select.selectedOptions].map((o) => o.value).filter((v) => v);
   }
 
   /** @param {File} file @returns {UploadEntry} */
   function createEntry(file) {
     const title = h('input', { attrs: { value: file.name.replace(/\.[^.]+$/, ''), maxlength: 200, 'aria-label': 'Title' } });
     const artist = h('input', { attrs: { placeholder: 'Artist (optional)', maxlength: 200, 'aria-label': 'Artist' } });
-    const category = h('select', { attrs: { 'aria-label': 'Category' } });
+    const category = h('select', { attrs: { 'aria-label': 'Categories', multiple: '' } });
     fillCategories(category);
     const progress = h('progress', { attrs: { max: file.size || 1, value: 0 } });
     const status = h('div', { class: 'up-status', text: `Ready · ${formatBytes(file.size)}` });
@@ -164,7 +166,7 @@ export function mountAdmin(ctx) {
       const result = await api.completeUpload(entry.uploadId, {
         title: entry.title.value.trim(),
         artist: entry.artist.value.trim() || null,
-        categoryId: entry.category.value || null,
+        categoryIds: selectedCategories(entry.category),
       });
       entry.state = 'done';
       entry.cancel.hidden = true;

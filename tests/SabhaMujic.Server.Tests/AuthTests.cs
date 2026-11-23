@@ -25,18 +25,20 @@ public sealed class AuthTests : IAsyncLifetime
     public async Task Login_binds_the_session_and_logout_ends_it()
     {
         var client = await _server.ConnectAsync();
-        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => client.Library.GetCategoriesAsync());
+        Assert.Empty(await client.Library.GetCategoriesAsync()); // open use
+        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => client.Admin.GetUsersAsync());
 
         var session = await client.Auth.LoginAsync("ADMIN", TestServer.AdminSecret);
         Assert.Equal(TestServer.AdminName, session.UserName);
         Assert.Equal(Role.Admin, session.Role);
-        Assert.Equal(_server.Clock.GetUtcNow() + TimeSpan.FromHours(12), session.ExpiresAt);
+        Assert.Equal(_server.Clock.GetUtcNow() + TimeSpan.FromMinutes(15), session.ExpiresAt);
         Assert.Equal(session, client.Session);
-        Assert.Empty(await client.Library.GetCategoriesAsync());
+        Assert.NotEmpty(await client.Admin.GetUsersAsync());
 
         await client.Auth.LogoutAsync();
         Assert.Null(client.Session);
-        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => client.Library.GetCategoriesAsync());
+        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => client.Admin.GetUsersAsync());
+        Assert.Empty(await client.Library.GetCategoriesAsync());
 
         // The token is dead for every connection.
         var other = await _server.ConnectAsync();
@@ -91,16 +93,43 @@ public sealed class AuthTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Desktop_sessions_slide_and_expire()
+    public async Task Desktop_admin_sessions_slide_and_end_after_15_idle_minutes()
     {
         var client = await _server.ConnectAdminAsync();
-        _server.Clock.Advance(TimeSpan.FromHours(11));
-        await client.Library.GetCategoriesAsync(); // slides the expiry to now + 12 h
-        _server.Clock.Advance(TimeSpan.FromHours(11));
-        await client.Library.GetCategoriesAsync();
-        _server.Clock.Advance(TimeSpan.FromHours(12) + TimeSpan.FromMinutes(1));
-        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => client.Library.GetCategoriesAsync());
-        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => client.Auth.ResumeSessionAsync(client.Session!.Token));
+        var token = client.Session!.Token;
+        var ended = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.Events.SessionEndedReceived += reason => ended.TrySetResult(reason);
+        _server.Clock.Advance(TimeSpan.FromMinutes(10));
+        await client.Admin.GetUsersAsync(); // slides the expiry to now + 15 min
+        _server.Clock.Advance(TimeSpan.FromMinutes(10));
+        await client.Admin.GetUsersAsync();
+        _server.Clock.Advance(TimeSpan.FromMinutes(15) + TimeSpan.FromSeconds(1));
+        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => client.Admin.GetUsersAsync());
+
+        Assert.Contains("15 minutes", await ended.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+        await AssertEx.Eventually(() => client.Session is null, "client drops the ended session");
+        await client.Playback.GetStateAsync(); // back to open use on the same connection
+        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => client.Auth.ResumeSessionAsync(token));
+    }
+
+    [Fact]
+    public async Task An_idle_desktop_admin_is_signed_out_without_making_a_call()
+    {
+        var client = await _server.ConnectAdminAsync();
+        var ended = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.Events.SessionEndedReceived += reason => ended.TrySetResult(reason);
+
+        _server.Clock.Advance(TimeSpan.FromMinutes(14));
+        Assert.Equal(0, _server.Pipe!.ExpireIdleSessions());
+        _server.Clock.Advance(TimeSpan.FromMinutes(1) + TimeSpan.FromSeconds(1));
+        Assert.Equal(1, _server.Pipe.ExpireIdleSessions());
+
+        Assert.Equal("Signed out after 15 minutes without activity.", await ended.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+        await AssertEx.Eventually(() => client.Session is null, "client drops the ended session");
+        Assert.Equal(0, _server.Pipe.ExpireIdleSessions());
+        await client.Playback.GetQueueAsync();
+        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => client.Admin.GetUsersAsync());
+        Assert.Equal(1, _server.Pipe.ConnectionCount);
     }
 
     [Fact]
@@ -128,8 +157,8 @@ public sealed class AuthTests : IAsyncLifetime
 
         Assert.Contains("removed", await ended.Task.WaitAsync(TimeSpan.FromSeconds(10)));
         Assert.Null(volunteer.Session);
-        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => volunteer.Playback.GetStateAsync());
-        await admin.Playback.GetStateAsync();
+        await volunteer.Playback.GetStateAsync(); // back to open use
+        await admin.Admin.GetUsersAsync();
     }
 
     [Fact]
@@ -139,7 +168,6 @@ public sealed class AuthTests : IAsyncLifetime
         var admin = await _server.ConnectAdminAsync();
         await admin.Admin.SetUserSecretAsync(_server.VolunteerId, "new-secret");
         await AssertEx.Eventually(() => volunteer.Session is null, "volunteer receives SessionEnded");
-        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => volunteer.Playback.GetStateAsync());
         await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => volunteer.Auth.LoginAsync(TestServer.VolunteerName, TestServer.VolunteerSecret));
         await volunteer.Auth.LoginAsync(TestServer.VolunteerName, "new-secret");
 
@@ -148,7 +176,7 @@ public sealed class AuthTests : IAsyncLifetime
         await admin.Admin.SetUserSecretAsync(_server.AdminId, "admin-new");
         await admin.Playback.GetStateAsync();
         await AssertEx.Eventually(() => adminElsewhere.Session is null, "the other admin session receives SessionEnded");
-        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => adminElsewhere.Playback.GetStateAsync());
+        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => adminElsewhere.Admin.GetUsersAsync());
         await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => admin.Admin.SetUserSecretAsync(_server.AdminId, "123"));
     }
 
@@ -158,11 +186,10 @@ public sealed class AuthTests : IAsyncLifetime
         var admin = await _server.ConnectAdminAsync();
         await AssertEx.ThrowsCode(ErrorCode.Conflict, () => admin.Admin.DeleteUserAsync(_server.AdminId));
 
-        // A paired admin device has no user account, so it can try to delete the only admin user.
-        var code = await admin.Admin.CreatePairingCodeAsync(Role.Admin);
-        var device = _server.App.CreateSession(ClientKind.Remote, "test-remote");
-        await device.PairAsync(code.Code, "Admin iPad");
-        await AssertEx.ThrowsCode(ErrorCode.Conflict, () => device.DeleteUserAsync(_server.AdminId));
+        // The same admin signed in on a phone cannot delete the only admin user either.
+        var phone = _server.App.CreateSession(ClientKind.Remote, "test-remote");
+        await phone.RemoteLoginAsync(TestServer.AdminName, TestServer.AdminSecret, rememberDevice: true, "Admin iPad");
+        await AssertEx.ThrowsCode(ErrorCode.Conflict, () => phone.DeleteUserAsync(_server.AdminId));
         Assert.Equal(1, await _server.App.Users.CountAdminsAsync());
 
         // With a second admin, the first can be deleted by the second.
@@ -173,59 +200,117 @@ public sealed class AuthTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Pairing_code_is_single_use_and_creates_a_long_lived_device_session()
+    public async Task Remote_sign_in_with_remember_creates_a_listed_device_with_a_long_sliding_session()
     {
-        var admin = await _server.ConnectAdminAsync();
-        var code = await admin.Admin.CreatePairingCodeAsync(Role.Volunteer);
-        Assert.Equal($"https://sabha.local:8443/pair#{code.Code}", code.PairingUrl);
-        Assert.Equal("http://sabha.local:8080/", code.BootstrapUrl);
-        Assert.Equal(_server.Clock.GetUtcNow().AddMinutes(5), code.ExpiresAt);
-
         var remote = _server.App.CreateSession(ClientKind.Remote, "192.168.1.20");
-        var paired = await remote.PairAsync(code.Code, "Asha's iPhone");
-        Assert.Equal(Role.Volunteer, paired.Session.Role);
-        Assert.Equal("Asha's iPhone", paired.Device.Name);
-        Assert.True(paired.Session.ExpiresAt > _server.Clock.GetUtcNow().AddDays(3000));
+        var signedIn = await remote.RemoteLoginAsync("ADMIN", TestServer.AdminSecret, rememberDevice: true, "Asha's iPhone");
+        Assert.Equal((TestServer.AdminName, Role.Admin), (signedIn.UserName, signedIn.Role));
+        Assert.Equal(_server.Clock.GetUtcNow().AddDays(180), signedIn.ExpiresAt);
+        Assert.True(remote.IsRememberedDevice);
+        await remote.GetUsersAsync();
+
+        var admin = await _server.ConnectAdminAsync();
+        var device = Assert.Single(await admin.Admin.GetDevicesAsync());
+        Assert.Equal(("Asha's iPhone", Role.Admin), (device.Name, device.Role));
+        var audit = await _server.App.AuditLog.QueryRecentAsync(10);
+        Assert.Contains(audit, a => a.Action == "login.remembered_device" && a.ClientKind == ClientKind.Remote);
+
+        // Sliding: in use, a remembered phone stays signed in far beyond 180 days in total.
+        _server.Clock.Advance(TimeSpan.FromDays(150));
         await remote.GetStateAsync();
-        await AssertEx.ThrowsCode(ErrorCode.Forbidden, () => remote.GetUsersAsync());
+        _server.Clock.Advance(TimeSpan.FromDays(150));
+        var again = _server.App.CreateSession(ClientKind.Remote, "192.168.1.20");
+        var resumed = await again.ResumeSessionAsync(signedIn.Token);
+        Assert.True(resumed.ExpiresAt > _server.Clock.GetUtcNow().AddDays(29));
 
-        var again = _server.App.CreateSession(ClientKind.Remote, "192.168.1.21");
-        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => again.PairAsync(code.Code, "Other"));
-        Assert.Single(await admin.Admin.GetDevicesAsync());
-
-        // The device token also works on a pipe connection (e.g. for tooling) until it is revoked.
-        var client = await _server.ConnectAsync();
-        await client.Auth.ResumeSessionAsync(paired.Session.Token);
-        var ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        client.Events.SessionEndedReceived += _ => ended.TrySetResult();
-        await admin.Admin.RevokeDeviceAsync(paired.Device.Id);
-        await ended.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => client.Playback.GetStateAsync());
+        // Revoking the device (desktop "Forget phone") ends it everywhere.
+        admin = await _server.ConnectAdminAsync();
+        await admin.Admin.RevokeDeviceAsync(device.Id);
         await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => remote.GetStateAsync());
+        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => again.GetStateAsync());
+        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => _server.App.CreateSession(ClientKind.Remote, "x").ResumeSessionAsync(signedIn.Token));
         Assert.Empty(await admin.Admin.GetDevicesAsync());
     }
 
     [Fact]
-    public async Task Pairing_is_rate_limited()
+    public async Task Remote_sign_in_without_remember_creates_no_device_and_ends_after_12_hours()
     {
+        var remote = _server.App.CreateSession(ClientKind.Remote, "192.168.1.21");
+        var signedIn = await remote.RemoteLoginAsync(TestServer.AdminName, TestServer.AdminSecret, rememberDevice: false, "ignored");
+        Assert.Equal(_server.Clock.GetUtcNow().AddHours(12), signedIn.ExpiresAt);
+        Assert.False(remote.IsRememberedDevice);
+        Assert.Empty(await _server.App.Devices.ListAsync());
+
+        // Activity does not extend it.
+        _server.Clock.Advance(TimeSpan.FromHours(11));
+        await remote.GetUsersAsync();
+        _server.Clock.Advance(TimeSpan.FromHours(1) + TimeSpan.FromMinutes(1));
+        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => remote.GetStateAsync());
+    }
+
+    [Fact]
+    public async Task Remote_sign_out_forgets_a_remembered_phone()
+    {
+        var remote = _server.App.CreateSession(ClientKind.Remote, "192.168.1.22");
+        var signedIn = await remote.RemoteLoginAsync(TestServer.AdminName, TestServer.AdminSecret, rememberDevice: true, "Kitchen iPad");
+        Assert.Single(await _server.App.Devices.ListAsync());
+
+        await remote.LogoutAsync();
+
+        Assert.Empty(await _server.App.Devices.ListAsync());
+        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => _server.App.CreateSession(ClientKind.Remote, "x").ResumeSessionAsync(signedIn.Token));
         var admin = await _server.ConnectAdminAsync();
-        var code = await admin.Admin.CreatePairingCodeAsync(Role.Volunteer);
-        var wrong = code.Code == "000000" ? "000001" : "000000";
+        Assert.Empty(await admin.Admin.GetDevicesAsync());
+    }
+
+    [Fact]
+    public async Task Volunteer_accounts_cannot_sign_in_on_the_remote()
+    {
+        var remote = _server.App.CreateSession(ClientKind.Remote, "192.168.1.23");
+        var denied = await AssertEx.ThrowsCode(ErrorCode.Forbidden,
+            () => remote.RemoteLoginAsync(TestServer.VolunteerName, TestServer.VolunteerSecret, rememberDevice: true, "Vol's phone"));
+        Assert.Contains("administrators", denied.Message);
+        await AssertEx.ThrowsCode(ErrorCode.Forbidden, () => remote.LoginAsync(TestServer.VolunteerName, TestServer.VolunteerSecret));
+        Assert.False(remote.Caller.IsAuthenticated);
+        Assert.Empty(await _server.App.Devices.ListAsync());
+        var audit = await _server.App.AuditLog.QueryRecentAsync(10);
+        Assert.Equal(2, audit.Count(a => a.Action == "login.remote_denied"));
+        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => remote.GetStateAsync());
+
+        // A volunteer session created on the desktop cannot be carried over to the remote either.
+        var desktop = await _server.ConnectVolunteerAsync();
+        await AssertEx.ThrowsCode(ErrorCode.Forbidden, () => remote.ResumeSessionAsync(desktop.Session!.Token));
+    }
+
+    [Fact]
+    public async Task Remote_sign_in_is_rate_limited()
+    {
         var attacker = _server.App.CreateSession(ClientKind.Remote, "10.0.0.66");
         for (var i = 0; i < 5; i++)
         {
-            await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => attacker.PairAsync(wrong, "x"));
+            await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => attacker.RemoteLoginAsync(TestServer.AdminName, "wrong-pass-" + i, true, "x"));
         }
 
-        await AssertEx.ThrowsCode(ErrorCode.RateLimited, () => attacker.PairAsync(code.Code, "x"));
+        await AssertEx.ThrowsCode(ErrorCode.RateLimited, () => attacker.RemoteLoginAsync(TestServer.AdminName, TestServer.AdminSecret, true, "x"));
+        Assert.Empty(await _server.App.Devices.ListAsync());
+        _server.Clock.Advance(TimeSpan.FromMinutes(5));
+        await attacker.RemoteLoginAsync(TestServer.AdminName, TestServer.AdminSecret, true, "x");
+    }
 
-        // Another caller still can (until the global cap is reached).
-        var honest = _server.App.CreateSession(ClientKind.Remote, "10.0.0.7");
-        await honest.PairAsync(code.Code, "Phone");
+    [Fact]
+    public async Task Passwords_need_at_least_eight_characters_and_new_accounts_are_administrators()
+    {
+        var admin = await _server.ConnectAdminAsync();
+        var shortPassword = await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => admin.Admin.CreateUserAsync("asha", Role.Admin, "1234567"));
+        Assert.Contains("password", shortPassword.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("PIN", shortPassword.Message, StringComparison.Ordinal);
+        await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => admin.Admin.SetUserSecretAsync(_server.VolunteerId, "1234567"));
+        await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => admin.Admin.CreateUserAsync("asha", Role.Volunteer, "12345678"));
+        Assert.Null(await _server.App.Users.GetByNameAsync("asha"));
 
-        var expired = await admin.Admin.CreatePairingCodeAsync(Role.Volunteer);
-        _server.Clock.Advance(TimeSpan.FromMinutes(6));
-        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => _server.App.CreateSession(ClientKind.Remote, "10.0.0.8").PairAsync(expired.Code, "y"));
+        var created = await admin.Admin.CreateUserAsync("asha", Role.Admin, "12345678");
+        Assert.Equal(Role.Admin, created.Role);
+        await _server.ConnectAsync("asha", "12345678");
     }
 
     [Fact]
@@ -241,7 +326,7 @@ public sealed class AuthTests : IAsyncLifetime
         var admin = await _server.ConnectAdminAsync();
         var category = await admin.Admin.CreateCategoryAsync("Bhajan");
         await admin.Admin.RenameCategoryAsync(category.Id, "Bhajans");
-        await admin.Admin.CreateUserAsync("asha", Role.Volunteer, "asha-pass");
+        await admin.Admin.CreateUserAsync("asha", Role.Admin, "asha-pass");
 
         var audit = await _server.App.AuditLog.QueryRecentAsync(10);
         Assert.Equal(["user.create", "category.rename", "category.create", "login"], audit.Take(4).Select(a => a.Action));

@@ -91,21 +91,29 @@ public sealed class EventBroadcasterTests
     }
 
     [Fact]
-    public async Task Anonymous_subscribers_get_no_library_or_playback_events_and_progress_is_per_session()
+    public async Task Open_use_desktops_get_player_events_anonymous_phones_nothing_and_progress_is_per_session()
     {
         var broadcaster = new EventBroadcaster();
-        var anonymous = new RecordingSink();
+        var openUse = new RecordingSink();
+        var phone = new RecordingSink();
         var other = new RecordingSink();
         var owner = new RecordingSink();
-        await using var a = broadcaster.Subscribe(anonymous, CallerContext.Anonymous(ClientKind.Desktop, "x"));
+        await using var a = broadcaster.Subscribe(openUse, CallerContext.Anonymous(ClientKind.Desktop, "x"));
+        await using var p = broadcaster.Subscribe(phone, CallerContext.Anonymous(ClientKind.Remote, "192.168.1.9"));
         await using var o = broadcaster.Subscribe(other, SignedIn with { SessionId = "s2" });
-        await using var w = broadcaster.Subscribe(owner, SignedIn);
+        await using var w = broadcaster.Subscribe(owner, SignedIn with { Role = Role.Admin });
 
         broadcaster.PublishPlaybackState(State(1));
+        broadcaster.PublishLibraryChanged(new LibraryChangedDto(LibraryChangeKind.CategoriesChanged, null));
+        broadcaster.PublishLibraryChanged(new LibraryChangedDto(LibraryChangeKind.UsersChanged, null));
         broadcaster.PublishImportProgress("s1", new ImportProgressDto(Guid.NewGuid(), "a.mp3", 1, 2, "Uploading"));
-        await AssertEx.Eventually(() => owner.Received.Count == 2 && other.Received.Count == 1, "delivery");
-        Assert.Empty(anonymous.Received);
-        Assert.IsType<PlaybackStateEvent>(Assert.Single(other.Received));
+        await AssertEx.Eventually(() => owner.Received.Count == 4 && other.Received.Count == 2 && openUse.Received.Count == 2, "delivery");
+        await Task.Delay(50);
+        Assert.Empty(phone.Received);
+        Assert.Equal(2, openUse.Received.Count); // playback + categories; no user list changes, no other session's progress
+        Assert.Equal(2, other.Received.Count); // a volunteer account sees what open use sees
+        Assert.IsType<PlaybackStateEvent>(other.Received.First());
+        Assert.IsType<ImportProgressEvent>(owner.Received.Last());
     }
 
     private sealed class GatedSink(Task gate, ConcurrentQueue<ServerEvent> received) : IEventSink
@@ -174,8 +182,8 @@ public sealed class TransportTests : IAsyncLifetime
 
         await b.Playback.ClearQueueAsync();
         await AssertEx.Eventually(() => !queueB.IsEmpty, "queue event");
-        await Task.Delay(100);
-        Assert.Empty(gotAnon);
+        // Open use: a desktop that never signed in is a player too, so it sees the change as well.
+        await AssertEx.Eventually(() => gotAnon.Any(s => s.Volume == 0.25f), "the open-use client sees the change");
     }
 
     [Fact]
@@ -206,12 +214,13 @@ public sealed class TransportTests : IAsyncLifetime
     [Fact]
     public async Task A_revoked_session_is_not_resumed_after_reconnect()
     {
-        var client = await _server.ConnectVolunteerAsync();
+        var client = await _server.ConnectAdminAsync();
         await _server.StopPipeAsync();
-        await _server.App.Sessions.RevokeAllForUserAsync(_server.VolunteerId);
+        await _server.App.Sessions.RevokeAllForUserAsync(_server.AdminId);
         _server.StartPipe();
         await AssertEx.Eventually(() => client.State == ConnectionState.Connected && client.Session is null, "reconnected signed out");
-        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => client.Playback.GetStateAsync());
+        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => client.Admin.GetUsersAsync());
+        await client.Playback.GetStateAsync(); // open use
     }
 
     [Fact]
@@ -373,15 +382,14 @@ public sealed class MaintenanceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Purges_expired_sessions_codes_and_abandoned_uploads()
+    public async Task Purges_expired_sessions_and_abandoned_uploads()
     {
         var admin = await _server.ConnectAdminAsync();
-        await admin.Admin.CreatePairingCodeAsync(Role.Volunteer);
         await admin.Admin.BeginImportAsync("a.mp3", 100);
         _server.Clock.Advance(TimeSpan.FromHours(13));
 
         var report = await _server.App.Maintenance.RunOnceAsync();
-        Assert.Equal(new MaintenanceReport(1, 1, 1), report);
+        Assert.Equal(new MaintenanceReport(1, 1), report);
         Assert.Equal(0, _server.Uploads.ActiveCount);
     }
 

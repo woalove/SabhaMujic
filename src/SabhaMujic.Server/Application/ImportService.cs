@@ -64,10 +64,13 @@ public sealed class ImportService
     public async Task<ImportResultDto> CompleteImportAsync(CallerContext caller, Guid uploadId, ImportMetadata metadata, CancellationToken ct)
     {
         Errors.RequireNotNull(metadata, "metadata");
-        // Check the category before taking the upload, so a typo does not throw the uploaded bytes away.
-        if (metadata.CategoryId is { } categoryId && await _categories.GetAsync(categoryId, ct).ConfigureAwait(false) is null)
+        // Check the categories before taking the upload, so a stale tag does not throw the uploaded bytes away.
+        foreach (var categoryId in (metadata.CategoryIds ?? []).Distinct())
         {
-            throw Errors.CategoryNotFound();
+            if (await _categories.GetAsync(categoryId, ct).ConfigureAwait(false) is null)
+            {
+                throw Errors.CategoryNotFound();
+            }
         }
 
         using var upload = _staging.Complete(uploadId, Owner(caller));
@@ -93,7 +96,7 @@ public sealed class ImportService
             TrackAddResult added;
             try
             {
-                added = await _tracks.AddAsync(new NewTrack(stored.ContentHash, stored.FileKey, title, metadata.Artist, metadata.CategoryId,
+                added = await _tracks.AddAsync(new NewTrack(stored.ContentHash, stored.FileKey, title, metadata.Artist, metadata.CategoryIds,
                     probe.DurationSeconds, stored.SizeBytes, upload.FileName, caller.UserId), CancellationToken.None).ConfigureAwait(false);
             }
             catch

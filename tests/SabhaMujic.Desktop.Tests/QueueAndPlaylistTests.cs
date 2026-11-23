@@ -14,7 +14,7 @@ public class QueueViewModelTests
 
     public QueueViewModelTests()
     {
-        _client.Library.Tracks.Add(new TrackDto(TrackA, "Aarti", null, null, 125, AnalysisStatus.Ready, null, DateTimeOffset.UtcNow));
+        _client.Library.Tracks.Add(new TrackDto(TrackA, "Aarti", null, [], 125, AnalysisStatus.Ready, null, DateTimeOffset.UtcNow));
         _vm = new QueueViewModel(_client, _ui.Services, new TrackInfoCache(_client));
         _client.Events.QueueChanged(Queue(10, 1, Id(1), Id(2), Id(3), Id(4)));
     }

@@ -27,12 +27,12 @@ public sealed class AdminRecoveryTests
         Assert.Equal(StripAudit(before), StripAudit(await server.SnapshotAsync()));
         Assert.Null(client.Session);
         await admin.Playback.GetStateAsync(); // the admin's session survives
-        await server.ConnectAsync(TestServer.AdminName, TestServer.AdminSecret); // and the old PIN still works
+        await server.ConnectAsync(TestServer.AdminName, TestServer.AdminSecret); // and the old password still works
         Assert.Contains(await server.App.AuditLog.QueryRecentAsync(), a => a.Action == "recovery.denied");
     }
 
     [Fact]
-    public async Task Elevated_administrator_resets_the_pin_signs_out_old_sessions_and_signs_in()
+    public async Task Elevated_administrator_resets_the_password_signs_out_old_sessions_and_signs_in()
     {
         await using var server = await TestServer.StartAsync(identity: Elevated);
         var second = await server.App.Users.CreateAsync("second-admin", Role.Admin, server.App.Auth.HashSecret("second-pin"));
@@ -57,9 +57,9 @@ public sealed class AdminRecoveryTests
         Assert.Equal(session, client.Session);
         await client.Admin.GetUsersAsync(); // signed in as an admin
 
-        Assert.Contains("PIN was reset", await ended.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Contains("password was reset", await ended.Task.WaitAsync(TimeSpan.FromSeconds(10)));
         await AssertEx.Eventually(() => oldSession.Session is null, "the old session is signed out");
-        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => oldSession.Playback.GetStateAsync());
+        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => oldSession.Admin.GetUsersAsync());
         Assert.Equal(server.AdminId, (await usersChanged.Task.WaitAsync(TimeSpan.FromSeconds(10))).EntityId);
         await otherAdmin.Playback.GetStateAsync(); // other accounts are untouched
 
@@ -95,7 +95,7 @@ public sealed class AdminRecoveryTests
         var before = await server.SnapshotAsync();
 
         await AssertEx.ThrowsCode(ErrorCode.Conflict, () => client.Auth.ResetAdministratorAsync(TestServer.VolunteerName, "new-pin-1"));
-        await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => client.Auth.ResetAdministratorAsync(TestServer.AdminName, "12"));
+        await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => client.Auth.ResetAdministratorAsync(TestServer.AdminName, "1234567"));
         await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => client.Auth.ResetAdministratorAsync("   ", "new-pin-1"));
 
         Assert.Equal(StripAudit(before), StripAudit(await server.SnapshotAsync()));
@@ -111,8 +111,9 @@ public sealed class AdminRecoveryTests
         // Even if a remote transport (wrongly) claimed elevation, CreateSession ignores it for non-desktop clients.
         var remote = server.App.CreateSession(ClientKind.Remote, "192.168.1.50", isElevatedAdministrator: true);
 
-        await AssertEx.ThrowsCode(ErrorCode.Forbidden, () => remote.ResetAdministratorAsync(TestServer.AdminName, "new-pin-1"));
-        await AssertEx.ThrowsCode(ErrorCode.Forbidden, () => remote.ResetAdministratorAsync("intruder", "new-pin-1"));
+        // The remote is for signed-in administrators only (contract v2): recovery is not even reachable there.
+        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => remote.ResetAdministratorAsync(TestServer.AdminName, "new-pin-1"));
+        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => remote.ResetAdministratorAsync("intruder", "new-pin-1"));
 
         Assert.Equal(StripAudit(before), StripAudit(await server.SnapshotAsync()));
         await server.ConnectAsync(TestServer.AdminName, TestServer.AdminSecret);
@@ -133,6 +134,7 @@ public sealed class AdminRecoveryTests
 
         // Remote attempts never count against a local account.
         var remote = server.App.CreateSession(ClientKind.Remote, "PC\\volunteer", isElevatedAdministrator: false);
-        await AssertEx.ThrowsCode(ErrorCode.Forbidden, () => remote.ResetAdministratorAsync(TestServer.AdminName, "new-pin-1"));
+        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => remote.ResetAdministratorAsync(TestServer.AdminName, "new-pin-1"));
+        await AssertEx.ThrowsCode(ErrorCode.RateLimited, () => client.Auth.ResetAdministratorAsync(TestServer.AdminName, "new-pin-1"));
     }
 }

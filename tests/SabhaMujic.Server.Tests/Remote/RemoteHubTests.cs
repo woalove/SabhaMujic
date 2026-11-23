@@ -20,15 +20,15 @@ public sealed class RemoteHubTests : IAsyncLifetime
     [Fact]
     public async Task Two_hub_clients_both_receive_a_state_change()
     {
-        var volunteer = await _host.PairAsync(Role.Volunteer);
-        var admin = await _host.PairAsync(Role.Admin);
+        var first = await _host.PhoneAsync(Role.Admin);
+        var second = await _host.PhoneAsync(Role.Admin);
         var states = new ConcurrentDictionary<string, ConcurrentQueue<PlaybackStateDto>>();
         var hubs = new List<HubConnection>();
         var hubByName = new Dictionary<string, HubConnection>();
         foreach (var (name, phone, transport) in new[]
         {
-            ("volunteer", volunteer, HttpTransportType.WebSockets),
-            ("admin", admin, HttpTransportType.LongPolling),
+            ("first", first, HttpTransportType.WebSockets),
+            ("second", second, HttpTransportType.LongPolling),
         })
         {
             var queue = states.GetOrAdd(name, _ => new ConcurrentQueue<PlaybackStateDto>());
@@ -70,11 +70,12 @@ public sealed class RemoteHubTests : IAsyncLifetime
     [Fact]
     public async Task Hub_errors_carry_code_and_message_without_internal_details()
     {
-        var volunteer = await _host.PairAsync(Role.Volunteer);
-        var hub = await _host.ConnectHubAsync(volunteer.Token);
+        var phone = await _host.PhoneAsync(Role.Admin);
+        var hub = await _host.ConnectHubAsync(phone.Token);
 
-        var forbidden = await RemoteErrors.HubThrows(() => hub.InvokeAsync<CategoryDto>("CreateCategory", "New"));
-        Assert.Equal(ErrorCode.Forbidden, forbidden.Code);
+        await hub.InvokeAsync<CategoryDto>("CreateCategory", "Dhun");
+        var conflict = await RemoteErrors.HubThrows(() => hub.InvokeAsync<CategoryDto>("CreateCategory", "DHUN"));
+        Assert.Equal(ErrorCode.Conflict, conflict.Code);
 
         var invalid = await RemoteErrors.HubThrows(() => hub.InvokeAsync("SetVolume", 3f));
         Assert.Equal(ErrorCode.InvalidArgument, invalid.Code);
@@ -96,7 +97,7 @@ public sealed class RemoteHubTests : IAsyncLifetime
     [Fact]
     public async Task Killing_every_hub_connection_and_stopping_the_remote_never_touches_playback()
     {
-        var phones = new[] { await _host.PairAsync(Role.Volunteer), await _host.PairAsync(Role.Admin), await _host.PairAsync(Role.Volunteer) };
+        var phones = new[] { await _host.PhoneAsync(Role.Admin), await _host.PhoneAsync(Role.Admin, remember: false), await _host.PhoneAsync(Role.Admin) };
         foreach (var phone in phones)
         {
             await _host.ConnectHubAsync(phone.Token);
@@ -127,7 +128,7 @@ public sealed class RemoteHubTests : IAsyncLifetime
     [Fact]
     public async Task Admin_upload_happy_path_over_http_with_progress_on_the_same_device_hub()
     {
-        var admin = await _host.PairAsync(Role.Admin);
+        var admin = await _host.PhoneAsync(Role.Admin);
         var hub = await _host.ConnectHubAsync(admin.Token);
         var progress = new ConcurrentQueue<ImportProgressDto>();
         hub.On<ImportProgressDto>(nameof(IClientEvents.ImportProgress), progress.Enqueue);
@@ -157,14 +158,14 @@ public sealed class RemoteHubTests : IAsyncLifetime
         }
 
         using var complete = await http.SendAsync(RemoteTestHost.Api(HttpMethod.Post, $"/api/uploads/{id}/complete",
-            new { title = "Aarti", artist = "Choir", categoryId = category.Id }));
+            new { title = "Aarti", artist = "Choir", categoryIds = new[] { category.Id } }));
         Assert.Equal(HttpStatusCode.OK, complete.StatusCode);
         var result = (await complete.Content.ReadFromJsonAsync<ImportResultDto>(RemoteJson.Options))!;
         Assert.False(result.WasDuplicate);
 
         var track = (await _host.Server.App.Tracks.GetAsync(result.TrackId))!;
         Assert.Equal("Aarti", track.Title);
-        Assert.Equal(category.Id, track.CategoryId);
+        Assert.Equal([category.Id], track.CategoryIds);
         Assert.Equal(1, _host.Server.StoredFileCount());
         Assert.Single(_host.Server.Probe.Probed);
         Assert.Contains(result.TrackId, _host.Server.AnalysisQueue.Queued);
@@ -182,7 +183,7 @@ public sealed class RemoteHubTests : IAsyncLifetime
     [Fact]
     public async Task Malformed_api_requests_are_rejected_cleanly()
     {
-        var admin = await _host.PairAsync(Role.Admin);
+        var admin = await _host.PhoneAsync(Role.Admin);
         var http = _host.Http(admin.Token);
 
         using var notJson = await http.SendAsync(RemoteTestHost.Api(HttpMethod.Post, "/api/uploads", content: new StringContent("fileName=a.wav")));
@@ -195,7 +196,7 @@ public sealed class RemoteHubTests : IAsyncLifetime
         using var noOffset = await http.SendAsync(RemoteTestHost.Api(HttpMethod.Put, $"/api/uploads/{Guid.NewGuid()}", content: new ByteArrayContent([1])));
         Assert.Equal(HttpStatusCode.BadRequest, noOffset.StatusCode);
 
-        using var huge = await http.SendAsync(RemoteTestHost.Api(HttpMethod.Post, "/api/pair",
+        using var huge = await http.SendAsync(RemoteTestHost.Api(HttpMethod.Post, "/api/login",
             content: new StringContent(new string(' ', RemoteApiEndpoints.MaxJsonBytes + 10), System.Text.Encoding.UTF8, "application/json")));
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, huge.StatusCode);
 

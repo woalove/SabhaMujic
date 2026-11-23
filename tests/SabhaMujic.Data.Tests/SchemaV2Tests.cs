@@ -25,9 +25,16 @@ public sealed class SchemaV2Tests : IAsyncLifetime
             var tracks = new SqliteTrackRepository(db);
             var analysis = new SqliteTrackAnalysisRepository(db);
             var hash = TestDb.NewHash();
-            var track = (await tracks.AddAsync(new NewTrack(hash, hash + ".mp3", "Old", null, null, 60, 1))).Track;
+            var track = new { Id = Guid.NewGuid() };
             await using (var conn = await db.OpenConnectionAsync())
             {
+                // Written by v1 code (today's repository reads tags that v1 does not have).
+                await conn.ExecuteAsync(
+                    """
+                    INSERT INTO tracks (id, content_hash, file_key, title, title_key, duration_seconds, size_bytes, added_at, updated_at)
+                    VALUES (@Id, @Hash, @Key, 'Old', 'OLD', 60, 1, 0, 0);
+                    """, new { track.Id, Hash = hash, Key = hash + ".mp3" });
+
                 // Written by v1 code: no details column yet.
                 await conn.ExecuteAsync(
                     """
@@ -38,7 +45,7 @@ public sealed class SchemaV2Tests : IAsyncLifetime
             }
 
             Assert.Equal(SqliteDatabase.LatestSchemaVersion, await db.MigrateAsync());
-            Assert.Equal(2, SqliteDatabase.LatestSchemaVersion);
+            Assert.Equal(3, SqliteDatabase.LatestSchemaVersion);
 
             var stored = await analysis.GetAsync(track.Id);
             Assert.Equal(new TrackAnalysis(track.Id, AnalysisStatus.Ready, 1, 0.5, 59, 10, 50, 0.2, 0.9), stored);

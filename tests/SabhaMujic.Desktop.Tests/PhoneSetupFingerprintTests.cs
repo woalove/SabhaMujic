@@ -4,7 +4,7 @@ using SabhaMujic.Desktop.ViewModels.Admin;
 
 namespace SabhaMujic.Desktop.Tests;
 
-public class PairingFingerprintTests
+public class PhoneSetupFingerprintTests
 {
     private static readonly string Fingerprint = string.Join(':', Enumerable.Range(0, 32).Select(i => i.ToString("X2")));
 
@@ -12,20 +12,19 @@ public class PairingFingerprintTests
     {
         var client = new FakeSabhaClient();
         var ui = new TestUi();
-        client.Admin.OnPairing = role => new PairingCodeDto("482913", "http://192.168.1.20:8080/#code=482913", "http://192.168.1.20:8080/", role,
-            ui.Scheduler.UtcNow.AddMinutes(5)) { CaFingerprint = fingerprint };
+        client.Admin.OnPhoneSetup = () => new PhoneSetupInfoDto("http://192.168.1.20:8080/", "https://192.168.1.20:8443/", fingerprint, true);
         return (new DevicesAdminViewModel(client, ui.Services), client);
     }
 
     [Fact]
-    public async Task Pairing_panel_shows_the_ca_fingerprint_in_groups()
+    public async Task Setup_panel_shows_the_ca_fingerprint_in_groups()
     {
         var (vm, _) = Create(Fingerprint);
         Assert.False(vm.IsFingerprintVisible);
         var changed = new List<string?>();
         vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
 
-        await vm.PairNewDeviceCommand.ExecuteAsync(null);
+        await vm.SetUpPhoneCommand.ExecuteAsync(null);
 
         Assert.True(vm.IsFingerprintVisible);
         Assert.Contains(nameof(vm.CaFingerprintText), changed);
@@ -36,7 +35,7 @@ public class PairingFingerprintTests
         Assert.Equal(Fingerprint, string.Join(':', lines)); // nothing lost or reordered
         Assert.Equal("Check this matches the fingerprint on the phone's setup page", DevicesAdminViewModel.FingerprintHint);
 
-        await vm.ClosePairingCommand.ExecuteAsync(null);
+        await vm.CloseSetupCommand.ExecuteAsync(null);
         Assert.False(vm.IsFingerprintVisible);
         Assert.Null(vm.CaFingerprintText);
     }
@@ -47,8 +46,8 @@ public class PairingFingerprintTests
     public async Task No_fingerprint_without_a_remote(string? fingerprint)
     {
         var (vm, _) = Create(fingerprint);
-        await vm.PairNewDeviceCommand.ExecuteAsync(null);
-        Assert.True(vm.IsPairingVisible);
+        await vm.SetUpPhoneCommand.ExecuteAsync(null);
+        Assert.True(vm.IsSetupVisible);
         Assert.False(vm.IsFingerprintVisible);
     }
 
@@ -71,7 +70,7 @@ public class PairingFingerprintTests
         await using var demo = new ViewModels.Demo.DemoSabhaClient(autoTick: false);
         await demo.ConnectAsync();
         await demo.Auth.LoginAsync(ViewModels.Demo.DemoSabhaClient.AdminUser, ViewModels.Demo.DemoSabhaClient.AdminSecret);
-        var code = await demo.Admin.CreatePairingCodeAsync(Role.Volunteer);
-        Assert.Equal(32, code.CaFingerprint!.Split(':').Length);
+        var setup = await demo.Admin.GetPhoneSetupInfoAsync();
+        Assert.Equal(32, setup.CaFingerprint!.Split(':').Length);
     }
 }

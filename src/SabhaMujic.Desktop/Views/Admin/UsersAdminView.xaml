@@ -15,7 +15,7 @@
                     <DataTemplate>
                         <DockPanel>
                             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                                <Button Content="Reset PIN…" Command="{Binding DataContext.ResetSecretCommand, ElementName=UserList}" CommandParameter="{Binding}" />
+                                <Button Content="Reset password…" Command="{Binding DataContext.ResetSecretCommand, ElementName=UserList}" CommandParameter="{Binding}" />
                                 <Button Style="{StaticResource IconButton}" Content="&#xE74D;" ToolTip="Delete user" AutomationProperties.Name="Delete user"
                                         Command="{Binding DataContext.DeleteCommand, ElementName=UserList}" CommandParameter="{Binding}" />
                             </StackPanel>
@@ -34,10 +34,10 @@
                 <TextBlock Text="New user" Style="{StaticResource SectionTitle}" Margin="0,0,0,4" />
                 <TextBlock Text="User name" Style="{StaticResource FieldLabel}" />
                 <TextBox Text="{Binding NewUserName, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="New user name" />
-                <TextBlock Text="Role" Style="{StaticResource FieldLabel}" />
-                <ComboBox ItemsSource="{Binding Roles}" SelectedItem="{Binding NewUserRole}" AutomationProperties.Name="Role" />
-                <TextBlock Text="PIN or password (at least 4 characters)" Style="{StaticResource FieldLabel}" TextWrapping="Wrap" />
-                <PasswordBox x:Name="NewSecretBox" PasswordChanged="OnNewSecretChanged" AutomationProperties.Name="New user PIN" />
+                <TextBlock Text="New accounts are administrators. Volunteers use SabhaMujic without an account." Style="{StaticResource MutedText}"
+                           TextWrapping="Wrap" Margin="0,4,0,0" />
+                <TextBlock Text="Password (at least 8 characters)" Style="{StaticResource FieldLabel}" TextWrapping="Wrap" />
+                <PasswordBox x:Name="NewSecretBox" PasswordChanged="OnNewSecretChanged" AutomationProperties.Name="New administrator password" />
                 <Button Content="Create user" Style="{StaticResource AccentButton}" Command="{Binding CreateCommand}" Margin="0,14,0,0"
                         HorizontalAlignment="Left" />
             </StackPanel>

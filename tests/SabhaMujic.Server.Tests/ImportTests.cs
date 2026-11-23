@@ -39,13 +39,13 @@ public sealed class ImportTests : IAsyncLifetime
 
         var bytes = RandomNumberGenerator.GetBytes(250_000);
         var id = await UploadAsync(admin, "C:\\music\\Jay Swaminarayan.MP3", bytes);
-        var result = await admin.Admin.CompleteImportAsync(id, new ImportMetadata("", "Mandal", category.Id));
+        var result = await admin.Admin.CompleteImportAsync(id, new ImportMetadata("", "Mandal", [category.Id]));
 
         Assert.False(result.WasDuplicate);
         var track = await admin.Library.GetTrackAsync(result.TrackId);
         Assert.Equal("Jay Swaminarayan", track.Title);
         Assert.Equal("Mandal", track.Artist);
-        Assert.Equal(category.Id, track.CategoryId);
+        Assert.Equal([category.Id], track.CategoryIds);
         Assert.Equal(123.5, track.DurationSeconds);
         Assert.Equal(AnalysisStatus.Pending, track.Analysis);
         Assert.Equal([result.TrackId], _server.AnalysisQueue.Queued);
@@ -104,7 +104,7 @@ public sealed class ImportTests : IAsyncLifetime
     {
         var admin = await _server.ConnectAdminAsync();
         var id = await UploadAsync(admin, "a.flac", RandomNumberGenerator.GetBytes(1_000));
-        await AssertEx.ThrowsCode(ErrorCode.NotFound, () => admin.Admin.CompleteImportAsync(id, new ImportMetadata("x", null, Guid.NewGuid())));
+        await AssertEx.ThrowsCode(ErrorCode.NotFound, () => admin.Admin.CompleteImportAsync(id, new ImportMetadata("x", null, [Guid.NewGuid()])));
         Assert.Equal(1, _server.Uploads.ActiveCount);
         var result = await admin.Admin.CompleteImportAsync(id, new ImportMetadata("x", null, null));
         Assert.False(result.WasDuplicate);
@@ -176,7 +176,7 @@ public sealed class ImportTests : IAsyncLifetime
             new ImportMetadata("A", null, null));
         var track = await admin.Admin.SetLoopOverrideAsync(result.TrackId, new LoopRegionDto(10, 60, 0.25, 0.1, false));
         Assert.Equal(new LoopRegionDto(10, 60, 0.25, 1.0, true), track.Loop);
-        Assert.Equal(track, await admin.Library.GetTrackAsync(result.TrackId));
+        AssertEx.SameTrack(track, await admin.Library.GetTrackAsync(result.TrackId));
         track = await admin.Admin.SetLoopOverrideAsync(result.TrackId, null);
         Assert.Null(track.Loop);
         await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => admin.Admin.SetLoopOverrideAsync(result.TrackId, new LoopRegionDto(60, 10, 0, 0, true)));

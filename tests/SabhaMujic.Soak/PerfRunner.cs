@@ -238,18 +238,13 @@ public sealed class PerfRunner(PerfOptions options)
 
         Say($"GetState p50 {Stats.Percentile(getState, 50):F3} ms p95 {Stats.Percentile(getState, 95):F3} ms; SetVolume p50 {Stats.Percentile(setVolume, 50):F3} ms p95 {Stats.Percentile(setVolume, 95):F3} ms");
 
-        // Ten listeners (volunteers) on the same service.
-        for (var i = 0; i < 10; i++)
-        {
-            await admin.Admin.CreateUserAsync($"listener{i}", Role.Volunteer, $"listener-pin-{i}");
-        }
-
+        // Ten listeners on the same service, using the desktop without signing in (open use, contract v2).
         var listeners = new List<PipeSabhaClient>();
         var seen = new ConcurrentDictionary<(int Client, float Volume), long>();
         for (var i = 0; i < 10; i++)
         {
             var index = i;
-            var client = await ConnectAsync(pipeName, $"listener{i}", $"listener-pin-{i}");
+            var client = await ConnectAsync(pipeName, null, null);
             client.Events.PlaybackStateReceived += s => seen.TryAdd((index, s.Volume), Stopwatch.GetTimestamp());
             listeners.Add(client);
         }
@@ -411,7 +406,7 @@ public sealed class PerfRunner(PerfOptions options)
                 stored = await store.StoreAsync(content, ".wav");
             }
 
-            var added = await tracks.AddAsync(new NewTrack(stored.ContentHash, stored.FileKey, $"Seeded track {i:0000}", "Seed", category.Id,
+            var added = await tracks.AddAsync(new NewTrack(stored.ContentHash, stored.FileKey, $"Seeded track {i:0000}", "Seed", [category.Id],
                 bytes.Length / 96_000.0, stored.SizeBytes, $"seeded-{i}.wav"));
             ids.Add(added.Track.Id);
             if (analysesReady)

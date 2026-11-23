@@ -92,18 +92,14 @@ public sealed class SoakRemoteComponent(string certificateDirectory) : IHostedCo
     })
     { BaseAddress = BaseUri, Timeout = TimeSpan.FromSeconds(30) };
 
-    /// <summary>Pairs a device with a one-time code (created through an admin <c>ApiSession</c>) and returns its token.</summary>
-    public async Task<string> PairAsync(SabhaHost host, string adminUser, string adminSecret, Role role, string deviceName, CancellationToken ct)
+    /// <summary>Signs an administrator in through <c>POST /api/login</c> with "Remember this phone" and returns the session token.</summary>
+    public async Task<string> SignInAsync(string adminUser, string adminSecret, string deviceName, CancellationToken ct)
     {
-        var admin = host.App.CreateSession(ClientKind.Desktop, "soak-pairing");
-        await admin.LoginAsync(adminUser, adminSecret, ct).ConfigureAwait(false);
-        var code = (await admin.CreatePairingCodeAsync(role, ct).ConfigureAwait(false)).Code;
-        await admin.LogoutAsync(ct).ConfigureAwait(false);
-
         using var http = Http();
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/pair")
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/login")
         {
-            Content = JsonContent.Create(new { code, deviceName }, options: RemoteJson.Options),
+            Content = JsonContent.Create(new { userName = adminUser, password = adminSecret, rememberDevice = true, deviceName },
+                options: RemoteJson.Options),
         };
         request.Headers.Add(RemoteAuth.CsrfHeader, "1");
         using var response = await http.SendAsync(request, ct).ConfigureAwait(false);
@@ -123,7 +119,7 @@ public sealed class SoakRemoteComponent(string certificateDirectory) : IHostedCo
             }
         }
 
-        throw new InvalidOperationException("Pairing returned no device cookie.");
+        throw new InvalidOperationException("Sign-in returned no session cookie.");
     }
 
     /// <summary>A SignalR connection to the hub, authenticated with a device token, trusting only this CA.</summary>

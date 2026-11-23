@@ -42,7 +42,12 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
         Library = new LibraryViewModel(client, ui, Tracks, Playlists);
         Admin = new AdminViewModel(client, ui);
 
-        Login.LoggedIn += session => ApplySession(session);
+        Login.LoggedIn += session =>
+        {
+            IsLoginOpen = false;
+            ApplySession(session);
+        };
+        Login.Closed += () => IsLoginOpen = false;
         Setup.SetupCompleted += session =>
         {
             IsSetupRequired = false;
@@ -68,25 +73,40 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
     /// <summary>First-run "create administrator" form, shown instead of <see cref="Login"/> while no accounts exist.</summary>
     public SetupViewModel Setup { get; }
 
-    /// <summary>"Forgot admin PIN?" screen, shown instead of <see cref="Login"/> while <see cref="IsRecoveryOpen"/>.</summary>
+    /// <summary>"Forgot admin password?" screen, shown instead of <see cref="Login"/> while <see cref="IsRecoveryOpen"/>.</summary>
     public RecoveryViewModel Recovery { get; }
 
     /// <summary>True while the service reports a fresh install (no accounts). Checked after each connect while signed out.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsLoginVisible), nameof(IsSetupVisible), nameof(IsRecoveryVisible))]
+    [NotifyPropertyChangedFor(nameof(IsLoginVisible), nameof(IsSetupVisible), nameof(IsRecoveryVisible), nameof(IsMainVisible))]
     public partial bool IsSetupRequired { get; private set; }
 
-    /// <summary>True after "Forgot admin PIN?" (or <see cref="RecoveryViewModel.StartupArgument"/>) until the user goes back or signs in.</summary>
+    /// <summary>True after "Forgot admin password?" (or <see cref="RecoveryViewModel.StartupArgument"/>) until the user goes back or signs in.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsLoginVisible), nameof(IsRecoveryVisible))]
+    [NotifyPropertyChangedFor(nameof(IsLoginVisible), nameof(IsRecoveryVisible), nameof(IsMainVisible))]
     public partial bool IsRecoveryOpen { get; private set; }
 
-    public bool IsLoginVisible => !IsSignedIn && !IsSetupRequired && !IsRecoveryOpen;
+    /// <summary>True after "Admin sign-in" until the administrator signs in or goes back.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsLoginVisible), nameof(IsMainVisible))]
+    public partial bool IsLoginOpen { get; private set; }
+
+    /// <summary>The administrator sign-in form (open use needs no sign-in, so only on request).</summary>
+    public bool IsLoginVisible => IsLoginOpen && !IsSignedIn && !IsSetupRequired && !IsRecoveryOpen;
 
     public bool IsSetupVisible => !IsSignedIn && IsSetupRequired;
 
     /// <summary>First-run setup wins over recovery: with no accounts there is nothing to recover.</summary>
     public bool IsRecoveryVisible => !IsSignedIn && !IsSetupRequired && IsRecoveryOpen;
+
+    /// <summary>
+    /// The player (library, playlists, queue, now playing). Open use: shown without signing in, whenever no setup,
+    /// sign-in or recovery form is showing.
+    /// </summary>
+    public bool IsMainVisible => !IsLoginVisible && !IsSetupVisible && !IsRecoveryVisible;
+
+    /// <summary>Shown while signed out: the entry to the administrator sign-in.</summary>
+    public bool IsAdminSignInAvailable => !IsSignedIn;
 
     public NowPlayingViewModel NowPlaying { get; }
 
@@ -127,7 +147,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsSignedIn), nameof(IsAdmin), nameof(IsAdminVisible), nameof(UserDisplayText), nameof(IsLoginVisible),
-        nameof(IsSetupVisible), nameof(IsRecoveryVisible))]
+        nameof(IsSetupVisible), nameof(IsRecoveryVisible), nameof(IsMainVisible), nameof(IsAdminSignInAvailable))]
     public partial SessionDto? Session { get; private set; }
 
     public bool IsSignedIn => Session is not null;
@@ -169,6 +189,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
         else if (IsConnected)
         {
             _ = CheckSetupAsync();
+            _ = LoadAllAsync(); // open use: the player works without signing in
         }
 
         _connectTask ??= ConnectAsync();
@@ -191,6 +212,19 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
 
     [RelayCommand]
     private void ToggleQueuePanel() => IsQueuePanelOpen = !IsQueuePanelOpen;
+
+    /// <summary>"Admin sign-in": shows the sign-in form (user name and password).</summary>
+    [RelayCommand]
+    private void OpenAdminSignIn()
+    {
+        if (IsSignedIn)
+        {
+            return;
+        }
+
+        Login.ErrorMessage = null;
+        IsLoginOpen = true;
+    }
 
     [RelayCommand]
     private async Task LogoutAsync()
@@ -238,9 +272,9 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
                 _ = CheckSetupAsync();
             }
 
-            if (previous != ConnectionState.Connected && Session is not null)
+            if (previous != ConnectionState.Connected)
             {
-                _ = LoadAllAsync(); // re-sync after (re)connect
+                _ = LoadAllAsync(); // re-sync after (re)connect; open use needs no session
             }
         }
     }
@@ -256,13 +290,13 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
         Session = session;
         if (session is null)
         {
-            Library.Reset();
-            Queue.Reset();
-            Playlists.Reset();
-            NowPlaying.Reset();
+            // Back to open use: the player keeps working; only administration closes.
             Admin.Reset();
-            Tracks.Clear();
-            CurrentPage = NavPage.Library;
+            if (CurrentPage == NavPage.Admin)
+            {
+                CurrentPage = NavPage.Library;
+            }
+
             return;
         }
 
@@ -277,7 +311,7 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
         }
     }
 
-    /// <summary>Shows the "Forgot admin PIN?" screen (from the sign-in link, or at startup with <c>--recover-admin</c>).</summary>
+    /// <summary>Shows the "Forgot admin password?" screen (from the sign-in link, or at startup with <c>--recover-admin</c>).</summary>
     public void OpenRecovery()
     {
         Recovery.Clear();
@@ -286,11 +320,14 @@ public sealed partial class ShellViewModel : ViewModelBase, IAsyncDisposable
 
     private async Task CheckSetupAsync() => IsSetupRequired = await Setup.IsSetupRequiredAsync().ConfigureAwait(true);
 
+    /// <summary>The administrator session ended (idle timeout, revoked): back to open use, with a note.</summary>
     private void OnSessionEnded(string reason)
     {
-        Login.Notice = string.IsNullOrWhiteSpace(reason)
-            ? "Your session has ended. Please sign in again."
-            : $"Your session has ended ({reason}). Please sign in again.";
+        var note = string.IsNullOrWhiteSpace(reason)
+            ? "The administrator session has ended."
+            : $"The administrator session has ended ({reason}).";
+        Login.Notice = note + " Sign in again to continue administering.";
+        StatusMessage = note + " SabhaMujic stays available for playing music.";
         ApplySession(null);
     }
 

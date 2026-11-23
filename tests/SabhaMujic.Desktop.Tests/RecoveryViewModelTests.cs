@@ -44,6 +44,8 @@ public class RecoveryViewModelTests
     public void Forgot_admin_pin_link_opens_recovery_and_back_returns_to_sign_in()
     {
         var (shell, _, _) = SignedOut();
+        Assert.False(shell.IsLoginVisible); // open use: the sign-in form only shows on request
+        shell.OpenAdminSignInCommand.Execute(null);
         Assert.True(shell.IsLoginVisible);
         Assert.False(shell.IsRecoveryVisible);
 
@@ -62,18 +64,18 @@ public class RecoveryViewModelTests
     }
 
     [Fact]
-    public void The_form_needs_a_name_and_matching_pins_of_four_characters()
+    public void The_form_needs_a_name_and_matching_passwords_of_eight_characters()
     {
         var recovery = new RecoveryViewModel(new FakeSabhaClient()) { IsConnected = true };
         Assert.False(recovery.ResetCommand.CanExecute(null));
         recovery.AdminName = "admin";
-        recovery.Secret = "123";
-        Assert.Contains("at least 4", recovery.ValidationHint);
-        recovery.Secret = "1234";
-        recovery.ConfirmSecret = "1235";
+        recovery.Secret = "1234567";
+        Assert.Contains("at least 8", recovery.ValidationHint);
+        recovery.Secret = "12345678";
+        recovery.ConfirmSecret = "12345679";
         Assert.Equal("The two entries do not match.", recovery.ValidationHint);
         Assert.False(recovery.ResetCommand.CanExecute(null));
-        recovery.ConfirmSecret = "1234";
+        recovery.ConfirmSecret = "12345678";
         Assert.Null(recovery.ValidationHint);
         Assert.True(recovery.ResetCommand.CanExecute(null));
         recovery.IsConnected = false;
@@ -194,14 +196,15 @@ public class RecoveryViewModelTests
         await using var demo = new ViewModels.Demo.DemoSabhaClient();
         await demo.ConnectAsync();
 
-        var reset = await demo.Auth.ResetAdministratorAsync(ViewModels.Demo.DemoSabhaClient.AdminUser.ToUpperInvariant(), "new-pin");
+        var reset = await demo.Auth.ResetAdministratorAsync(ViewModels.Demo.DemoSabhaClient.AdminUser.ToUpperInvariant(), "new-password");
         Assert.Equal((ViewModels.Demo.DemoSabhaClient.AdminUser, Role.Admin), (reset.UserName, reset.Role));
         await demo.Auth.LogoutAsync();
-        await demo.Auth.LoginAsync(ViewModels.Demo.DemoSabhaClient.AdminUser, "new-pin");
+        await demo.Auth.LoginAsync(ViewModels.Demo.DemoSabhaClient.AdminUser, "new-password");
 
-        var created = await demo.Auth.ResetAdministratorAsync("rescue", "rescue-pin");
+        var created = await demo.Auth.ResetAdministratorAsync("rescue", "rescue-password");
         Assert.Equal(Role.Admin, created.Role);
         await Assert.ThrowsAsync<SabhaMujicException>(() =>
-            demo.Auth.ResetAdministratorAsync(ViewModels.Demo.DemoSabhaClient.VolunteerUser, "x-pin-1"));
+            demo.Auth.ResetAdministratorAsync(ViewModels.Demo.DemoSabhaClient.VolunteerUser, "x-password-1"));
+        await Assert.ThrowsAsync<SabhaMujicException>(() => demo.Auth.ResetAdministratorAsync("short", "1234567"));
     }
 }

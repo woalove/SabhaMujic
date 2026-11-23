@@ -1,5 +1,6 @@
 // @ts-check
-// SabhaMujic remote: app shell (routing between pair and the tabbed main UI), hub wiring and shared UI services.
+// SabhaMujic remote: app shell (routing between sign-in and the tabbed main UI), hub wiring and shared UI services.
+// The remote is for administrators only (the server enforces it).
 
 import { api, ApiError } from './api.js';
 import { byId } from './dom.js';
@@ -8,7 +9,7 @@ import { Store } from './store.js';
 import { mountAdmin } from './views/admin.js';
 import { mountLibrary } from './views/library.js';
 import { mountNowPlaying } from './views/nowplaying.js';
-import { mountPair } from './views/pair.js';
+import { mountLogin } from './views/login.js';
 import { mountPlaylists } from './views/playlists.js';
 import { mountQueue } from './views/queue.js';
 
@@ -21,7 +22,7 @@ import { mountQueue } from './views/queue.js';
 /** @typedef {import('./types.js').ImportProgress} ImportProgress */
 /** @typedef {import('./hub.js').ConnectionStatus} ConnectionStatus */
 /** @typedef {import('./context.js').AppContext} AppContext */
-/** @typedef {'pair' | 'now' | 'queue' | 'library' | 'playlists' | 'admin'} ViewName */
+/** @typedef {'login' | 'now' | 'queue' | 'library' | 'playlists' | 'admin'} ViewName */
 
 const store = new Store();
 const pill = byId('conn', HTMLElement);
@@ -89,7 +90,7 @@ async function run(action, success) {
 const hub = new HubClient({
   onStatus: renderStatus,
   onConnected: () => void refreshAll(),
-  onUnauthorized: () => showPair('This phone is no longer paired. Ask an administrator for a new pairing code.'),
+  onUnauthorized: () => showLogin('You have been signed out. Sign in again.'),
 });
 
 /** @type {AppContext} */
@@ -146,7 +147,7 @@ hub.on('LibraryChanged', (/** @type {LibraryChange} */ change) => {
 });
 hub.on('SessionEnded', (/** @type {string} */ reason) => {
   void hub.stop();
-  showPair(reason || 'This phone was signed out.');
+  showLogin(reason || 'This phone was signed out.');
 });
 
 function referencedTrackIds() {
@@ -165,13 +166,13 @@ mountQueue(ctx);
 const library = mountLibrary(ctx);
 const playlists = mountPlaylists(ctx);
 const admin = mountAdmin(ctx);
-const pair = mountPair((me) => {
-  toast(`Paired as “${me.name}”`);
+const login = mountLogin((me) => {
+  toast(`Signed in as “${me.name}”`);
   startMain(me);
 });
 
 /** @type {Record<ViewName, { show(): void } | undefined>} */
-const viewHooks = { pair, now: undefined, queue: undefined, library, playlists, admin: undefined };
+const viewHooks = { login, now: undefined, queue: undefined, library, playlists, admin: undefined };
 
 /** @param {ViewName} name */
 function showView(name) {
@@ -184,7 +185,7 @@ function showView(name) {
       else button.removeAttribute('aria-current');
     }
   }
-  tabbar.hidden = name === 'pair';
+  tabbar.hidden = name === 'login';
   viewHooks[name]?.show();
   window.scrollTo(0, 0);
 }
@@ -196,12 +197,12 @@ for (const button of tabbar.querySelectorAll('button[data-tab]')) {
 }
 
 /** @param {string} [message] */
-function showPair(message) {
+function showLogin(message) {
   store.me = null;
   signout.hidden = true;
   if (message) showError(new ApiError('Unauthenticated', message));
   renderStatus('disconnected');
-  showView('pair');
+  showView('login');
 }
 
 /** @param {Me} me */
@@ -216,31 +217,19 @@ function startMain(me) {
 }
 
 signout.addEventListener('click', async () => {
-  if (!(await confirmAction('Sign this phone out? You will need a new pairing code to sign in again.', 'Sign out'))) return;
+  if (!(await confirmAction('Sign out of SabhaMujic on this phone? You will need your password to sign in again.', 'Sign out'))) return;
   await run(() => api.logout());
   await hub.stop();
-  showPair();
-});
-
-// A new pairing link opened while the app is already loaded only changes the fragment.
-window.addEventListener('hashchange', () => {
-  if (/^#code=[0-9]{6}$/.test(location.hash)) {
-    void hub.stop();
-    showPair();
-  }
+  showLogin();
 });
 
 async function boot() {
-  if (location.pathname === '/pair') {
-    showPair();
-    return;
-  }
   renderStatus('connecting');
   try {
     startMain(await api.me());
   } catch (error) {
-    if (error instanceof ApiError && error.code === 'Unauthenticated') {
-      showPair();
+    if (error instanceof ApiError && (error.code === 'Unauthenticated' || error.code === 'Forbidden')) {
+      showLogin(error.code === 'Forbidden' ? error.message : undefined);
     } else {
       showError(error);
       renderStatus('disconnected');

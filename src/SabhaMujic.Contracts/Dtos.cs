@@ -15,16 +15,18 @@ public sealed record LoopRegionDto(
     double Confidence,
     bool IsManualOverride);
 
+/// <summary>A library track. <see cref="CategoryIds"/> are its tags (categories), in category sort order.</summary>
 public sealed record TrackDto(
     Guid Id,
     string Title,
     string? Artist,
-    Guid? CategoryId,
+    IReadOnlyList<Guid> CategoryIds,
     double DurationSeconds,
     AnalysisStatus Analysis,
     LoopRegionDto? Loop,
     DateTimeOffset AddedAt);
 
+/// <summary>Track search. <see cref="CategoryId"/> keeps the tracks tagged with that category.</summary>
 public sealed record TrackQuery(Guid? CategoryId = null, string? Search = null, int Skip = 0, int Take = 200);
 
 public sealed record PagedResult<T>(IReadOnlyList<T> Items, int Total);
@@ -61,19 +63,28 @@ public sealed record PlaybackStateDto(
 
 public sealed record UserDto(Guid Id, string UserName, Role Role, DateTimeOffset CreatedAt);
 
+/// <summary>
+/// A phone remembered at remote sign-in ("Remember this phone"). <see cref="PairedAt"/> is when it was remembered;
+/// revoking it signs the phone out.
+/// </summary>
 public sealed record DeviceDto(Guid Id, string Name, Role Role, DateTimeOffset PairedAt, DateTimeOffset? LastSeenAt);
 
-/// <summary>One-time pairing code shown by the desktop as text + QR (<see cref="PairingUrl"/>).</summary>
-public sealed record PairingCodeDto(string Code, string PairingUrl, string BootstrapUrl, Role Role, DateTimeOffset ExpiresAt)
-{
-    /// <summary>
-    /// SHA-256 fingerprint of the service's local CA (colon-separated upper-case hex), shown on the PC so it can be compared
-    /// with the one on the phone's setup page. Null when the remote is not running.
-    /// </summary>
-    public string? CaFingerprint { get; init; }
-}
+/// <summary>
+/// What the desktop "Set up a phone" panel shows. The phone opens <see cref="BootstrapUrl"/> (plain HTTP on the local
+/// network) to install the SabhaMujic certificate and read the instructions, then <see cref="RemoteUrl"/> (HTTPS) and
+/// signs in as an administrator.
+/// </summary>
+/// <param name="BootstrapUrl">The setup page (also as a QR code on the desktop).</param>
+/// <param name="RemoteUrl">The remote's HTTPS address.</param>
+/// <param name="CaFingerprint">
+/// SHA-256 fingerprint of the service's local CA (colon-separated upper-case hex), to compare with the one on the phone's
+/// setup page. Null when the remote is not running.
+/// </param>
+/// <param name="IsRemoteRunning">False when the remote is disabled or failed to start (the URLs are then informational).</param>
+public sealed record PhoneSetupInfoDto(string BootstrapUrl, string RemoteUrl, string? CaFingerprint, bool IsRemoteRunning);
 
-public sealed record ImportMetadata(string Title, string? Artist, Guid? CategoryId);
+/// <summary>Metadata for a new track. <see cref="CategoryIds"/> are its tags (null or empty: none).</summary>
+public sealed record ImportMetadata(string Title, string? Artist, IReadOnlyList<Guid>? CategoryIds);
 
 public sealed record ImportResultDto(Guid TrackId, bool WasDuplicate);
 
@@ -90,7 +101,8 @@ public static class ImportStages
     public const string Failed = "failed";
 }
 
-public sealed record TrackUpdateDto(Guid TrackId, string Title, string? Artist, Guid? CategoryId);
+/// <summary>New title, artist and tags. <see cref="CategoryIds"/> replaces the track's tags (empty: none).</summary>
+public sealed record TrackUpdateDto(Guid TrackId, string Title, string? Artist, IReadOnlyList<Guid> CategoryIds);
 
 public enum LibraryChangeKind
 {

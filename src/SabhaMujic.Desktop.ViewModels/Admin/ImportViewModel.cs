@@ -15,6 +15,19 @@ public sealed record CategoryOption(Guid? Id, string Name)
     public override string ToString() => Name;
 }
 
+/// <summary>One category (tag) in a multi-select list: checked when the track has it.</summary>
+public sealed partial class CategoryChoice(Guid id, string name, bool isSelected = false) : ObservableObject
+{
+    public Guid Id { get; } = id;
+
+    public string Name { get; } = name;
+
+    [ObservableProperty]
+    public partial bool IsSelected { get; set; } = isSelected;
+
+    public override string ToString() => Name;
+}
+
 /// <summary>Splits an upload into chunks of at most <c>chunkSize</c> bytes.</summary>
 public static class ImportChunker
 {
@@ -331,7 +344,7 @@ public sealed partial class ImportViewModel : ViewModelBase
             var title = string.IsNullOrWhiteSpace(file.Title) ? ImportChunker.DefaultTitle(file.Path) : file.Title.Trim();
             var artist = string.IsNullOrWhiteSpace(file.Artist) ? null : file.Artist.Trim();
             var result = await _client.Admin
-                .CompleteImportAsync(uploadId.Value, new ImportMetadata(title, artist, file.Category.Id), ct)
+                .CompleteImportAsync(uploadId.Value, new ImportMetadata(title, artist, file.Category.Id is { } tag ? [tag] : null), ct)
                 .ConfigureAwait(true);
             file.TrackId = result.TrackId;
             file.Status = result.WasDuplicate ? ImportFileStatus.Duplicate : ImportFileStatus.Imported;

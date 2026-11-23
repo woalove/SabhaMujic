@@ -1,5 +1,5 @@
 // @ts-check
-// HTTP API client. The device token is an HttpOnly cookie: this code never sees it. State-changing requests carry the
+// HTTP API client. The session token is an HttpOnly cookie: this code never sees it. State-changing requests carry the
 // X-SabhaMujic header that the server requires as CSRF protection.
 
 /** @typedef {import('./types.js').Me} Me */
@@ -68,11 +68,15 @@ export const api = {
   me: () => request('GET', '/api/me'),
 
   /**
-   * @param {string} code
+   * Administrators only (others get Forbidden).
+   * @param {string} userName
+   * @param {string} password
+   * @param {boolean} rememberDevice
    * @param {string} deviceName
    * @returns {Promise<Me>}
    */
-  pair: (code, deviceName) => request('POST', '/api/pair', { json: { code, deviceName } }),
+  login: (userName, password, rememberDevice, deviceName) =>
+    request('POST', '/api/login', { json: { userName, password, rememberDevice, deviceName } }),
 
   /** @returns {Promise<void>} */
   logout: () => request('POST', '/api/logout'),
@@ -96,7 +100,7 @@ export const api = {
 
   /**
    * @param {string} uploadId
-   * @param {{ title: string, artist: string | null, categoryId: string | null }} metadata
+   * @param {{ title: string, artist: string | null, categoryIds: string[] }} metadata
    * @returns {Promise<ImportResult>}
    */
   completeUpload: (uploadId, metadata) => request('POST', `/api/uploads/${encodeURIComponent(uploadId)}/complete`, { json: metadata }),

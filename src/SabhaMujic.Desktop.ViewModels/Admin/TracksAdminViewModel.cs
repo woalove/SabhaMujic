@@ -9,7 +9,8 @@ using SabhaMujic.Desktop.ViewModels.Infrastructure;
 namespace SabhaMujic.Desktop.ViewModels.Admin;
 
 /// <summary>
-/// Admin: edit track metadata, delete tracks, override or reset the Smart Loop region, re-run analysis.
+/// Admin: edit track metadata and categories (tags: any number per track), delete tracks, override or reset the Smart
+/// Loop region, re-run analysis.
 /// </summary>
 public sealed partial class TracksAdminViewModel : ViewModelBase
 {
@@ -29,7 +30,8 @@ public sealed partial class TracksAdminViewModel : ViewModelBase
 
     public ObservableCollection<TrackDto> Tracks { get; } = [];
 
-    public ObservableCollection<CategoryOption> CategoryOptions { get; } = [CategoryOption.None];
+    /// <summary>Every category, checked when the selected track has it (multi-select).</summary>
+    public ObservableCollection<CategoryChoice> EditCategories { get; } = [];
 
     [ObservableProperty]
     public partial string SearchText { get; set; } = "";
@@ -52,8 +54,8 @@ public sealed partial class TracksAdminViewModel : ViewModelBase
     [ObservableProperty]
     public partial string EditArtist { get; set; } = "";
 
-    [ObservableProperty]
-    public partial CategoryOption EditCategory { get; set; } = CategoryOption.None;
+    /// <summary>The checked categories, in category order.</summary>
+    public IReadOnlyList<Guid> EditCategoryIds => EditCategories.Where(c => c.IsSelected).Select(c => c.Id).ToArray();
 
     // Loop override editor (seconds).
     [ObservableProperty]
@@ -129,14 +131,13 @@ public sealed partial class TracksAdminViewModel : ViewModelBase
     public void SetCategories(IReadOnlyList<CategoryDto> categories)
     {
         ArgumentNullException.ThrowIfNull(categories);
-        CategoryOptions.Clear();
-        CategoryOptions.Add(CategoryOption.None);
+        // Keep unsaved ticks across a refresh of the list; new categories start unticked.
+        var ticked = EditCategories.Count == 0 ? SelectedTrack?.CategoryIds.ToHashSet() ?? [] : EditCategoryIds.ToHashSet();
+        EditCategories.Clear();
         foreach (var c in categories.OrderBy(c => c.SortOrder))
         {
-            CategoryOptions.Add(new CategoryOption(c.Id, c.Name));
+            EditCategories.Add(new CategoryChoice(c.Id, c.Name, ticked.Contains(c.Id)));
         }
-
-        EditCategory = CategoryOptions.FirstOrDefault(o => o.Id == SelectedTrack?.CategoryId) ?? CategoryOption.None;
     }
 
     public Task<bool> LoadAsync() => TryAsync(SearchAsync, clearError: false);
@@ -147,7 +148,12 @@ public sealed partial class TracksAdminViewModel : ViewModelBase
     {
         EditTitle = value?.Title ?? "";
         EditArtist = value?.Artist ?? "";
-        EditCategory = CategoryOptions.FirstOrDefault(o => o.Id == value?.CategoryId) ?? CategoryOption.None;
+        var tags = value?.CategoryIds.ToHashSet() ?? [];
+        foreach (var choice in EditCategories)
+        {
+            choice.IsSelected = tags.Contains(choice.Id);
+        }
+
         LoopStart = value?.Loop?.StartSeconds ?? 0;
         LoopEnd = value?.Loop?.EndSeconds ?? value?.DurationSeconds ?? 0;
         LoopCrossfade = value?.Loop?.CrossfadeSeconds ?? 0.2;
@@ -176,7 +182,7 @@ public sealed partial class TracksAdminViewModel : ViewModelBase
             track.Id,
             EditTitle.Trim(),
             string.IsNullOrWhiteSpace(EditArtist) ? null : EditArtist.Trim(),
-            EditCategory.Id);
+            EditCategoryIds);
         return TryAsync(async () =>
         {
             var updated = await _client.Admin.UpdateTrackAsync(update).ConfigureAwait(true);

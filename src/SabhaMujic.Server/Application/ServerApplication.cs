@@ -56,7 +56,6 @@ public sealed class ServerApplication : IDisposable
         Users = new SqliteUserRepository(db);
         Sessions = new SqliteSessionRepository(db);
         Devices = new SqliteDeviceRepository(db);
-        PairingCodes = new SqlitePairingCodeRepository(db);
         Categories = new SqliteCategoryRepository(db);
         Tracks = new SqliteTrackRepository(db);
         Analysis = new SqliteTrackAnalysisRepository(db);
@@ -67,15 +66,15 @@ public sealed class ServerApplication : IDisposable
 
         Events = deps.Events ?? new EventBroadcaster(LoggerFactory.CreateLogger<EventBroadcaster>());
         var audit = new AuditWriter(AuditLog, Clock, LoggerFactory.CreateLogger<AuditWriter>());
-        Auth = new AuthService(Users, Sessions, Devices, PairingCodes, Events, audit, Options, Clock, LoggerFactory.CreateLogger<AuthService>());
+        Auth = new AuthService(Users, Sessions, Devices, Events, audit, Options, Clock, LoggerFactory.CreateLogger<AuthService>());
         Library = new LibraryService(Categories, Tracks);
         PlaylistService = new PlaylistService(Playlists, Events);
         Playback = new PlaybackService(deps.Playback, Tracks, Playlists, ServerEpoch);
-        Admin = new AdminService(Categories, Tracks, Analysis, Users, Sessions, Devices, PairingCodes, deps.Store, deps.Playback,
+        Admin = new AdminService(Categories, Tracks, Analysis, Users, Sessions, Devices, deps.Store, deps.Playback,
             deps.AnalysisQueue, deps.RemoteUrls, Auth, Events, audit, Options, Clock, LoggerFactory.CreateLogger<AdminService>());
         Import = new ImportService(deps.Uploads, deps.Store, Tracks, Categories, Analysis, deps.AudioProbe, deps.AnalysisQueue, Events, audit,
             LoggerFactory.CreateLogger<ImportService>());
-        Maintenance = new MaintenanceService(Sessions, PairingCodes, Analysis, deps.Uploads, deps.AnalysisQueue, Clock,
+        Maintenance = new MaintenanceService(Sessions, Analysis, deps.Uploads, deps.AnalysisQueue, Clock,
             LoggerFactory.CreateLogger<MaintenanceService>());
         Uploads = deps.Uploads;
         // A signed-out, revoked or removed session's partial uploads are discarded at once (not after the idle expiry).
@@ -122,7 +121,6 @@ public sealed class ServerApplication : IDisposable
 
     public IDeviceRepository Devices { get; }
 
-    public IPairingCodeRepository PairingCodes { get; }
 
     public ICategoryRepository Categories { get; }
 

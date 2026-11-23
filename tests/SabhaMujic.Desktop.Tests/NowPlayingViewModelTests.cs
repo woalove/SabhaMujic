@@ -14,7 +14,7 @@ public class NowPlayingViewModelTests
 
     public NowPlayingViewModelTests()
     {
-        _client.Library.Tracks.Add(new TrackDto(TrackA, "Morning Dhun", "Choir", null, 300, AnalysisStatus.Ready, null, DateTimeOffset.UtcNow));
+        _client.Library.Tracks.Add(new TrackDto(TrackA, "Morning Dhun", "Choir", [], 300, AnalysisStatus.Ready, null, DateTimeOffset.UtcNow));
         _vm = new NowPlayingViewModel(_client, _ui.Services, new TrackInfoCache(_client));
     }
 

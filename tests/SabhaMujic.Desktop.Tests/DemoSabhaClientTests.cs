@@ -67,14 +67,15 @@ public class DemoSabhaClientTests
     }
 
     [Fact]
-    public async Task Connects_and_requires_sign_in()
+    public async Task Connects_with_open_use_and_administration_needs_sign_in()
     {
         var states = new List<ConnectionState>();
         _demo.ConnectionStateChanged += (_, s) => states.Add(s);
         await _demo.ConnectAsync();
         Assert.Equal([ConnectionState.Connecting, ConnectionState.Connected], states);
 
-        var ex = await Assert.ThrowsAsync<SabhaMujicException>(() => _demo.Library.GetCategoriesAsync());
+        Assert.NotEmpty(await _demo.Library.GetCategoriesAsync()); // open use: no sign-in for the player
+        var ex = await Assert.ThrowsAsync<SabhaMujicException>(() => _demo.Admin.GetUsersAsync());
         Assert.Equal(ErrorCode.Unauthenticated, ex.Code);
 
         var bad = await Assert.ThrowsAsync<SabhaMujicException>(() => _demo.Auth.LoginAsync("admin", "nope"));
@@ -249,14 +250,16 @@ public class DemoSabhaClientTests
     }
 
     [Fact]
-    public async Task Pairing_code_is_six_digits_and_expires_in_five_minutes()
+    public async Task Phone_setup_shows_addresses_and_needs_an_administrator()
     {
+        await _demo.ConnectAsync();
+        var denied = await Assert.ThrowsAsync<SabhaMujicException>(() => _demo.Admin.GetPhoneSetupInfoAsync());
+        Assert.Equal(ErrorCode.Unauthenticated, denied.Code);
         await SignInAsync();
-        var code = await _demo.Admin.CreatePairingCodeAsync(Role.Volunteer);
-
-        Assert.Matches("^[0-9]{6}$", code.Code);
-        Assert.Equal(_time.Now.AddMinutes(5), code.ExpiresAt);
-        Assert.Contains(code.Code, code.PairingUrl);
+        var setup = await _demo.Admin.GetPhoneSetupInfoAsync();
+        Assert.StartsWith("http://", setup.BootstrapUrl);
+        Assert.StartsWith("https://", setup.RemoteUrl);
+        Assert.True(setup.IsRemoteRunning);
     }
 
     [Fact]

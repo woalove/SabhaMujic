@@ -204,7 +204,7 @@ public sealed class FakeAnalysisQueue : IAnalysisQueue
 
 public sealed class FakeUrls : IRemoteUrlProvider
 {
-    public string GetPairingUrl(string code) => $"https://sabha.local:8443/pair#{code}";
+    public string GetRemoteUrl() => "https://sabha.local:8443/";
 
     public string GetBootstrapUrl() => "http://sabha.local:8080/";
 }
@@ -403,6 +403,13 @@ public sealed class TestServer : IAsyncDisposable
 
 public static class AssertEx
 {
+    /// <summary>Track equality including the tag list (records compare lists by reference).</summary>
+    public static void SameTrack(TrackDto expected, TrackDto actual)
+    {
+        Assert.Equal(expected.CategoryIds, actual.CategoryIds);
+        Assert.Equal(expected with { CategoryIds = [] }, actual with { CategoryIds = [] });
+    }
+
     public static async Task<SabhaMujicException> ThrowsCode(ErrorCode code, Func<Task> action)
     {
         var ex = await Assert.ThrowsAsync<SabhaMujicException>(action);

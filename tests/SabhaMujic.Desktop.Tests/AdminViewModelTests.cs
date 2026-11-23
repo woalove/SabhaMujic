@@ -12,64 +12,42 @@ public class DevicesAdminViewModelTests
 
     public DevicesAdminViewModelTests()
     {
-        _client.Admin.OnPairing = role => new PairingCodeDto(
-            "482913", "https://sabha-pc.local:8443/pair#482913", "http://sabha-pc.local:8080/", role,
-            _ui.Scheduler.UtcNow.AddMinutes(5));
+        _client.Admin.OnPhoneSetup = () => new PhoneSetupInfoDto("http://sabha-pc.local:8080/", "https://sabha-pc.local:8443/", null, IsRemoteRunning: true);
         _vm = new DevicesAdminViewModel(_client, _ui.Services);
     }
 
     [Fact]
-    public async Task Pairing_shows_code_qr_and_counts_down_to_expiry()
+    public async Task Set_up_a_phone_shows_the_setup_page_as_text_and_qr_code_without_any_code()
     {
-        _vm.PairingRole = Role.Admin;
-        await _vm.PairNewDeviceCommand.ExecuteAsync(null);
+        await _vm.SetUpPhoneCommand.ExecuteAsync(null);
 
-        Assert.Equal(Role.Admin, _client.CallsTo("CreatePairingCodeAsync").Single().Args[0]);
-        Assert.Equal("482913", _vm.Pairing?.Code);
-        Assert.True(_vm.IsPairingVisible);
-        Assert.Equal([0x89, (byte)'P', (byte)'N', (byte)'G'], _vm.PairingQrPng!.Take(4).ToArray());
-        Assert.Equal("Expires in 5:00", _vm.CountdownText);
-
-        _ui.Scheduler.Advance(TimeSpan.FromSeconds(1));
-        Assert.Equal("Expires in 4:59", _vm.CountdownText);
-
-        _ui.Scheduler.Advance(TimeSpan.FromSeconds(238));
-        Assert.Equal("Expires in 1:01", _vm.CountdownText);
-
-        _ui.Scheduler.Advance(TimeSpan.FromSeconds(60));
-        Assert.Equal("Expires in 0:01", _vm.CountdownText);
-        Assert.False(_vm.IsPairingExpired);
-        var devicesCallsBefore = _client.CallsTo("GetDevicesAsync").Count();
-
-        _ui.Scheduler.Advance(TimeSpan.FromSeconds(1));
-        Assert.True(_vm.IsPairingExpired);
-        Assert.Null(_vm.PairingQrPng);
-        Assert.Equal("This code has expired. Create a new one.", _vm.CountdownText);
-        Assert.Equal(0, _ui.Scheduler.ActiveCount); // countdown stopped
-        Assert.Equal(devicesCallsBefore + 1, _client.CallsTo("GetDevicesAsync").Count());
+        Assert.Single(_client.CallsTo("GetPhoneSetupInfoAsync"));
+        Assert.True(_vm.IsSetupVisible);
+        Assert.Equal("http://sabha-pc.local:8080/", _vm.Setup?.BootstrapUrl);
+        Assert.Equal("https://sabha-pc.local:8443/", _vm.Setup?.RemoteUrl);
+        Assert.Equal([0x89, (byte)'P', (byte)'N', (byte)'G'], _vm.SetupQrPng!.Take(4).ToArray());
+        Assert.False(_vm.IsRemoteOff);
+        Assert.Equal(0, _ui.Scheduler.ActiveCount); // nothing expires: no countdown
     }
 
     [Fact]
-    public async Task New_code_replaces_the_old_countdown()
+    public async Task A_stopped_remote_is_pointed_out()
     {
-        await _vm.PairNewDeviceCommand.ExecuteAsync(null);
-        _ui.Scheduler.Advance(TimeSpan.FromSeconds(30));
-        await _vm.PairNewDeviceCommand.ExecuteAsync(null);
-
-        Assert.Equal(1, _ui.Scheduler.ActiveCount);
-        Assert.Equal("Expires in 5:00", _vm.CountdownText);
+        _client.Admin.OnPhoneSetup = () => new PhoneSetupInfoDto("http://pc.local:8080/", "https://pc.local:8443/", null, IsRemoteRunning: false);
+        await _vm.SetUpPhoneCommand.ExecuteAsync(null);
+        Assert.True(_vm.IsRemoteOff);
     }
 
     [Fact]
-    public async Task Close_pairing_stops_countdown_and_refreshes_devices()
+    public async Task Closing_the_setup_panel_refreshes_the_remembered_phones()
     {
-        await _vm.PairNewDeviceCommand.ExecuteAsync(null);
-        _client.Admin.Devices.Add(new DeviceDto(Guid.NewGuid(), "iPhone", Role.Volunteer, DateTimeOffset.UtcNow, null));
+        await _vm.SetUpPhoneCommand.ExecuteAsync(null);
+        _client.Admin.Devices.Add(new DeviceDto(Guid.NewGuid(), "iPhone", Role.Admin, DateTimeOffset.UtcNow, null));
 
-        await _vm.ClosePairingCommand.ExecuteAsync(null);
+        await _vm.CloseSetupCommand.ExecuteAsync(null);
 
-        Assert.False(_vm.IsPairingVisible);
-        Assert.Equal(0, _ui.Scheduler.ActiveCount);
+        Assert.False(_vm.IsSetupVisible);
+        Assert.Null(_vm.SetupQrPng);
         Assert.Single(_vm.Devices);
     }
 
@@ -123,6 +101,36 @@ public class CategoriesAndTracksAdminTests
     }
 
     [Fact]
+    public async Task Track_categories_are_a_multi_select_that_keeps_every_tick()
+    {
+        var bhajan = new CategoryDto(Guid.NewGuid(), "Bhajan", 0, 1);
+        var kirtan = new CategoryDto(Guid.NewGuid(), "Kirtan", 1, 0);
+        var dhun = new CategoryDto(Guid.NewGuid(), "Dhun", 2, 0);
+        _client.Library.Categories.AddRange([bhajan, kirtan, dhun]);
+        var track = _client.Library.AddTrack("Song", bhajan.Id);
+        var vm = new TracksAdminViewModel(_client, _ui.Services);
+        vm.SetCategories(_client.Library.Categories);
+        await vm.LoadAsync();
+
+        vm.SelectedTrack = vm.Tracks.Single();
+        Assert.Equal(["Bhajan", "Kirtan", "Dhun"], vm.EditCategories.Select(c => c.Name));
+        Assert.Equal([bhajan.Id], vm.EditCategoryIds);
+
+        vm.EditCategories.Single(c => c.Id == dhun.Id).IsSelected = true;
+        vm.EditCategories.Single(c => c.Id == kirtan.Id).IsSelected = true;
+        vm.SetCategories(_client.Library.Categories); // a refresh keeps unsaved ticks
+        await vm.SaveCommand.ExecuteAsync(null);
+
+        var sent = Assert.IsType<TrackUpdateDto>(_client.CallsTo("UpdateTrackAsync").Single().Args[0]);
+        Assert.Equal(track.Id, sent.TrackId);
+        Assert.Equal([bhajan.Id, kirtan.Id, dhun.Id], sent.CategoryIds);
+
+        vm.EditCategories.Single(c => c.Id == bhajan.Id).IsSelected = false;
+        await vm.SaveCommand.ExecuteAsync(null);
+        Assert.Equal([kirtan.Id, dhun.Id], Assert.IsType<TrackUpdateDto>(_client.CallsTo("UpdateTrackAsync").Last().Args[0]).CategoryIds);
+    }
+
+    [Fact]
     public async Task Track_metadata_loop_override_and_reanalyze()
     {
         var track = _client.Library.AddTrack("Old title", duration: 100);
@@ -135,7 +143,9 @@ public class CategoriesAndTracksAdminTests
         vm.EditTitle = " New title ";
         vm.EditArtist = "";
         await vm.SaveCommand.ExecuteAsync(null);
-        Assert.Equal(new TrackUpdateDto(track.Id, "New title", null, null), _client.CallsTo("UpdateTrackAsync").Single().Args[0]);
+        var sent = Assert.IsType<TrackUpdateDto>(_client.CallsTo("UpdateTrackAsync").Single().Args[0]);
+        Assert.Equal((track.Id, "New title", (string?)null), (sent.TrackId, sent.Title, sent.Artist));
+        Assert.Empty(sent.CategoryIds);
         Assert.Equal("New title", vm.SelectedTrack?.Title);
 
         vm.LoopStart = 10;
@@ -203,16 +213,16 @@ public class UsersAdminViewModelTests
 
         vm.NewUserName = " sevak2 ";
         vm.NewUserRole = Role.Admin;
-        vm.NewUserSecret = "4321";
+        vm.NewUserSecret = "pass-4321";
         await vm.CreateCommand.ExecuteAsync(null);
-        Assert.Equal(["sevak2", Role.Admin, "4321"], _client.CallsTo("CreateUserAsync").Single().Args);
+        Assert.Equal(["sevak2", Role.Admin, "pass-4321"], _client.CallsTo("CreateUserAsync").Single().Args);
         Assert.Equal("", vm.NewUserSecret);
         Assert.Equal(1, cleared);
         var user = Assert.Single(vm.Users);
 
-        _ui.Dialogs.PromptResults.Enqueue("9999");
+        _ui.Dialogs.PromptResults.Enqueue("pass-9999");
         await vm.ResetSecretCommand.ExecuteAsync(user);
-        Assert.Equal([user.Id, "9999"], _client.CallsTo("SetUserSecretAsync").Single().Args);
+        Assert.Equal([user.Id, "pass-9999"], _client.CallsTo("SetUserSecretAsync").Single().Args);
 
         await vm.DeleteCommand.ExecuteAsync(user);
         Assert.Equal(user.Id, _client.CallsTo("DeleteUserAsync").Single().Args[0]);
@@ -220,16 +230,16 @@ public class UsersAdminViewModelTests
     }
 
     [Fact]
-    public async Task Short_pins_are_rejected_before_calling_the_service()
+    public async Task Short_passwords_are_rejected_before_calling_the_service()
     {
-        var vm = new UsersAdminViewModel(_client, _ui.Services) { NewUserName = "x", NewUserSecret = "12" };
+        var vm = new UsersAdminViewModel(_client, _ui.Services) { NewUserName = "x", NewUserSecret = "1234567" };
 
         await vm.CreateCommand.ExecuteAsync(null);
-        _ui.Dialogs.PromptResults.Enqueue("1");
+        _ui.Dialogs.PromptResults.Enqueue("1234567");
         await vm.ResetSecretCommand.ExecuteAsync(new UserDto(Guid.NewGuid(), "y", Role.Volunteer, DateTimeOffset.UtcNow));
 
         Assert.Empty(_client.CallsTo("CreateUserAsync"));
         Assert.Empty(_client.CallsTo("SetUserSecretAsync"));
-        Assert.Contains("at least 4", vm.ErrorMessage);
+        Assert.Contains("at least 8", vm.ErrorMessage);
     }
 }

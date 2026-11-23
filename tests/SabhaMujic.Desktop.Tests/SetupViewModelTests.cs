@@ -17,7 +17,7 @@ public class SetupViewModelTests
         return (shell, client);
     }
 
-    private static void Fill(SetupViewModel setup, string name = " Ramesh ", string secret = "4321", string? confirm = null)
+    private static void Fill(SetupViewModel setup, string name = " Ramesh ", string secret = "pass-4321", string? confirm = null)
     {
         setup.AdminName = name;
         setup.Secret = secret;
@@ -35,11 +35,12 @@ public class SetupViewModelTests
     }
 
     [Fact]
-    public void Configured_service_shows_login()
+    public void Configured_service_shows_the_player_without_sign_in()
     {
         var (shell, _) = FreshInstall(setupRequired: false);
         Assert.False(shell.IsSetupVisible);
-        Assert.True(shell.IsLoginVisible);
+        Assert.False(shell.IsLoginVisible);
+        Assert.True(shell.IsMainVisible);
     }
 
     [Fact]
@@ -54,10 +55,10 @@ public class SetupViewModelTests
     }
 
     [Theory]
-    [InlineData("", "1234", "1234")]
-    [InlineData("admin", "123", "123")]
-    [InlineData("admin", "1234", "1235")]
-    [InlineData("admin", "1234", "")]
+    [InlineData("", "12345678", "12345678")]
+    [InlineData("admin", "1234567", "1234567")]
+    [InlineData("admin", "12345678", "12345679")]
+    [InlineData("admin", "12345678", "")]
     public void Create_is_disabled_until_the_form_is_valid(string name, string secret, string confirm)
     {
         var (shell, _) = FreshInstall();
@@ -72,12 +73,12 @@ public class SetupViewModelTests
     {
         var (shell, _) = FreshInstall();
         Assert.Null(shell.Setup.ValidationHint);
-        shell.Setup.Secret = "12";
-        Assert.Contains("at least 4", shell.Setup.ValidationHint);
         shell.Setup.Secret = "1234";
+        Assert.Contains("at least 8", shell.Setup.ValidationHint);
+        shell.Setup.Secret = "12345678";
         shell.Setup.ConfirmSecret = "9";
         Assert.Contains("do not match", shell.Setup.ValidationHint);
-        shell.Setup.ConfirmSecret = "1234";
+        shell.Setup.ConfirmSecret = "12345678";
         Assert.Null(shell.Setup.ValidationHint);
     }
 
@@ -92,7 +93,7 @@ public class SetupViewModelTests
         await shell.Setup.CompleteSetupCommand.ExecuteAsync(null);
 
         var call = Assert.Single(client.CallsTo("CompleteInitialSetupAsync"));
-        Assert.Equal(["Ramesh", "4321"], call.Args);
+        Assert.Equal(["Ramesh", "pass-4321"], call.Args);
         Assert.True(shell.IsSignedIn);
         Assert.True(shell.IsAdmin);
         Assert.False(shell.IsSetupVisible);
@@ -121,7 +122,7 @@ public class SetupViewModelTests
     }
 
     [Fact]
-    public async Task Already_set_up_switches_to_login()
+    public async Task Already_set_up_switches_to_the_player()
     {
         var (shell, client) = FreshInstall();
         client.Auth.OnCompleteSetup = (_, _) => throw new SabhaMujicException(ErrorCode.Conflict, "already");
@@ -130,7 +131,7 @@ public class SetupViewModelTests
         await shell.Setup.CompleteSetupCommand.ExecuteAsync(null);
 
         Assert.False(shell.IsSetupRequired);
-        Assert.True(shell.IsLoginVisible);
+        Assert.True(shell.IsMainVisible);
         Assert.NotNull(shell.Setup.ErrorMessage);
     }
 

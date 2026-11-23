@@ -8,24 +8,23 @@
             <ColumnDefinition Width="340" />
         </Grid.ColumnDefinitions>
 
-        <!-- Paired devices -->
+        <!-- Remembered phones -->
         <DockPanel Grid.Column="0">
             <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
                 <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshCommand}" Margin="0" />
-                <TextBlock Text="Paired devices" Style="{StaticResource SectionTitle}" Margin="0" VerticalAlignment="Center" />
+                <TextBlock Text="Remembered phones" Style="{StaticResource SectionTitle}" Margin="0" VerticalAlignment="Center" />
             </DockPanel>
             <ContentControl DockPanel.Dock="Top" Content="{Binding}" ContentTemplate="{StaticResource MessageStrip}" Focusable="False" />
-            <ListBox x:Name="DeviceList" ItemsSource="{Binding Devices}" SelectedItem="{Binding SelectedDevice}" AutomationProperties.Name="Paired devices">
+            <ListBox x:Name="DeviceList" ItemsSource="{Binding Devices}" SelectedItem="{Binding SelectedDevice}" AutomationProperties.Name="Remembered phones">
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <DockPanel>
-                            <Button DockPanel.Dock="Right" Content="Revoke…" Command="{Binding DataContext.RevokeCommand, ElementName=DeviceList}"
+                            <Button DockPanel.Dock="Right" Content="Forget…" Command="{Binding DataContext.RevokeCommand, ElementName=DeviceList}"
                                     CommandParameter="{Binding}" VerticalAlignment="Center" />
                             <StackPanel>
                                 <TextBlock Text="{Binding Name}" FontSize="16" FontWeight="SemiBold" />
                                 <TextBlock Style="{StaticResource MutedText}" FontSize="12">
-                                    <Run Text="{Binding Role, Mode=OneWay}" />
-                                    <Run Text="· paired" />
+                                    <Run Text="remembered" />
                                     <Run Text="{Binding PairedAt, Mode=OneWay, StringFormat=d}" />
                                     <Run Text="· last seen" />
                                     <Run Text="{Binding LastSeenAt, Mode=OneWay, StringFormat=g, TargetNullValue=never}" />
@@ -37,47 +36,37 @@
             </ListBox>
         </DockPanel>
 
-        <!-- Pair a new device -->
+        <!-- Set up a phone -->
         <Border Grid.Column="2" Style="{StaticResource Card}" VerticalAlignment="Top">
             <StackPanel>
-                <TextBlock Text="Pair a new iPhone" Style="{StaticResource SectionTitle}" Margin="0,0,0,4" />
-                <TextBlock Text="Role for the new device" Style="{StaticResource FieldLabel}" />
-                <ComboBox ItemsSource="{Binding Roles}" SelectedItem="{Binding PairingRole}" AutomationProperties.Name="Role for the new device" />
-                <Button Content="Pair new device" Style="{StaticResource AccentButton}" Command="{Binding PairNewDeviceCommand}"
+                <TextBlock Text="Set up a phone" Style="{StaticResource SectionTitle}" Margin="0,0,0,4" />
+                <TextBlock Text="The phone remote is for administrators: they sign in on the iPhone with their name and password."
+                           TextWrapping="Wrap" Style="{StaticResource MutedText}" />
+                <Button Content="Set up a phone" Style="{StaticResource AccentButton}" Command="{Binding SetUpPhoneCommand}"
                         Margin="0,12,0,0" HorizontalAlignment="Left" />
 
-                <StackPanel Margin="0,16,0,0" Visibility="{Binding IsPairingVisible, Converter={StaticResource BoolToVisibility}}">
-                    <TextBlock Text="Scan with the iPhone camera, or open the link and enter the code:" TextWrapping="Wrap" />
-                    <Image Source="{Binding PairingQrPng, Converter={StaticResource PngToImage}}" Width="220" Height="220" Margin="0,10"
+                <StackPanel Margin="0,16,0,0" Visibility="{Binding IsSetupVisible, Converter={StaticResource BoolToVisibility}}">
+                    <Border Style="{StaticResource WarningBanner}" Visibility="{Binding IsRemoteOff, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="The phone remote is not running on this PC, so these addresses will not work until it is turned on."
+                                   TextWrapping="Wrap" />
+                    </Border>
+                    <TextBlock Text="On the iPhone, open the camera and scan this code (or type the address into Safari). Follow the steps to install the certificate, then sign in with an administrator name and password."
+                               TextWrapping="Wrap" />
+                    <Image Source="{Binding SetupQrPng, Converter={StaticResource PngToImage}}" Width="220" Height="220" Margin="0,10"
                            RenderOptions.BitmapScalingMode="NearestNeighbor" HorizontalAlignment="Center"
-                           AutomationProperties.Name="Pairing QR code"
-                           Visibility="{Binding PairingQrPng, Converter={StaticResource NullToVisibility}}" />
-                    <TextBlock Text="{Binding Pairing.Code}" FontSize="40" FontWeight="Bold" FontFamily="Consolas" HorizontalAlignment="Center"
-                               AutomationProperties.Name="Pairing code" />
-                    <TextBlock Text="{Binding CountdownText}" HorizontalAlignment="Center" Margin="0,4,0,8" FontWeight="SemiBold">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsPairingExpired}" Value="True">
-                                        <Setter Property="Foreground" Value="{StaticResource ErrorTextBrush}" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
-                    <TextBox Text="{Binding Pairing.PairingUrl, Mode=OneWay}" IsReadOnly="True" FontSize="12" AutomationProperties.Name="Pairing link" />
-                    <TextBlock TextWrapping="Wrap" FontSize="12" Style="{StaticResource MutedText}" Margin="0,8,0,0">
-                        <Run Text="First time on this iPhone? Install the SabhaMujic certificate first from" />
-                        <Run Text="{Binding Pairing.BootstrapUrl, Mode=OneWay}" FontWeight="SemiBold" />
-                    </TextBlock>
+                           AutomationProperties.Name="Setup page QR code"
+                           Visibility="{Binding SetupQrPng, Converter={StaticResource NullToVisibility}}" />
+                    <TextBlock Text="Setup page" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding Setup.BootstrapUrl, Mode=OneWay}" IsReadOnly="True" FontSize="12" AutomationProperties.Name="Setup page address" />
+                    <TextBlock Text="Remote (after setup)" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding Setup.RemoteUrl, Mode=OneWay}" IsReadOnly="True" FontSize="12" AutomationProperties.Name="Remote address" />
                     <StackPanel Margin="0,10,0,0" Visibility="{Binding IsFingerprintVisible, Converter={StaticResource BoolToVisibility}}">
                         <TextBlock Text="Check this matches the fingerprint on the phone's setup page" TextWrapping="Wrap" FontSize="12"
                                    Style="{StaticResource MutedText}" />
                         <TextBlock Text="{Binding CaFingerprintText}" FontFamily="Consolas" FontSize="13" Margin="0,4,0,0"
                                    AutomationProperties.Name="Certificate fingerprint (SHA-256)" />
                     </StackPanel>
-                    <Button Content="Done" Command="{Binding ClosePairingCommand}" Margin="0,12,0,0" HorizontalAlignment="Left" />
+                    <Button Content="Done" Command="{Binding CloseSetupCommand}" Margin="0,12,0,0" HorizontalAlignment="Left" />
                 </StackPanel>
             </StackPanel>
         </Border>

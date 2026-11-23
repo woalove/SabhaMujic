@@ -58,6 +58,7 @@ public static class OperationMap
         [$"{nameof(IAdminApi)}.{nameof(IAdminApi.CreateCategoryAsync)}"] = Operation.ManageCategories,
         [$"{nameof(IAdminApi)}.{nameof(IAdminApi.RenameCategoryAsync)}"] = Operation.ManageCategories,
         [$"{nameof(IAdminApi)}.{nameof(IAdminApi.ReorderCategoriesAsync)}"] = Operation.ManageCategories,
+        [$"{nameof(IAdminApi)}.{nameof(IAdminApi.SetCategoryTracksAsync)}"] = Operation.ManageCategoryMembership,
         [$"{nameof(IAdminApi)}.{nameof(IAdminApi.DeleteCategoryAsync)}"] = Operation.ManageCategories,
         [$"{nameof(IAdminApi)}.{nameof(IAdminApi.UpdateTrackAsync)}"] = Operation.ManageTracks,
         [$"{nameof(IAdminApi)}.{nameof(IAdminApi.DeleteTrackAsync)}"] = Operation.ManageTracks,
@@ -68,7 +69,7 @@ public static class OperationMap
         [$"{nameof(IAdminApi)}.{nameof(IAdminApi.SetUserSecretAsync)}"] = Operation.ManageUsers,
         [$"{nameof(IAdminApi)}.{nameof(IAdminApi.DeleteUserAsync)}"] = Operation.ManageUsers,
         [$"{nameof(IAdminApi)}.{nameof(IAdminApi.GetDevicesAsync)}"] = Operation.ManageDevices,
-        [$"{nameof(IAdminApi)}.{nameof(IAdminApi.CreatePairingCodeAsync)}"] = Operation.ManageDevices,
+        [$"{nameof(IAdminApi)}.{nameof(IAdminApi.GetPhoneSetupInfoAsync)}"] = Operation.ManageDevices,
         [$"{nameof(IAdminApi)}.{nameof(IAdminApi.RevokeDeviceAsync)}"] = Operation.ManageDevices,
     }.ToFrozenDictionary();
 

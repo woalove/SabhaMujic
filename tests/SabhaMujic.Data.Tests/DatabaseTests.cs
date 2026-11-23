@@ -7,8 +7,9 @@ public sealed class DatabaseTests : IDisposable
 {
     private static readonly string[] ExpectedTables =
     [
-        "audit_log", "categories", "devices", "pairing_codes", "playback_queue", "playback_state", "playlist_items",
-        "playlists", "schema_migrations", "sessions", "settings", "track_analysis", "track_loop_overrides", "tracks", "users",
+        "audit_log", "categories", "devices", "playback_queue", "playback_state", "playlist_items",
+        "playlists", "schema_migrations", "sessions", "settings", "track_analysis", "track_categories", "track_loop_overrides", "tracks",
+        "users",
     ];
 
     private readonly TempDirectory _dir = new();

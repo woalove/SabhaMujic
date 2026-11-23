@@ -174,7 +174,7 @@ public sealed class FakeLibrary(FakeSabhaClient c) : ILibraryApi
         }
 
         var items = Tracks.Where(t =>
-            (query.CategoryId is null || t.CategoryId == query.CategoryId) &&
+            (query.CategoryId is not { } tag || t.CategoryIds.Contains(tag)) &&
             (query.Search is null || t.Title.Contains(query.Search, StringComparison.OrdinalIgnoreCase))).ToArray();
         return new PagedResult<TrackDto>(items.Skip(query.Skip).Take(query.Take).ToArray(), items.Length);
     }
@@ -197,7 +197,7 @@ public sealed class FakeLibrary(FakeSabhaClient c) : ILibraryApi
 
     public TrackDto AddTrack(string title, Guid? categoryId = null, double duration = 200)
     {
-        var track = new TrackDto(Guid.NewGuid(), title, "Artist", categoryId, duration, AnalysisStatus.Ready, null, DateTimeOffset.UtcNow);
+        var track = new TrackDto(Guid.NewGuid(), title, "Artist", categoryId is { } c ? [c] : [], duration, AnalysisStatus.Ready, null, DateTimeOffset.UtcNow);
         Tracks.Add(track);
         return track;
     }
@@ -352,7 +352,7 @@ public sealed class FakeAdmin(FakeSabhaClient c) : IAdminApi
 
     public List<DeviceDto> Devices { get; } = [];
 
-    public Func<Role, PairingCodeDto>? OnPairing { get; set; }
+    public Func<PhoneSetupInfoDto>? OnPhoneSetup { get; set; }
 
     public Task<Guid> BeginImportAsync(string fileName, long totalBytes, CancellationToken ct = default)
     {
@@ -402,6 +402,12 @@ public sealed class FakeAdmin(FakeSabhaClient c) : IAdminApi
         return Task.CompletedTask;
     }
 
+    public Task<CategoryDto> SetCategoryTracksAsync(Guid categoryId, IReadOnlyList<Guid> trackIds, CancellationToken ct = default)
+    {
+        c.Record(nameof(SetCategoryTracksAsync), categoryId, trackIds);
+        return Task.FromResult(new CategoryDto(categoryId, "Category", 0, trackIds.Count));
+    }
+
     public Task DeleteCategoryAsync(Guid categoryId, CancellationToken ct = default)
     {
         c.Record(nameof(DeleteCategoryAsync), categoryId);
@@ -415,7 +421,7 @@ public sealed class FakeAdmin(FakeSabhaClient c) : IAdminApi
         {
             Title = update.Title,
             Artist = update.Artist,
-            CategoryId = update.CategoryId,
+            CategoryIds = update.CategoryIds,
         };
         return Task.FromResult(t);
     }
@@ -471,11 +477,11 @@ public sealed class FakeAdmin(FakeSabhaClient c) : IAdminApi
         return Task.FromResult<IReadOnlyList<DeviceDto>>(Devices.ToArray());
     }
 
-    public Task<PairingCodeDto> CreatePairingCodeAsync(Role role, CancellationToken ct = default)
+    public Task<PhoneSetupInfoDto> GetPhoneSetupInfoAsync(CancellationToken ct = default)
     {
-        c.Record(nameof(CreatePairingCodeAsync), role);
-        return Task.FromResult(OnPairing?.Invoke(role) ??
-            new PairingCodeDto("123456", "https://pc.local:8443/pair#123456", "http://pc.local:8080/", role, DateTimeOffset.UtcNow.AddMinutes(5)));
+        c.Record(nameof(GetPhoneSetupInfoAsync));
+        return FakeAuth.Invoke(() => OnPhoneSetup?.Invoke() ??
+            new PhoneSetupInfoDto("http://pc.local:8080/", "https://pc.local:8443/", null, IsRemoteRunning: true));
     }
 
     public Task RevokeDeviceAsync(Guid deviceId, CancellationToken ct = default)

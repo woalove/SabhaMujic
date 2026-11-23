@@ -21,7 +21,7 @@ public sealed class AuthorizationStressTests(ITestOutputHelper output)
         await using var h = await ReliabilityHost.StartAsync(speed: 10);
         var existing = await h.ImportAsync(SoakWav.Through(5, 1), "Existing");
         var category = await h.Admin.Admin.CreateCategoryAsync("Bhajan");
-        var device = await h.App.CreateSession(ClientKind.Desktop, "test").CreatePairingCodeAsyncAs(h);
+        var device = await h.App.CreateSession(ClientKind.Remote, "192.168.1.30").RememberPhoneAsync();
         await h.CreateVolunteersAsync(6);
         await h.WaitForAnalysisAsync();
         var users = await h.Admin.Admin.GetUsersAsync();
@@ -54,7 +54,7 @@ public sealed class AuthorizationStressTests(ITestOutputHelper output)
                     await h.Admin.Admin.UploadChunkAsync(id, offset, bytes[offset..Math.Min(bytes.Length, offset + AdminLimits.MaxChunkBytes)]);
                 }
 
-                imported.Add((await h.Admin.Admin.CompleteImportAsync(id, new ImportMetadata($"Admin {n}", null, category.Id))).TrackId);
+                imported.Add((await h.Admin.Admin.CompleteImportAsync(id, new ImportMetadata($"Admin {n}", null, [category.Id]))).TrackId);
             }
         });
 
@@ -98,13 +98,13 @@ public sealed class AuthorizationStressTests(ITestOutputHelper output)
     }
 
     private static (string Name, Func<Task> Call) AdminCall(PipeSabhaClient c, Random random, Guid track, Guid category, Guid user, Guid device, Guid upload) =>
-        random.Next(19) switch
+        random.Next(20) switch
         {
             0 => ("CreateCategory", () => c.Admin.CreateCategoryAsync("Hacked " + random.Next())),
             1 => ("RenameCategory", () => c.Admin.RenameCategoryAsync(category, "Hacked")),
             2 => ("DeleteCategory", () => c.Admin.DeleteCategoryAsync(category)),
             3 => ("ReorderCategories", () => c.Admin.ReorderCategoriesAsync([category])),
-            4 => ("UpdateTrack", () => c.Admin.UpdateTrackAsync(new TrackUpdateDto(track, "Hacked", null, null))),
+            4 => ("UpdateTrack", () => c.Admin.UpdateTrackAsync(new TrackUpdateDto(track, "Hacked", null, []))),
             5 => ("DeleteTrack", () => c.Admin.DeleteTrackAsync(track)),
             6 => ("SetLoopOverride", () => c.Admin.SetLoopOverrideAsync(track, new LoopRegionDto(0.5, 3, 0.1, 1, true))),
             7 => ("ReanalyzeTrack", () => c.Admin.ReanalyzeTrackAsync(track)),
@@ -113,12 +113,13 @@ public sealed class AuthorizationStressTests(ITestOutputHelper output)
             10 => ("SetUserSecret", () => c.Admin.SetUserSecretAsync(user, "taken-over")),
             11 => ("DeleteUser", () => c.Admin.DeleteUserAsync(user)),
             12 => ("GetDevices", () => c.Admin.GetDevicesAsync()),
-            13 => ("CreatePairingCode", () => c.Admin.CreatePairingCodeAsync(Role.Admin)),
+            13 => ("SetCategoryTracks", () => c.Admin.SetCategoryTracksAsync(category, [track])),
             14 => ("RevokeDevice", () => c.Admin.RevokeDeviceAsync(device)),
             15 => ("BeginImport", () => c.Admin.BeginImportAsync("evil.wav", 1000)),
             16 => ("UploadChunk (admin's upload)", () => c.Admin.UploadChunkAsync(upload, 0, new byte[16])),
             17 => ("CompleteImport (admin's upload)", () => c.Admin.CompleteImportAsync(upload, new ImportMetadata("Stolen", null, null))),
-            _ => ("CancelImport (admin's upload)", () => c.Admin.CancelImportAsync(upload)),
+            18 => ("CancelImport (admin's upload)", () => c.Admin.CancelImportAsync(upload)),
+            _ => ("GetPhoneSetupInfo", () => c.Admin.GetPhoneSetupInfoAsync()),
         };
 
     /// <summary>Every table except the audit log, sessions and playback state (logins and attempts legitimately touch them).</summary>
@@ -155,15 +156,12 @@ public sealed class AuthorizationStressTests(ITestOutputHelper output)
         tracks.Any(id => h.App.Tracks.GetFileInfoAsync(id).GetAwaiter().GetResult()?.FileKey == fileName);
 }
 
-internal static class PairingHelper
+internal static class PhoneHelper
 {
-    /// <summary>Creates a paired device directly (admin session), returning its id, so RevokeDevice has a real target.</summary>
-    public static async Task<Guid> CreatePairingCodeAsyncAs(this Api.ApiSession session, ReliabilityHost h)
+    /// <summary>Signs the admin in on a (remote) session with "Remember this phone", returning the device id, so RevokeDevice has a real target.</summary>
+    public static async Task<Guid> RememberPhoneAsync(this Api.ApiSession phone)
     {
-        await session.LoginAsync(ReliabilityHost.AdminUser, ReliabilityHost.AdminSecret);
-        var code = await session.CreatePairingCodeAsync(Role.Volunteer);
-        var phone = h.App.CreateSession(ClientKind.Remote, "192.168.1.30");
-        var paired = await phone.PairAsync(code.Code, "Volunteer phone");
-        return paired.Device.Id;
+        await phone.RemoteLoginAsync(ReliabilityHost.AdminUser, ReliabilityHost.AdminSecret, rememberDevice: true, "Admin phone");
+        return phone.Caller.DeviceId!.Value;
     }
 }

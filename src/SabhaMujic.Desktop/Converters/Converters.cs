@@ -52,7 +52,7 @@ public sealed class EnumEqualsConverter : IValueConverter
         Binding.DoNothing;
 }
 
-/// <summary>PNG bytes (e.g. the pairing QR code) → frozen BitmapImage.</summary>
+/// <summary>PNG bytes (e.g. the phone setup QR code) → frozen BitmapImage.</summary>
 public sealed class PngBytesToImageConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)

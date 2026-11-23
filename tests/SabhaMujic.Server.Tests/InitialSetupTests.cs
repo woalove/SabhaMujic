@@ -24,7 +24,7 @@ public sealed class InitialSetupTests
         await using var server = await TestServer.StartAsync(seedUsers: false, identity: new FixedCallerIdentity("PC\\owner", elevated: true));
         var client = await server.ConnectAsync();
 
-        var session = await client.Auth.CompleteInitialSetupAsync(" Ramesh ", "4321");
+        var session = await client.Auth.CompleteInitialSetupAsync(" Ramesh ", "pass-4321");
 
         Assert.Equal("Ramesh", session.UserName);
         Assert.Equal(Role.Admin, session.Role);
@@ -36,11 +36,11 @@ public sealed class InitialSetupTests
         Assert.Equal("Ramesh (PC\\owner)", audit.Actor);
 
         // Another fresh connection can now sign in normally.
-        var other = await server.ConnectAsync("ramesh", "4321");
+        var other = await server.ConnectAsync("ramesh", "pass-4321");
         Assert.Equal(Role.Admin, other.Session!.Role);
 
         // Second attempt: already set up.
-        await AssertEx.ThrowsCode(ErrorCode.Conflict, () => other.Auth.CompleteInitialSetupAsync("second", "9999"));
+        await AssertEx.ThrowsCode(ErrorCode.Conflict, () => other.Auth.CompleteInitialSetupAsync("second", "pass-9999"));
         Assert.Single(await server.App.Users.ListAsync());
     }
 
@@ -60,7 +60,7 @@ public sealed class InitialSetupTests
             await start.Task;
             try
             {
-                await c.Auth.CompleteInitialSetupAsync("admin" + i, "pass-" + i);
+                await c.Auth.CompleteInitialSetupAsync("admin" + i, "password-" + i);
                 return (ErrorCode?)null;
             }
             catch (SabhaMujicException ex)
@@ -81,10 +81,11 @@ public sealed class InitialSetupTests
     {
         await using var server = await TestServer.StartAsync(seedUsers: false, identity: new FixedCallerIdentity("PC\\owner", elevated: true));
         var client = await server.ConnectAsync();
-        await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => client.Auth.CompleteInitialSetupAsync("admin", "123"));
-        await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => client.Auth.CompleteInitialSetupAsync("  ", "1234"));
+        var tooShort = await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => client.Auth.CompleteInitialSetupAsync("admin", "1234567"));
+        Assert.Contains("password", tooShort.Message);
+        await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => client.Auth.CompleteInitialSetupAsync("  ", "12345678"));
         Assert.True(await client.Auth.IsSetupRequiredAsync());
-        await client.Auth.CompleteInitialSetupAsync("admin", "1234");
+        await client.Auth.CompleteInitialSetupAsync("admin", "12345678");
     }
 
     [Fact]
@@ -94,8 +95,9 @@ public sealed class InitialSetupTests
         // Even if a remote transport (wrongly) claimed elevation, CreateSession ignores it for non-desktop clients.
         var remote = server.App.CreateSession(ClientKind.Remote, "192.168.1.50", isElevatedAdministrator: true);
         Assert.False(remote.IsElevatedAdministrator);
-        Assert.True(await remote.IsSetupRequiredAsync());
-        await AssertEx.ThrowsCode(ErrorCode.Forbidden, () => remote.CompleteInitialSetupAsync("admin", "1234"));
+        // The remote is for signed-in administrators only (contract v2): setup is not even reachable there.
+        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => remote.IsSetupRequiredAsync());
+        await AssertEx.ThrowsCode(ErrorCode.Unauthenticated, () => remote.CompleteInitialSetupAsync("admin", "admin-password"));
         Assert.Empty(await server.App.Users.ListAsync());
     }
 }

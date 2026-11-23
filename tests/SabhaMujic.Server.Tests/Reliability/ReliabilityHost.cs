@@ -114,12 +114,16 @@ public sealed class ReliabilityHost : IAsyncDisposable
         return client;
     }
 
-    /// <summary>Creates volunteer accounts <c>vol0..vol{n-1}</c> (secret <c>vol-pin-i</c>).</summary>
+    /// <summary>
+    /// Creates volunteer accounts <c>vol0..vol{n-1}</c> (secret <c>vol-pin-i</c>). Since contract v2 the API only creates
+    /// administrators, so these are written directly, like accounts left over from before v2 (still able to sign in on
+    /// the desktop, with volunteer rights).
+    /// </summary>
     public async Task CreateVolunteersAsync(int count)
     {
         for (var i = 0; i < count; i++)
         {
-            await Admin.Admin.CreateUserAsync($"vol{i}", Role.Volunteer, $"vol-pin-{i}");
+            await App.Users.CreateAsync($"vol{i}", Role.Volunteer, App.Auth.HashSecret($"vol-pin-{i}"));
         }
     }
 

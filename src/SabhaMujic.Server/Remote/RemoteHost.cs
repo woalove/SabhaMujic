@@ -110,6 +110,10 @@ public sealed class RemoteHost : IAsyncDisposable
             await https.StartAsync(ct).ConfigureAwait(false);
             _https = https;
             _httpsPort = BoundPort(https);
+            if (_urls is not null)
+            {
+                _urls.HttpsPort = _httpsPort;
+            }
 
             if (_bootstrapPort is { } bootstrapPort)
             {
@@ -126,6 +130,11 @@ public sealed class RemoteHost : IAsyncDisposable
             _stop = new CancellationTokenSource();
             _certificateLoop = Task.Run(() => CertificateLoopAsync(_stop.Token), CancellationToken.None);
             NetworkChange.NetworkAddressChanged += OnNetworkAddressChanged;
+            if (_urls is not null)
+            {
+                _urls.IsRemoteRunning = true;
+            }
+
             _logger.LogInformation("Remote listening on https port {HttpsPort} (bootstrap http port {BootstrapPort}).", _httpsPort, _bootstrapPort);
         }
         catch
@@ -164,6 +173,11 @@ public sealed class RemoteHost : IAsyncDisposable
     private async Task StopCoreAsync()
     {
         NetworkChange.NetworkAddressChanged -= OnNetworkAddressChanged;
+        if (_urls is not null)
+        {
+            _urls.IsRemoteRunning = false;
+        }
+
         if (_stop is not null)
         {
             await _stop.CancelAsync().ConfigureAwait(false);

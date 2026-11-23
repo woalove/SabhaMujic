@@ -20,16 +20,18 @@ public sealed class RemoteAuthorizationFixture : IAsyncLifetime
     public async Task InitializeAsync()
     {
         Host = await RemoteTestHost.StartAsync();
-        Volunteer = await Host.PairAsync(Role.Volunteer, "matrix volunteer");
-        Admin = await Host.PairAsync(Role.Admin, "matrix admin");
+        Volunteer = await Host.PhoneAsync(Role.Volunteer, "matrix volunteer");
+        Admin = await Host.PhoneAsync(Role.Admin, "matrix admin");
     }
 
     public async Task DisposeAsync() => await Host.DisposeAsync();
 }
 
 /// <summary>
-/// Exhaustive remote authorization: every hub method and every HTTP endpoint as anonymous, Volunteer and Admin, checked
-/// against <see cref="Authorizer"/>. Denials must leave no trace (DB, store, uploads, backend, analysis).
+/// Exhaustive remote authorization (contract v2: the phone remote is for administrators only): every hub method and every
+/// HTTP endpoint as anonymous, a volunteer phone (paired before v2) and an admin, checked against <see cref="Authorizer"/>.
+/// Only sign-in and sign-out are open; everything else is <c>Unauthenticated</c> anonymously and <c>Forbidden</c> for a
+/// volunteer. Denials must leave no trace (DB, store, uploads, backend, analysis).
 /// </summary>
 public sealed class RemoteAuthorizationTests(RemoteAuthorizationFixture fixture) : IClassFixture<RemoteAuthorizationFixture>
 {
@@ -109,22 +111,24 @@ public sealed class RemoteAuthorizationTests(RemoteAuthorizationFixture fixture)
         var host = fixture.Host;
         var hubMethod = HubMethods().Single(m => m.Name == methodName);
         var (api, contract) = ContractFor(hubMethod);
-        var level = Authorizer.RequiredLevel(OperationMap.For(api.Name, contract.Name));
         var args = hubMethod.GetParameters().Select(ArgumentFor).ToArray();
 
+        var operation = OperationMap.For(api.Name, contract.Name);
+        Assert.False(Authorizer.RemoteAnonymousOperations.Contains(operation)); // no hub method is open on the remote
+        Assert.Equal(ErrorCode.Forbidden, Authorizer.Check(new CallerContext(ClientKind.Remote, Role.Volunteer, null, Guid.NewGuid(), "s", "v"), operation));
+
         var before = await host.Server.SnapshotAsync();
-        if (role == As.Anonymous)
+        if (role != As.Admin)
         {
-            // Anonymous callers never get a hub connection, so no hub method is reachable.
-            var hub = host.Hub(token: null);
+            // Anonymous callers and volunteer phones never get a hub connection, so no hub method is reachable.
+            var hub = host.Hub(token: role == As.Volunteer ? fixture.Volunteer.Token : null);
             var refused = await Assert.ThrowsAsync<HttpRequestException>(() => hub.StartAsync());
-            Assert.Equal(HttpStatusCode.Unauthorized, refused.StatusCode);
+            Assert.Equal(role == As.Volunteer ? HttpStatusCode.Forbidden : HttpStatusCode.Unauthorized, refused.StatusCode);
             Assert.Equal(before, await host.Server.SnapshotAsync());
             return;
         }
 
-        var phone = role == As.Admin ? fixture.Admin : fixture.Volunteer;
-        await using var connection = await host.ConnectHubAsync(phone.Token);
+        await using var connection = await host.ConnectHubAsync(fixture.Admin.Token);
         before = await host.Server.SnapshotAsync();
         ErrorInfo? error = null;
         try
@@ -136,14 +140,7 @@ public sealed class RemoteAuthorizationTests(RemoteAuthorizationFixture fixture)
             error = RemoteErrors.FromHub(ex);
         }
 
-        if (role == As.Volunteer && level == AccessLevel.Admin)
-        {
-            Assert.NotNull(error);
-            Assert.Equal(ErrorCode.Forbidden, error.Code);
-            await Task.Delay(20);
-            Assert.Equal(before, await host.Server.SnapshotAsync());
-        }
-        else if (error is not null)
+        if (error is not null)
         {
             Assert.NotEqual(ErrorCode.Forbidden, error.Code);
             Assert.NotEqual(ErrorCode.Unauthenticated, error.Code);
@@ -156,21 +153,20 @@ public sealed class RemoteAuthorizationTests(RemoteAuthorizationFixture fixture)
     public async Task Http_endpoint_is_authorized_exactly_per_the_matrix(string method, string route, As role)
     {
         var host = fixture.Host;
-        // Logout unpairs the calling device, so it gets a phone of its own instead of the shared fixture phones.
+        // Logout forgets the calling device, so it gets a phone of its own instead of the shared fixture phones.
         var phone = (role, route) switch
         {
-            (As.Admin, "/api/logout") => await host.PairAsync(Role.Admin),
-            (As.Volunteer, "/api/logout") => await host.PairAsync(Role.Volunteer),
+            (As.Admin, "/api/logout") => await host.PhoneAsync(Role.Admin),
+            (As.Volunteer, "/api/logout") => await host.PhoneAsync(Role.Volunteer),
             (As.Admin, _) => fixture.Admin,
             (As.Volunteer, _) => fixture.Volunteer,
             _ => null,
         };
-        // Pair and logout are anonymous operations; /api/me needs any session; uploads need an admin.
+        // Sign-in and sign-out are open; everything else on the remote needs an administrator.
         var required = route switch
         {
-            "/api/pair" or "/api/logout" => AccessLevel.Anonymous,
-            "/api/me" => AccessLevel.Authenticated,
-            _ => Authorizer.RequiredLevel(Operation.ImportTracks),
+            "/api/login" or "/api/logout" => AccessLevel.Anonymous,
+            _ => AccessLevel.Admin,
         };
         Assert.Equal(AccessLevel.Admin, Authorizer.RequiredLevel(Operation.ImportTracks));
 
@@ -179,7 +175,7 @@ public sealed class RemoteAuthorizationTests(RemoteAuthorizationFixture fixture)
         request.Headers.Add(RemoteAuth.CsrfHeader, "1");
         request.Content = route switch
         {
-            "/api/pair" => JsonBody(new { code = "000000", deviceName = "probe" }),
+            "/api/login" => JsonBody(new { userName = "probe-nobody", password = "wrong-password", rememberDevice = true, deviceName = "probe" }),
             "/api/uploads" => JsonBody(new { fileName = "probe.wav", totalBytes = 10 }),
             "/api/uploads/{id}/complete" => JsonBody(new { title = "probe" }),
             "/api/uploads/{id}" when method == "PUT" => new ByteArrayContent([1, 2, 3]),

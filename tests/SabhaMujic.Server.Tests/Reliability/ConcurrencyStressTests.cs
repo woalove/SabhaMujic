@@ -121,7 +121,7 @@ public sealed class ConcurrencyStressTests(ITestOutputHelper output)
         {
             return random.Next(3) switch
             {
-                0 => ("UpdateTrack", ct => c.Admin.UpdateTrackAsync(new TrackUpdateDto(track, $"Renamed {random.Next(1000)}", null, null), ct)),
+                0 => ("UpdateTrack", ct => c.Admin.UpdateTrackAsync(new TrackUpdateDto(track, $"Renamed {random.Next(1000)}", null, []), ct)),
                 1 => ("ReanalyzeTrack", ct => c.Admin.ReanalyzeTrackAsync(track, ct)),
                 _ => ("SetLoopOverride", ct => c.Admin.SetLoopOverrideAsync(track, random.Next(2) == 0 ? null : new LoopRegionDto(0.5, 4.5, 0.1, 1, true), ct)),
             };

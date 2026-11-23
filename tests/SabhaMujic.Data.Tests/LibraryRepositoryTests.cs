@@ -74,14 +74,74 @@ public sealed class CategoryRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Deleting_a_category_uncategorizes_its_tracks()
+    public async Task Deleting_a_category_removes_it_from_its_tracks_only()
     {
         var cat = await _t.Categories.CreateAsync("Prarthana");
-        var track = await _t.AddTrackAsync("Song", categoryId: cat.Id);
+        var other = await _t.Categories.CreateAsync("Dhun");
+        var track = await _t.AddTrackAsync("Song", categoryIds: [cat.Id, other.Id]);
         Assert.True(await _t.Categories.DeleteAsync(cat.Id));
         var after = await _t.Tracks.GetAsync(track.Id);
         Assert.NotNull(after);
-        Assert.Null(after.CategoryId);
+        Assert.Equal([other.Id], after.CategoryIds);
+        Assert.Equal(1, (await _t.Categories.GetAsync(other.Id))!.TrackCount);
+    }
+
+    [Fact]
+    public async Task A_track_can_have_several_categories_counted_and_filtered_per_category()
+    {
+        var bhajan = await _t.Categories.CreateAsync("Bhajan");
+        var kirtan = await _t.Categories.CreateAsync("Kirtan");
+        var dhun = await _t.Categories.CreateAsync("Dhun");
+        var both = await _t.AddTrackAsync("Both", categoryIds: [kirtan.Id, bhajan.Id, kirtan.Id]); // duplicates collapse
+        await _t.AddTrackAsync("Only bhajan", categoryId: bhajan.Id);
+        await _t.AddTrackAsync("None");
+
+        Assert.Equal([bhajan.Id, kirtan.Id], both.CategoryIds); // in category order
+        Assert.Equal([2, 1, 0], (await _t.Categories.ListAsync()).Select(c => c.TrackCount));
+        Assert.Equal(["Both", "Only bhajan"], (await _t.Tracks.QueryAsync(new TrackQuery(CategoryId: bhajan.Id))).Items.Select(t => t.Title));
+        Assert.Equal(["Both"], (await _t.Tracks.QueryAsync(new TrackQuery(CategoryId: kirtan.Id))).Items.Select(t => t.Title));
+        Assert.Empty((await _t.Tracks.QueryAsync(new TrackQuery(CategoryId: dhun.Id))).Items);
+        Assert.Equal(3, (await _t.Tracks.QueryAsync(new TrackQuery())).Total); // no duplicate rows from the tags
+
+        // Reordering the categories reorders the tags.
+        await _t.Categories.ReorderAsync([kirtan.Id, bhajan.Id]);
+        Assert.Equal([kirtan.Id, bhajan.Id], (await _t.Tracks.GetAsync(both.Id))!.CategoryIds);
+
+        // Update replaces the tags; an unknown category changes nothing.
+        var updated = await _t.Tracks.UpdateMetadataAsync(new TrackUpdateDto(both.Id, "Both", null, [dhun.Id]));
+        Assert.Equal([dhun.Id], updated!.CategoryIds);
+        await AssertEx.ThrowsCode(ErrorCode.NotFound, () => _t.Tracks.UpdateMetadataAsync(new TrackUpdateDto(both.Id, "Renamed", null, [Guid.NewGuid()])));
+        var unchanged = await _t.Tracks.GetAsync(both.Id);
+        Assert.Equal("Both", unchanged!.Title);
+        Assert.Equal([dhun.Id], unchanged.CategoryIds);
+        await AssertEx.ThrowsCode(ErrorCode.InvalidArgument,
+            () => _t.Tracks.UpdateMetadataAsync(new TrackUpdateDto(both.Id, "x", null, Enumerable.Range(0, 51).Select(_ => Guid.NewGuid()).ToArray())));
+    }
+
+    [Fact]
+    public async Task Setting_a_categorys_tracks_replaces_its_membership_and_keeps_other_tags()
+    {
+        var bhajan = await _t.Categories.CreateAsync("Bhajan");
+        var kirtan = await _t.Categories.CreateAsync("Kirtan");
+        var a = await _t.AddTrackAsync("A", categoryIds: [bhajan.Id, kirtan.Id]);
+        var b = await _t.AddTrackAsync("B", categoryId: kirtan.Id);
+        var c = await _t.AddTrackAsync("C");
+
+        var result = await _t.Categories.SetTracksAsync(kirtan.Id, [b.Id, c.Id, c.Id]);
+        Assert.NotNull(result);
+        Assert.Equal(2, result.Value.Category.TrackCount);
+        Assert.Equal(new[] { a.Id, c.Id }.Order(), result.Value.ChangedTrackIds.Order()); // a lost it, c gained it, b unchanged
+        Assert.Equal([bhajan.Id], (await _t.Tracks.GetAsync(a.Id))!.CategoryIds); // other tags kept
+        Assert.Equal([kirtan.Id], (await _t.Tracks.GetAsync(b.Id))!.CategoryIds);
+        Assert.Equal([kirtan.Id], (await _t.Tracks.GetAsync(c.Id))!.CategoryIds);
+
+        Assert.Null(await _t.Categories.SetTracksAsync(Guid.NewGuid(), [a.Id]));
+        await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => _t.Categories.SetTracksAsync(kirtan.Id, [a.Id, Guid.NewGuid()]));
+        Assert.Equal(2, (await _t.Categories.GetAsync(kirtan.Id))!.TrackCount); // nothing changed
+
+        var cleared = await _t.Categories.SetTracksAsync(kirtan.Id, []);
+        Assert.Equal(0, cleared!.Value.Category.TrackCount);
+        Assert.Equal([bhajan.Id], (await _t.Tracks.GetAsync(a.Id))!.CategoryIds);
     }
 }
 
@@ -99,21 +159,21 @@ public sealed class TrackRepositoryTests : IAsyncLifetime
         var cat = await _t.Categories.CreateAsync("Bhajan");
         var admin = await _t.Users.CreateAsync("admin", Role.Admin, TestDb.Secret());
         var hash = TestDb.NewHash();
-        var added = await _t.Tracks.AddAsync(new NewTrack(hash, hash + ".flac", " Jay Swaminarayan ", "Kirtan Mandal", cat.Id, 245.5, 9_999, "jay.flac", admin.Id));
+        var added = await _t.Tracks.AddAsync(new NewTrack(hash, hash + ".flac", " Jay Swaminarayan ", "Kirtan Mandal", [cat.Id], 245.5, 9_999, "jay.flac", admin.Id));
 
         Assert.False(added.WasDuplicate);
         Assert.Equal(hash + ".flac", added.FileKey);
-        var expected = new TrackDto(added.Track.Id, "Jay Swaminarayan", "Kirtan Mandal", cat.Id, 245.5, AnalysisStatus.Pending, null, _t.Clock.GetUtcNow());
-        Assert.Equal(expected, added.Track);
-        Assert.Equal(expected, await _t.Tracks.GetAsync(added.Track.Id));
+        var expected = new TrackDto(added.Track.Id, "Jay Swaminarayan", "Kirtan Mandal", [cat.Id], 245.5, AnalysisStatus.Pending, null, _t.Clock.GetUtcNow());
+        TestDb.AssertSameTrack(expected, added.Track);
+        TestDb.AssertSameTrack(expected, await _t.Tracks.GetAsync(added.Track.Id));
         Assert.Equal(new TrackFileInfo(added.Track.Id, hash + ".flac", hash, 9_999, "jay.flac"), await _t.Tracks.GetFileInfoAsync(added.Track.Id));
         Assert.Null(await _t.Tracks.GetAsync(Guid.NewGuid()));
 
-        var updated = await _t.Tracks.UpdateMetadataAsync(new TrackUpdateDto(added.Track.Id, "New title", null, null));
-        Assert.Equal(expected with { Title = "New title", Artist = null, CategoryId = null }, updated);
-        Assert.Null(await _t.Tracks.UpdateMetadataAsync(new TrackUpdateDto(Guid.NewGuid(), "x", null, null)));
-        await AssertEx.ThrowsCode(ErrorCode.NotFound, () => _t.Tracks.UpdateMetadataAsync(new TrackUpdateDto(added.Track.Id, "x", null, Guid.NewGuid())));
-        await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => _t.Tracks.UpdateMetadataAsync(new TrackUpdateDto(added.Track.Id, " ", null, null)));
+        var updated = await _t.Tracks.UpdateMetadataAsync(new TrackUpdateDto(added.Track.Id, "New title", null, []));
+        TestDb.AssertSameTrack(expected with { Title = "New title", Artist = null, CategoryIds = [] }, updated);
+        Assert.Null(await _t.Tracks.UpdateMetadataAsync(new TrackUpdateDto(Guid.NewGuid(), "x", null, [])));
+        await AssertEx.ThrowsCode(ErrorCode.NotFound, () => _t.Tracks.UpdateMetadataAsync(new TrackUpdateDto(added.Track.Id, "x", null, [Guid.NewGuid()])));
+        await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => _t.Tracks.UpdateMetadataAsync(new TrackUpdateDto(added.Track.Id, " ", null, [])));
 
         Assert.True(await _t.Tracks.SetDurationAsync(added.Track.Id, 300));
         Assert.Equal(300, (await _t.Tracks.GetAsync(added.Track.Id))!.DurationSeconds);
@@ -155,7 +215,7 @@ public sealed class TrackRepositoryTests : IAsyncLifetime
         await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => _t.Tracks.AddAsync(new NewTrack(hash, "../" + hash + ".mp3", "t", null, null, 1, 1)));
         await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => _t.Tracks.AddAsync(new NewTrack(hash, hash + ".mp3", "", null, null, 1, 1)));
         await AssertEx.ThrowsCode(ErrorCode.InvalidArgument, () => _t.Tracks.AddAsync(new NewTrack(hash, hash + ".mp3", "t", null, null, double.NaN, 1)));
-        await AssertEx.ThrowsCode(ErrorCode.NotFound, () => _t.Tracks.AddAsync(new NewTrack(hash, hash + ".mp3", "t", null, Guid.NewGuid(), 1, 1)));
+        await AssertEx.ThrowsCode(ErrorCode.NotFound, () => _t.Tracks.AddAsync(new NewTrack(hash, hash + ".mp3", "t", null, [Guid.NewGuid()], 1, 1)));
     }
 
     [Fact]

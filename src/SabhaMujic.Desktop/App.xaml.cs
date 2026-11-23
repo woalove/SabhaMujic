@@ -46,7 +46,7 @@ public partial class App : Application
         window.Show();
         if (e.Args.Any(a => string.Equals(a, RecoveryViewModel.StartupArgument, StringComparison.OrdinalIgnoreCase)))
         {
-            _shell.OpenRecovery(); // restarted elevated from "Forgot admin PIN?"
+            _shell.OpenRecovery(); // restarted elevated from "Forgot admin password?"
         }
 
         _shell.Start();

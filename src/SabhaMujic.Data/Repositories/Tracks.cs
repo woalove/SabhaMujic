@@ -10,13 +10,14 @@ namespace SabhaMujic.Data.Repositories;
 /// <summary>
 /// A track to add after its file is in the <see cref="ProtectedStore"/>. <see cref="ContentHash"/> is the lowercase
 /// SHA-256 hex of the file and <see cref="FileKey"/> the store key (<c>&lt;hash&gt;.&lt;ext&gt;</c>).
+/// <see cref="CategoryIds"/> are its tags (null or empty: none).
 /// </summary>
 public sealed record NewTrack(
     string ContentHash,
     string FileKey,
     string Title,
     string? Artist,
-    Guid? CategoryId,
+    IReadOnlyList<Guid>? CategoryIds,
     double DurationSeconds,
     long SizeBytes,
     string? OriginalFileName = null,
@@ -47,7 +48,10 @@ public interface ITrackRepository
 
     Task<TrackFileInfo?> GetFileInfoAsync(Guid id, CancellationToken ct = default);
 
-    /// <summary>Updates title, artist and category. Null when the track is unknown; NotFound when the category is unknown.</summary>
+    /// <summary>
+    /// Updates title, artist and tags (the tags are replaced). Null when the track is unknown; NotFound when a category is
+    /// unknown (nothing changes then).
+    /// </summary>
     Task<TrackDto?> UpdateMetadataAsync(TrackUpdateDto update, CancellationToken ct = default);
 
     Task<bool> SetDurationAsync(Guid id, double durationSeconds, CancellationToken ct = default);
@@ -58,7 +62,7 @@ public interface ITrackRepository
     /// </summary>
     Task<string?> DeleteAsync(Guid id, CancellationToken ct = default);
 
-    /// <summary>Filters by category and/or a literal, case-insensitive substring of title or artist. Ordered by title.</summary>
+    /// <summary>Filters by tag (category) and/or a literal, case-insensitive substring of title or artist. Ordered by title.</summary>
     Task<PagedResult<TrackDto>> QueryAsync(TrackQuery query, CancellationToken ct = default);
 }
 
@@ -69,11 +73,15 @@ public sealed class SqliteTrackRepository(SqliteDatabase database) : SqliteRepos
     public const int MaxSearchLength = 200;
     public const int MaxTake = 1000;
     public const int MaxBatch = 1000;
+    public const int MaxTagsPerTrack = 50;
     private const int MaxOriginalFileNameLength = 255;
 
     internal const string SelectTrackDto =
         """
-        SELECT t.id AS Id, t.title AS Title, t.artist AS Artist, t.category_id AS CategoryId,
+        SELECT t.id AS Id, t.title AS Title, t.artist AS Artist,
+               (SELECT json_group_array(l.category_id) FROM (
+                    SELECT tc.category_id FROM track_categories tc JOIN categories c ON c.id = tc.category_id
+                    WHERE tc.track_id = t.id ORDER BY c.sort_order, c.name_key) l) AS CategoryIdsJson,
                t.duration_seconds AS DurationSeconds, t.added_at AS AddedAt,
                a.status AS AnalysisStatus, a.loop_start_seconds AS LoopStart, a.loop_end_seconds AS LoopEnd,
                a.loop_crossfade_seconds AS LoopCrossfade, a.confidence AS Confidence,
@@ -108,47 +116,59 @@ public sealed class SqliteTrackRepository(SqliteDatabase database) : SqliteRepos
         var originalName = string.IsNullOrWhiteSpace(track.OriginalFileName) ? null
             : track.OriginalFileName.Length > MaxOriginalFileNameLength ? track.OriginalFileName[..MaxOriginalFileNameLength]
             : track.OriginalFileName;
+        var tags = ValidateTags(track.CategoryIds);
 
         var id = Guid.NewGuid();
         var now = Now();
         await using var conn = await OpenAsync(ct).ConfigureAwait(false);
         int inserted;
-        try
+        using (var tx = conn.BeginTransaction(deferred: false))
         {
-            // ON CONFLICT DO NOTHING makes "add or find existing" atomic, so concurrent imports of the same file race safely.
-            inserted = await conn.ExecuteAsync(new CommandDefinition(
-                """
-                INSERT INTO tracks (id, content_hash, file_key, title, title_key, artist, artist_key, category_id,
-                                    duration_seconds, size_bytes, original_file_name, added_by, added_at, updated_at)
-                VALUES (@Id, @Hash, @FileKey, @Title, @TitleKey, @Artist, @ArtistKey, @CategoryId,
-                        @Duration, @Size, @OriginalName, @AddedBy, @Now, @Now)
-                ON CONFLICT (content_hash) DO NOTHING;
-                """,
-                new
+            try
+            {
+                // ON CONFLICT DO NOTHING makes "add or find existing" atomic, so concurrent imports of the same file race safely.
+                inserted = await conn.ExecuteAsync(new CommandDefinition(
+                    """
+                    INSERT INTO tracks (id, content_hash, file_key, title, title_key, artist, artist_key,
+                                        duration_seconds, size_bytes, original_file_name, added_by, added_at, updated_at)
+                    VALUES (@Id, @Hash, @FileKey, @Title, @TitleKey, @Artist, @ArtistKey,
+                            @Duration, @Size, @OriginalName, @AddedBy, @Now, @Now)
+                    ON CONFLICT (content_hash) DO NOTHING;
+                    """,
+                    new
+                    {
+                        Id = id,
+                        Hash = hash,
+                        track.FileKey,
+                        Title = title,
+                        TitleKey = DataRules.FoldKey(title),
+                        Artist = artist,
+                        ArtistKey = artist is null ? null : DataRules.FoldKey(artist),
+                        Duration = track.DurationSeconds,
+                        Size = track.SizeBytes,
+                        OriginalName = originalName,
+                        AddedBy = track.AddedByUserId,
+                        Now = now,
+                    },
+                    tx,
+                    cancellationToken: ct)).ConfigureAwait(false);
+
+                // A duplicate keeps the existing track's tags; only a new track gets the requested ones.
+                if (inserted == 1)
                 {
-                    Id = id,
-                    Hash = hash,
-                    track.FileKey,
-                    Title = title,
-                    TitleKey = DataRules.FoldKey(title),
-                    Artist = artist,
-                    ArtistKey = artist is null ? null : DataRules.FoldKey(artist),
-                    track.CategoryId,
-                    Duration = track.DurationSeconds,
-                    Size = track.SizeBytes,
-                    OriginalName = originalName,
-                    AddedBy = track.AddedByUserId,
-                    Now = now,
-                },
-                cancellationToken: ct)).ConfigureAwait(false);
-        }
-        catch (SqliteException ex) when (DataRules.IsForeignKeyViolation(ex))
-        {
-            throw DataRules.NotFound("The category or user does not exist.");
-        }
-        catch (SqliteException ex) when (DataRules.IsUniqueViolation(ex))
-        {
-            throw DataRules.Conflict("A different track already uses this file key.");
+                    await InsertTagsAsync(conn, tx, id, tags, ct).ConfigureAwait(false);
+                }
+
+                tx.Commit();
+            }
+            catch (SqliteException ex) when (DataRules.IsForeignKeyViolation(ex))
+            {
+                throw DataRules.NotFound("The category or user does not exist.");
+            }
+            catch (SqliteException ex) when (DataRules.IsUniqueViolation(ex))
+            {
+                throw DataRules.Conflict("A different track already uses this file key.");
+            }
         }
 
         if (inserted == 1)
@@ -209,34 +229,47 @@ public sealed class SqliteTrackRepository(SqliteDatabase database) : SqliteRepos
         ArgumentNullException.ThrowIfNull(update);
         var title = DataRules.RequireText(update.Title, "Title", MaxTitleLength);
         var artist = DataRules.OptionalText(update.Artist, "Artist", MaxArtistLength);
+        var tags = ValidateTags(update.CategoryIds);
         await using var conn = await OpenAsync(ct).ConfigureAwait(false);
         int changed;
-        try
+        using (var tx = conn.BeginTransaction(deferred: false))
         {
-            changed = await conn.ExecuteAsync(new CommandDefinition(
-                """
-                UPDATE tracks SET title = @Title, title_key = @TitleKey, artist = @Artist, artist_key = @ArtistKey,
-                                  category_id = @CategoryId, updated_at = @Now
-                WHERE id = @Id;
-                """,
-                new
+            try
+            {
+                changed = await conn.ExecuteAsync(new CommandDefinition(
+                    """
+                    UPDATE tracks SET title = @Title, title_key = @TitleKey, artist = @Artist, artist_key = @ArtistKey,
+                                      updated_at = @Now
+                    WHERE id = @Id;
+                    """,
+                    new
+                    {
+                        Id = update.TrackId,
+                        Title = title,
+                        TitleKey = DataRules.FoldKey(title),
+                        Artist = artist,
+                        ArtistKey = artist is null ? null : DataRules.FoldKey(artist),
+                        Now = Now(),
+                    },
+                    tx,
+                    cancellationToken: ct)).ConfigureAwait(false);
+                if (changed == 0)
                 {
-                    Id = update.TrackId,
-                    Title = title,
-                    TitleKey = DataRules.FoldKey(title),
-                    Artist = artist,
-                    ArtistKey = artist is null ? null : DataRules.FoldKey(artist),
-                    update.CategoryId,
-                    Now = Now(),
-                },
-                cancellationToken: ct)).ConfigureAwait(false);
-        }
-        catch (SqliteException ex) when (DataRules.IsForeignKeyViolation(ex))
-        {
-            throw DataRules.NotFound("The category does not exist.");
+                    return null;
+                }
+
+                await conn.ExecuteAsync(new CommandDefinition(
+                    "DELETE FROM track_categories WHERE track_id = @Id;", new { Id = update.TrackId }, tx, cancellationToken: ct)).ConfigureAwait(false);
+                await InsertTagsAsync(conn, tx, update.TrackId, tags, ct).ConfigureAwait(false);
+                tx.Commit();
+            }
+            catch (SqliteException ex) when (DataRules.IsForeignKeyViolation(ex))
+            {
+                throw DataRules.NotFound("The category does not exist.");
+            }
         }
 
-        return changed == 0 ? null : await GetAsync(conn, update.TrackId, ct).ConfigureAwait(false);
+        return await GetAsync(conn, update.TrackId, ct).ConfigureAwait(false);
     }
 
     public async Task<bool> SetDurationAsync(Guid id, double durationSeconds, CancellationToken ct = default)
@@ -279,7 +312,7 @@ public sealed class SqliteTrackRepository(SqliteDatabase database) : SqliteRepos
         var where = new StringBuilder(" WHERE 1 = 1");
         if (query.CategoryId is not null)
         {
-            where.Append(" AND t.category_id = @CategoryId");
+            where.Append(" AND EXISTS (SELECT 1 FROM track_categories tq WHERE tq.track_id = t.id AND tq.category_id = @CategoryId)");
         }
 
         string? pattern = null;
@@ -299,6 +332,38 @@ public sealed class SqliteTrackRepository(SqliteDatabase database) : SqliteRepos
         return new PagedResult<TrackDto>(rows.Select(r => r.ToDto()).ToArray(), (int)total);
     }
 
+    /// <summary>Distinct tags, at most <see cref="MaxTagsPerTrack"/>; null means none.</summary>
+    private static Guid[] ValidateTags(IReadOnlyList<Guid>? categoryIds)
+    {
+        if (categoryIds is null)
+        {
+            return [];
+        }
+
+        var tags = categoryIds.Distinct().ToArray();
+        if (tags.Length > MaxTagsPerTrack)
+        {
+            throw DataRules.Invalid($"A track can have at most {MaxTagsPerTrack} categories.");
+        }
+
+        if (tags.Contains(Guid.Empty))
+        {
+            throw DataRules.Invalid("A category id is missing.");
+        }
+
+        return tags;
+    }
+
+    private static async Task InsertTagsAsync(SqliteConnection conn, SqliteTransaction tx, Guid trackId, Guid[] tags, CancellationToken ct)
+    {
+        foreach (var categoryId in tags)
+        {
+            await conn.ExecuteAsync(new CommandDefinition(
+                "INSERT INTO track_categories (track_id, category_id) VALUES (@TrackId, @CategoryId);",
+                new { TrackId = trackId, CategoryId = categoryId }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        }
+    }
+
     internal static async Task<TrackDto?> GetAsync(SqliteConnection conn, Guid id, CancellationToken ct, SqliteTransaction? tx = null)
     {
         var row = await conn.QuerySingleOrDefaultAsync<TrackRow>(new CommandDefinition(
@@ -314,7 +379,8 @@ public sealed class SqliteTrackRepository(SqliteDatabase database) : SqliteRepos
 
         public string? Artist { get; set; }
 
-        public Guid? CategoryId { get; set; }
+        /// <summary>JSON array of category ids (json_group_array), in category sort order.</summary>
+        public string? CategoryIdsJson { get; set; }
 
         public double DurationSeconds { get; set; }
 
@@ -350,7 +416,18 @@ public sealed class SqliteTrackRepository(SqliteDatabase database) : SqliteRepos
                 loop = new LoopRegionDto(ls, le, LoopCrossfade ?? 0, Confidence ?? 0, IsManualOverride: false);
             }
 
-            return new TrackDto(Id, Title, Artist, CategoryId, DurationSeconds, status, loop, AddedAt);
+            return new TrackDto(Id, Title, Artist, ParseTags(CategoryIdsJson), DurationSeconds, status, loop, AddedAt);
+        }
+
+        private static IReadOnlyList<Guid> ParseTags(string? json)
+        {
+            if (string.IsNullOrEmpty(json) || json == "[]")
+            {
+                return [];
+            }
+
+            var ids = System.Text.Json.JsonSerializer.Deserialize<string[]>(json) ?? [];
+            return ids.Select(id => Guid.ParseExact(id, "D")).ToArray();
         }
     }
 

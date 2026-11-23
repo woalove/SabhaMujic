@@ -3,7 +3,7 @@ using System.Windows.Automation;
 
 namespace SabhaMujic.Desktop.Dialogs;
 
-/// <summary>Single-line text prompt, or a secret prompt with confirmation (PIN/password reset).</summary>
+/// <summary>Single-line text prompt, or a secret prompt with confirmation (password reset).</summary>
 public partial class PromptWindow : Window
 {
     private readonly bool _isSecret;

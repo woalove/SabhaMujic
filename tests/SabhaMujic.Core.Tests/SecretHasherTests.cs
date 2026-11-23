@@ -46,15 +46,4 @@ public class SecretHasherTests
         Assert.Equal(Tokens.HashToken(a), Tokens.HashToken(a));
         Assert.NotEqual(Tokens.HashToken(a), Tokens.HashToken(b));
     }
-
-    [Fact]
-    public void Pairing_codes_are_six_digits()
-    {
-        for (var i = 0; i < 200; i++)
-        {
-            var code = Tokens.NewPairingCode();
-            Assert.Equal(6, code.Length);
-            Assert.True(code.All(char.IsAsciiDigit));
-        }
-    }
 }
