@@ -25,6 +25,7 @@ public sealed class WebAssets
         [".json"] = "application/json",
         [".txt"] = "text/plain; charset=utf-8",
         [".ico"] = "image/x-icon",
+        [".woff2"] = "font/woff2",
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
     private static readonly FrozenSet<string> AppRoutes = new[] { "/", "/login" }.ToFrozenSet(StringComparer.Ordinal);
