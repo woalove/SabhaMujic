@@ -15,7 +15,7 @@
                 </StackPanel>
                 <TextBlock Text="Welcome to SabhaMujic" Style="{StaticResource SectionTitle}" Margin="0,0,0,4" />
                 <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,12"
-                           Text="Create the first administrator account. Administrators add music and create accounts for volunteers." />
+                           Text="Create the first administrator account. Volunteers use the app without signing in; administrators sign in to add music and manage the library." />
 
                 <Border Style="{StaticResource ErrorBanner}" Visibility="{Binding HasError, Converter={StaticResource BoolToVisibility}}">
                     <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive" />
