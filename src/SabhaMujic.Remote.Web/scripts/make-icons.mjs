@@ -1,13 +1,13 @@
 // Generates the PNG app icons (apple-touch-icon 180, 192, 512) from simple geometry: no image tools needed.
-// The design matches wwwroot/icons/icon.svg: a saffron square with a white eighth note.
+// The design matches wwwroot/icons/icon.svg: the dark `bg` with an `accent` eighth note.
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
 
 const out = join(dirname(fileURLToPath(import.meta.url)), '..', 'wwwroot', 'icons');
-const BG = [0xb4, 0x53, 0x1f];
-const FG = [0xff, 0xff, 0xff];
+const BG = [0x11, 0x15, 0x1a]; // DESIGN.md dark `bg`
+const FG = [0x4f, 0xb3, 0xa9]; // DESIGN.md dark `accent`
 
 // Shapes in a 100×100 design space (same as icon.svg).
 /** @param {number} x @param {number} y */

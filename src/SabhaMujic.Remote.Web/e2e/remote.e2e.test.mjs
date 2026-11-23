@@ -47,7 +47,7 @@ async function newPhone(label) {
 
 /**
  * @param {import('playwright').Page} page
- * @param {'now' | 'queue' | 'library' | 'playlists' | 'admin'} tab
+ * @param {'now' | 'queue' | 'library' | 'playlists' | 'upload'} tab
  */
 async function openTab(page, tab) {
   await page.locator(`#tabbar button[data-tab="${tab}"]`).click();
@@ -73,6 +73,7 @@ async function expectTitle(page, title) {
 async function libraryAction(page, title, action) {
   await openTab(page, 'library');
   const row = page.locator('#lib-list li', { hasText: title });
+  await row.locator('.row-main').click(); // opens the row's action tray
   await row.getByRole('button', { name: action, exact: true }).click();
 }
 
@@ -152,7 +153,9 @@ test('an administrator signs in and remembers the phone (persistent HttpOnly coo
   await admin.locator('#view-now').waitFor({ state: 'visible' });
   await expectConnected(admin);
   assert.equal(new URL(admin.url()).pathname, '/');
-  assert.equal(await admin.locator('#tab-admin').isVisible(), true);
+  assert.equal(await admin.locator('#tab-upload').isVisible(), true);
+  assert.equal(await admin.locator('#account-name').textContent(), 'admin');
+  assert.equal(await admin.locator('#account-initial').textContent(), 'A');
 
   // The session token is an HttpOnly, Secure, SameSite=Strict cookie and never visible to script; remembered → persistent.
   const cookie = (await adminContext.cookies(origin)).find((c) => c.name === '__Host-SabhaMujic');
@@ -231,13 +234,122 @@ test('play, pause and next reflect live on both phones', { timeout: 60000 }, asy
   await helper.locator('[data-loop="SmartLoop"][aria-pressed="true"]').waitFor();
 });
 
+test('the bottom navigation switches between the five screens', { timeout: 60000 }, async () => {
+  const screens = [
+    ['queue', 'Queue'],
+    ['library', 'Library'],
+    ['playlists', 'Playlists'],
+    ['upload', 'Upload'],
+    ['now', 'Now Playing'],
+  ];
+  assert.deepEqual(
+    await admin.locator('#tabbar button').allTextContents(),
+    ['Now Playing', 'Queue', 'Library', 'Playlists', 'Upload'],
+  );
+  for (const [tab, label] of screens) {
+    await admin.locator(`#tabbar button[data-tab="${tab}"]`).click();
+    await admin.locator(`#view-${tab}`).waitFor({ state: 'visible' });
+    assert.equal(await admin.locator('main > section:visible').count(), 1, `only ${tab} is shown`);
+    assert.equal(await admin.locator(`#tabbar button[data-tab="${tab}"]`).getAttribute('aria-current'), 'page');
+    assert.equal(await admin.locator('#tabbar button[aria-current="page"]').count(), 1);
+    assert.equal(await admin.locator('#app-subtitle').textContent(), `Sabha music · ${tab === 'now' ? 'Playback' : label}`);
+    // The category tab row belongs to the Library; other screens show their own name there.
+    assert.equal(await admin.locator('#cat-tabs').isVisible(), tab === 'library');
+    if (tab !== 'library') assert.equal(await admin.locator('#view-tab-label').textContent(), label);
+    assert.equal(await admin.locator('#conn[data-status="connected"]').isVisible(), true, 'status stays in the tab row');
+  }
+  // The active nav item uses the accent colour.
+  const [active, inactive] = await admin.evaluate(() => [
+    getComputedStyle(/** @type {Element} */ (document.querySelector('#tabbar button[aria-current="page"]'))).color,
+    getComputedStyle(/** @type {Element} */ (document.querySelector('#tabbar button:not([aria-current])'))).color,
+  ]);
+  assert.notEqual(active, inactive);
+});
+
+test('the category tab row filters the library', { timeout: 60000 }, async () => {
+  await openTab(admin, 'library');
+  const tabs = admin.locator('#cat-tabs');
+  await tabs.getByRole('button', { name: 'All', exact: true }).waitFor();
+  assert.deepEqual(await tabs.locator('.tab-label').allTextContents(), ['All', 'Bhajan', 'Kirtan', 'Dhun']);
+  assert.equal(await tabs.locator('.dot').count(), 3, 'each category has a coloured dot');
+  await admin.locator('#lib-list li', { hasText: 'Jay Jay Kirtan' }).waitFor();
+  const all = await admin.locator('#lib-list li').count();
+
+  await tabs.getByRole('button', { name: 'Bhajan', exact: true }).click();
+  await admin.locator('#lib-list li', { hasText: 'Jay Jay Kirtan' }).waitFor({ state: 'detached' });
+  assert.equal(await tabs.getByRole('button', { name: 'Bhajan', exact: true }).getAttribute('aria-pressed'), 'true');
+  const titles = await admin.locator('#lib-list .row-title').allTextContents();
+  assert.deepEqual(titles.sort(), ['Evening Prayer', 'Morning Aarti', 'Shanti Path']);
+  assert.ok(titles.length < all);
+  assert.equal(await tabs.getByRole('button', { name: 'Bhajan', exact: true }).locator('.tab-value').textContent(), '3');
+  // Every row carries its category pill.
+  for (const pills of await admin.locator('#lib-list li .pills').allTextContents()) assert.equal(pills, 'Bhajan');
+
+  await tabs.getByRole('button', { name: 'All', exact: true }).click();
+  await admin.locator('#lib-list li', { hasText: 'Jay Jay Kirtan' }).waitFor();
+});
+
+test('the theme toggle switches dark/light and persists across a reload', { timeout: 60000 }, async () => {
+  const background = () => helper.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  const toggle = helper.locator('#theme-toggle');
+  // Dark by default (the emulated system preference is light-agnostic here; no stored choice yet).
+  await helper.evaluate(() => localStorage.removeItem('sabhamujic.theme'));
+  await helper.reload();
+  await helper.locator('#view-now').waitFor({ state: 'visible' });
+  const start = await toggle.getAttribute('data-theme');
+  const startBg = await background();
+  assert.equal(startBg, start === 'dark' ? 'rgb(17, 21, 26)' : 'rgb(246, 247, 249)');
+
+  await toggle.click();
+  const flipped = start === 'dark' ? 'light' : 'dark';
+  assert.equal(await helper.evaluate(() => document.documentElement.dataset.theme), flipped);
+  assert.equal(await background(), flipped === 'dark' ? 'rgb(17, 21, 26)' : 'rgb(246, 247, 249)');
+  assert.equal(await toggle.getAttribute('aria-label'), flipped === 'dark' ? 'Switch to light theme' : 'Switch to dark theme');
+
+  await helper.reload();
+  await helper.locator('#view-now').waitFor({ state: 'visible' });
+  await expectConnected(helper);
+  assert.equal(await helper.evaluate(() => document.documentElement.dataset.theme), flipped);
+  assert.equal(await background(), flipped === 'dark' ? 'rgb(17, 21, 26)' : 'rgb(246, 247, 249)');
+
+  // Back to dark for the rest of the run.
+  if (flipped !== 'dark') await toggle.click();
+});
+
+test('Inter is served from the remote itself as font/woff2 and used', { timeout: 30000 }, async () => {
+  for (const weight of ['Regular', 'Medium', 'SemiBold', 'Bold']) {
+    const response = await admin.request.get(`${origin}/fonts/Inter-${weight}.woff2`);
+    assert.equal(response.status(), 200);
+    assert.equal(response.headers()['content-type'], 'font/woff2');
+    const body = await response.body();
+    assert.equal(body.subarray(0, 4).toString('latin1'), 'wOF2');
+  }
+  const license = await admin.request.get(`${origin}/fonts/LICENSE.txt`);
+  assert.match(await license.text(), /SIL Open Font License/);
+
+  const used = await admin.evaluate(async () => {
+    await document.fonts.ready;
+    return {
+      family: getComputedStyle(document.body).fontFamily,
+      loaded: document.fonts.check('16px Inter') && [...document.fonts].some((f) => f.family.replace(/"/g, '') === 'Inter' && f.status === 'loaded'),
+      tabular: getComputedStyle(/** @type {Element} */ (document.getElementById('np-pos')).parentElement).fontVariantNumeric,
+    };
+  });
+  assert.match(used.family, /^"?Inter"?,/);
+  assert.equal(used.loaded, true);
+  assert.equal(used.tabular, 'tabular-nums');
+});
+
 test('admin uploads a WAV with several categories and visible progress; duplicates are reported', { timeout: 90000 }, async () => {
-  await openTab(admin, 'admin');
+  await openTab(admin, 'upload');
   const file = { name: 'test-tone.wav', mimeType: 'audio/wav', buffer: wav(8) }; // ~1.4 MB → 3 chunks
   await admin.locator('#up-files').setInputFiles(file);
   const item = admin.locator('#up-list li').last();
   await item.getByLabel('Title').fill('E2E Tone');
-  await item.getByLabel('Categories').selectOption([{ label: 'Dhun' }, { label: 'Kirtan' }]);
+  // Categories are pills you tap on and off (multi-select).
+  for (const name of ['Dhun', 'Kirtan', 'Bhajan']) await item.locator('.pill-btn', { hasText: name }).click();
+  await item.locator('.pill-btn', { hasText: 'Bhajan' }).click(); // and off again
+  assert.equal(await item.locator('.pill-btn[aria-pressed="true"]').count(), 2);
 
   await admin.evaluate(() => {
     const seen = /** @type {number[]} */ ([]);
@@ -259,9 +371,14 @@ test('admin uploads a WAV with several categories and visible progress; duplicat
   await helper.locator('#lib-search').fill('E2E Tone');
   await helper.locator('#lib-list li', { hasText: 'E2E Tone' }).waitFor();
   for (const category of ['Dhun', 'Kirtan']) {
-    await helper.getByRole('button', { name: category, exact: true }).click();
+    await helper.locator('#cat-tabs').getByRole('button', { name: category, exact: true }).click();
     await helper.locator('#lib-list li', { hasText: 'E2E Tone' }).waitFor();
   }
+  // One pill per category on the row.
+  const toneRow = helper.locator('#lib-list li', { hasText: 'E2E Tone' });
+  assert.deepEqual((await toneRow.locator('.pill').allTextContents()).sort(), ['Dhun', 'Kirtan']);
+  await helper.locator('#cat-tabs').getByRole('button', { name: 'All', exact: true }).click();
+  await helper.locator('#lib-search').fill('');
 
   // Same audio again → reported as a duplicate, not added twice.
   await admin.locator('#up-files').setInputFiles(file);
@@ -292,6 +409,7 @@ test('signing out a remembered phone revokes it', { timeout: 60000 }, async () =
   await expectConnected(page);
   const remembered = await host.devices();
 
+  await page.locator('#account').click();
   await page.locator('#signout').click();
   await page.locator('#confirm-ok').click();
   await page.locator('#view-login').waitFor({ state: 'visible' });

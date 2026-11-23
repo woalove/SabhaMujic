@@ -1,10 +1,12 @@
 // @ts-check
-// Admin: upload audio files (chunked over HTTPS, progress + cancel; duplicates reported) with any number of
-// categories (tags), and create categories. The remote is admin-only; the server enforces it regardless.
+// Upload: add audio files (chunked over HTTPS, progress + cancel; duplicates reported) with any number of categories,
+// chosen as pills you tap on and off, and create categories. The remote is admin-only; the server enforces it.
 
 import { api, ApiError } from '../api.js';
 import { byId, h } from '../dom.js';
 import { formatBytes } from '../format.js';
+import { icon } from '../icons.js';
+import { categoryTone, dot } from '../ui.js';
 
 /** @typedef {import('../context.js').AppContext} AppContext */
 /** @typedef {import('../types.js').ImportProgress} ImportProgress */
@@ -24,7 +26,8 @@ const STAGES = /** @type {Record<string, string>} */ ({
  * @property {HTMLLIElement} element
  * @property {HTMLInputElement} title
  * @property {HTMLInputElement} artist
- * @property {HTMLSelectElement} category
+ * @property {HTMLElement} categories group of toggle pills (aria-pressed), one per category
+ * @property {Set<string>} selected chosen category ids
  * @property {HTMLProgressElement} progress
  * @property {HTMLElement} status
  * @property {HTMLButtonElement} cancel
@@ -34,7 +37,7 @@ const STAGES = /** @type {Record<string, string>} */ ({
  */
 
 /** @param {AppContext} ctx */
-export function mountAdmin(ctx) {
+export function mountUpload(ctx) {
   const { store, hub, run, toast } = ctx;
   const input = byId('up-files', HTMLInputElement);
   const list = byId('up-list', HTMLUListElement);
@@ -76,7 +79,7 @@ export function mountAdmin(ctx) {
   });
 
   store.addEventListener('categories', () => {
-    for (const entry of entries) fillCategories(entry.category);
+    for (const entry of entries) fillCategories(entry);
   });
 
   function renderStart() {
@@ -84,42 +87,61 @@ export function mountAdmin(ctx) {
     start.hidden = ready === 0 && !busy;
     start.disabled = busy || ready === 0;
     start.textContent = busy ? 'Uploading…' : `Upload ${ready} file${ready === 1 ? '' : 's'}`;
+    ctx.setTabValue('upload', ready > 0 ? String(ready) : '');
   }
 
-  /** Multi-select of categories (tags); keeps what is selected across refreshes. @param {HTMLSelectElement} select */
-  function fillCategories(select) {
-    const selected = new Set(selectedCategories(select));
-    select.replaceChildren(...store.categories.map((c) => h('option', { text: c.name, attrs: { value: c.id } })));
-    for (const option of select.options) option.selected = selected.has(option.value);
-  }
-
-  /** @param {HTMLSelectElement} select */
-  function selectedCategories(select) {
-    return [...select.selectedOptions].map((o) => o.value).filter((v) => v);
+  /**
+   * Category pills (multi-select: tap to toggle). Keeps the selection across category refreshes and drops ids of
+   * categories that no longer exist.
+   * @param {UploadEntry} entry
+   */
+  function fillCategories(entry) {
+    for (const id of [...entry.selected]) if (!store.categories.some((c) => c.id === id)) entry.selected.delete(id);
+    const editable = entry.state === 'ready';
+    entry.categories.replaceChildren(
+      ...store.categories.map((c) => {
+        const pill = h(
+          'button',
+          { class: 'pill-btn', attrs: { type: 'button', 'aria-pressed': String(entry.selected.has(c.id)), 'data-category': c.id, disabled: !editable } },
+          dot(categoryTone(store, c.id)),
+          c.name,
+        );
+        pill.addEventListener('click', () => {
+          if (entry.selected.has(c.id)) entry.selected.delete(c.id);
+          else entry.selected.add(c.id);
+          pill.setAttribute('aria-pressed', String(entry.selected.has(c.id)));
+        });
+        return pill;
+      }),
+    );
+    if (store.categories.length === 0) entry.categories.append(h('span', { class: 'muted', text: 'No categories yet — add one below.' }));
   }
 
   /** @param {File} file @returns {UploadEntry} */
   function createEntry(file) {
     const title = h('input', { attrs: { value: file.name.replace(/\.[^.]+$/, ''), maxlength: 200, 'aria-label': 'Title' } });
     const artist = h('input', { attrs: { placeholder: 'Artist (optional)', maxlength: 200, 'aria-label': 'Artist' } });
-    const category = h('select', { attrs: { 'aria-label': 'Categories', multiple: '' } });
-    fillCategories(category);
+    const categories = h('div', { class: 'pill-choice', attrs: { role: 'group', 'aria-label': 'Categories' } });
     const progress = h('progress', { attrs: { max: file.size || 1, value: 0 } });
     const status = h('div', { class: 'up-status', text: `Ready · ${formatBytes(file.size)}` });
-    const cancel = h('button', { class: 'btn danger', text: 'Remove', attrs: { type: 'button' } });
+    const cancel = h('button', { class: 'btn secondary danger-text', text: 'Remove', attrs: { type: 'button' } });
     const element = h(
       'li',
       { attrs: { 'data-upload': file.name } },
-      h('div', { class: 'item-title', text: file.name }),
+      h('div', { class: 'row up-name' }, icon('library', 18), h('span', { class: 'grow', text: file.name })),
       title,
       artist,
-      category,
+      h('div', { class: 'up-cats-label', text: 'Categories (tap to choose any number)' }),
+      categories,
       progress,
       status,
-      h('div', { class: 'actions' }, cancel),
+      h('div', { class: 'row end' }, cancel),
     );
     /** @type {UploadEntry} */
-    const entry = { file, element, title, artist, category, progress, status, cancel, state: 'ready', controller: null, uploadId: null };
+    const entry = {
+      file, element, title, artist, categories, selected: new Set(), progress, status, cancel, state: 'ready', controller: null, uploadId: null,
+    };
+    fillCategories(entry);
     cancel.addEventListener('click', () => void cancelEntry(entry));
     list.append(element);
     return entry;
@@ -139,7 +161,7 @@ export function mountAdmin(ctx) {
   function setEditable(entry, editable) {
     entry.title.disabled = !editable;
     entry.artist.disabled = !editable;
-    entry.category.disabled = !editable;
+    for (const pill of entry.categories.querySelectorAll('button')) pill.disabled = !editable;
   }
 
   /** @param {UploadEntry} entry */
@@ -166,7 +188,7 @@ export function mountAdmin(ctx) {
       const result = await api.completeUpload(entry.uploadId, {
         title: entry.title.value.trim(),
         artist: entry.artist.value.trim() || null,
-        categoryIds: selectedCategories(entry.category),
+        categoryIds: store.categories.filter((c) => entry.selected.has(c.id)).map((c) => c.id),
       });
       entry.state = 'done';
       entry.cancel.hidden = true;
