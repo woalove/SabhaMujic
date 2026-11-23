@@ -1,6 +1,16 @@
 # Progress
 
-_Last updated: 2026-11-16. All planned milestones (M0–M6) are implemented, merged and pushed. Automated verification is green on Linux and on Windows CI (run 32: all three jobs); what remains needs a real PC, speakers and an iPhone (`docs/WINDOWS_TEST_CHECKLIST.md`)._
+_Last updated: 2026-11-23 (v2 in progress, see below). v1 status as of 2026-11-16: All planned milestones (M0–M6) are implemented, merged and pushed. Automated verification is green on Linux and on Windows CI (run 32: all three jobs); what remains needs a real PC, speakers and an iPhone (`docs/WINDOWS_TEST_CHECKLIST.md`)._
+
+## Current work: v2 (requested 2026-11-22)
+| Item | State |
+|---|---|
+| Open desktop use (no login); admin sign-in with username + password; 15 min idle sign-out | Backend + view models merged (2d575e3); Linux-verified; **Windows unverified** |
+| iPhone remote admin-only: username + password, "Remember this phone" (180 days), pairing removed | Merged; verified in Chromium emulation; **real iPhone unverified** |
+| Categories many-to-many, assignable from a track or from a category | Backend merged; desktop/phone pickers in the UI redesign |
+| Dark, flat UI with the Inter font on desktop and phone (`docs/DESIGN.md`) | In progress (two agents: Desktop, Remote.Web) |
+| Docs (ADMIN_GUIDE, SETUP, TROUBLESHOOTING, WINDOWS_TEST_CHECKLIST) for v2 | Pending until the UI lands |
+| Manual Windows CI run + new installer | Pending |
 
 ## Completion summary (Step 8 criteria)
 See `docs/TESTING.md` → "Verification status of completion criteria" for evidence per item.
