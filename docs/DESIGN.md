@@ -28,7 +28,7 @@ One visual language for the **desktop app** (WPF) and the **iPhone remote** (web
 Tag colours cycle through accent → violet → amber → blue for dots and pills. Contrast is ≥ 4.5:1 for `text`/`text-2` on `bg` and `surface`.
 
 ## Type
-- **Font:** system UI. On Windows that's "Segoe UI Variable", falling back to "Segoe UI". On iOS it's `-apple-system`/SF.
+- **Font:** **Inter** (SIL Open Font License 1.1), bundled with both clients so they look identical and work offline on the LAN. Use the Regular, Medium, SemiBold and Bold weights. The desktop embeds the `.ttf` files as WPF resources. The phone serves `woff2` from the remote's own `wwwroot`, never a CDN. The fallbacks are "Segoe UI Variable"/"Segoe UI" on Windows and `-apple-system` on iOS. Use tabular figures (`font-feature-settings: "tnum"` / `Typography.NumeralAlignment="Tabular"`) for times and counts. The licence file ships next to the fonts.
 - **Header title:** 26–28 px, regular weight, **two-tone**: name in `text`, qualifier in `text-2` (e.g. **Sabha**<span>Mujic</span>, or the current category).
 - **Header subtitle:** 11–12 px, **uppercase, letter-spacing 0.12em**, `text-2` (e.g. `SABHA MUSIC · PLAYBACK`).
 - **Row title:** 17–18 px, semibold, `text`. Meta line: 14–15 px, `text-2`, with a 16 px outline icon.
@@ -60,6 +60,10 @@ Tag colours cycle through accent → violet → amber → blue for dots and pill
 ## Desktop specifics (WPF)
 - **Custom window chrome** (`WindowChrome`): no system caption. The app header *is* the title bar and draggable area. Minimise/maximise/close are flat 40×32 icon buttons; close hovers `danger`. The window stays resizable (min 760×480), with snap support.
 - **Layout:** the header across the top; a left **nav rail** (Library, Queue, Playlists, Admin), with Admin visible only when an admin is signed in; the content; an optional right queue panel; and the now-playing bar at the bottom.
+- **Categories are many-to-many, editable from both sides (admin only):**
+  - **From a track:** "Categories…" opens a checklist of every category (each with its coloured dot), plus "New category".
+  - **From a category:** "Add tracks…" opens a searchable checklist of the library. It replaces the category's track list without touching those tracks' other categories.
+  - A track with several categories shows a pill for each.
 - **Category tags:** shown as the tab row at the top of the Library ("All" plus each tag with its coloured dot and track count).
 - **Mini-player:** the same tokens, compact, with rounded corners.
 - **Theme switching:** swap a `Themes/Dark.xaml` / `Themes/Light.xaml` token dictionary at runtime. Controls use `DynamicResource` brushes only, never hard-coded colours.
